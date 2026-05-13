@@ -1,5 +1,5 @@
-import { origemLeads } from "@/lib/mock";
-import { Plus, Megaphone, Users, TrendingUp } from "lucide-react";
+import { origemLeads, gruposCampanhas } from "@/lib/mock";
+import { Plus, Megaphone, Users, TrendingUp, Image as ImageIcon, Calendar, Sparkles } from "lucide-react";
 
 const campanhas = [
   { nome: "Black Pet · Novembro", origem: "Instagram Ads", investimento: 1200, leads: 87, conv: 24, roi: "3.4x", status: "ativa" },
@@ -62,20 +62,59 @@ export function Campanhas() {
         </div>
       </div>
 
-      <div className="card-soft p-5">
-        <h3 className="font-semibold mb-3">Distribuição de origens</h3>
-        <div className="space-y-2.5">
-          {origemLeads.map((o) => (
-            <div key={o.name}>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="font-medium">{o.name}</span>
-                <span className="text-muted-foreground">{o.value}%</span>
-              </div>
-              <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full" style={{ width: `${o.value}%` }} />
-              </div>
+      <div className="grid lg:grid-cols-[1fr_360px] gap-4">
+        <div className="card-soft p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold flex items-center gap-2"><Megaphone className="size-4 text-accent" /> Grupo WhatsApp · Ofertas da semana</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">A IA escolhe produtos, gera imagem e legenda — você só aprova.</p>
             </div>
-          ))}
+            <button className="h-9 px-3 rounded-lg bg-foreground text-background text-xs font-semibold inline-flex items-center gap-1.5"><Sparkles className="size-3.5" /> Gerar com IA</button>
+          </div>
+          <div className="space-y-2">
+            {gruposCampanhas.map(g => {
+              const tone = g.status === "enviado" ? "bg-success/15 text-success" : g.status === "agendado" ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground";
+              return (
+                <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/50 hover:bg-secondary transition">
+                  <div className="size-12 rounded-xl bg-gradient-to-br from-primary/30 to-accent/30 grid place-items-center text-foreground/60"><ImageIcon className="size-5" /></div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{g.dia}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md capitalize ${tone}`}>{g.status}</span>
+                    </div>
+                    <div className="font-semibold text-sm truncate">{g.produto}</div>
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-bold text-success">R$ {g.preco.toFixed(2)}</span>
+                      <span className="line-through ml-1.5">R$ {g.precoOriginal.toFixed(2)}</span>
+                      <span className="ml-2">· val. {g.validade}</span>
+                      {g.alcance && <span className="ml-2">· {g.alcance} views</span>}
+                    </div>
+                  </div>
+                  <button className="h-8 px-3 rounded-lg bg-card border border-border text-xs font-semibold inline-flex items-center gap-1.5"><Calendar className="size-3.5" /> Editar</button>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 p-3 rounded-xl bg-accent/5 border border-accent/20 text-xs">
+            <b>Automação inteligente:</b> 1 oferta/dia em horários distintos (10h, 14h, 18h) para evitar spam. A IA evita repetir categorias.
+          </div>
+        </div>
+
+        <div className="card-soft p-5">
+          <h3 className="font-semibold mb-3">Distribuição de origens</h3>
+          <div className="space-y-2.5">
+            {origemLeads.map((o) => (
+              <div key={o.name}>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="font-medium">{o.name}</span>
+                  <span className="text-muted-foreground">{o.value}%</span>
+                </div>
+                <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                  <div className="h-full bg-primary rounded-full" style={{ width: `${o.value}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
