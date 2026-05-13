@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ProdutosProcuradosRouteImport } from './routes/produtos-procurados'
 import { Route as PedidosRouteImport } from './routes/pedidos'
 import { Route as PdvRouteImport } from './routes/pdv'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
@@ -18,8 +19,14 @@ import { Route as ConversasRouteImport } from './routes/conversas'
 import { Route as ClientesRouteImport } from './routes/clientes'
 import { Route as CampanhasRouteImport } from './routes/campanhas'
 import { Route as AutomacoesRouteImport } from './routes/automacoes'
+import { Route as AssistenteRouteImport } from './routes/assistente'
 import { Route as IndexRouteImport } from './routes/index'
 
+const ProdutosProcuradosRoute = ProdutosProcuradosRouteImport.update({
+  id: '/produtos-procurados',
+  path: '/produtos-procurados',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PedidosRoute = PedidosRouteImport.update({
   id: '/pedidos',
   path: '/pedidos',
@@ -65,6 +72,11 @@ const AutomacoesRoute = AutomacoesRouteImport.update({
   path: '/automacoes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AssistenteRoute = AssistenteRouteImport.update({
+  id: '/assistente',
+  path: '/assistente',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -73,6 +85,7 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/assistente': typeof AssistenteRoute
   '/automacoes': typeof AutomacoesRoute
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
@@ -82,9 +95,11 @@ export interface FileRoutesByFullPath {
   '/financeiro': typeof FinanceiroRoute
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
+  '/produtos-procurados': typeof ProdutosProcuradosRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/assistente': typeof AssistenteRoute
   '/automacoes': typeof AutomacoesRoute
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
@@ -94,10 +109,12 @@ export interface FileRoutesByTo {
   '/financeiro': typeof FinanceiroRoute
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
+  '/produtos-procurados': typeof ProdutosProcuradosRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/assistente': typeof AssistenteRoute
   '/automacoes': typeof AutomacoesRoute
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
@@ -107,11 +124,13 @@ export interface FileRoutesById {
   '/financeiro': typeof FinanceiroRoute
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
+  '/produtos-procurados': typeof ProdutosProcuradosRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/assistente'
     | '/automacoes'
     | '/campanhas'
     | '/clientes'
@@ -121,9 +140,11 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/pdv'
     | '/pedidos'
+    | '/produtos-procurados'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/assistente'
     | '/automacoes'
     | '/campanhas'
     | '/clientes'
@@ -133,9 +154,11 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/pdv'
     | '/pedidos'
+    | '/produtos-procurados'
   id:
     | '__root__'
     | '/'
+    | '/assistente'
     | '/automacoes'
     | '/campanhas'
     | '/clientes'
@@ -145,10 +168,12 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/pdv'
     | '/pedidos'
+    | '/produtos-procurados'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AssistenteRoute: typeof AssistenteRoute
   AutomacoesRoute: typeof AutomacoesRoute
   CampanhasRoute: typeof CampanhasRoute
   ClientesRoute: typeof ClientesRoute
@@ -158,10 +183,18 @@ export interface RootRouteChildren {
   FinanceiroRoute: typeof FinanceiroRoute
   PdvRoute: typeof PdvRoute
   PedidosRoute: typeof PedidosRoute
+  ProdutosProcuradosRoute: typeof ProdutosProcuradosRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/produtos-procurados': {
+      id: '/produtos-procurados'
+      path: '/produtos-procurados'
+      fullPath: '/produtos-procurados'
+      preLoaderRoute: typeof ProdutosProcuradosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pedidos': {
       id: '/pedidos'
       path: '/pedidos'
@@ -225,6 +258,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AutomacoesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/assistente': {
+      id: '/assistente'
+      path: '/assistente'
+      fullPath: '/assistente'
+      preLoaderRoute: typeof AssistenteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -237,6 +277,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AssistenteRoute: AssistenteRoute,
   AutomacoesRoute: AutomacoesRoute,
   CampanhasRoute: CampanhasRoute,
   ClientesRoute: ClientesRoute,
@@ -246,7 +287,18 @@ const rootRouteChildren: RootRouteChildren = {
   FinanceiroRoute: FinanceiroRoute,
   PdvRoute: PdvRoute,
   PedidosRoute: PedidosRoute,
+  ProdutosProcuradosRoute: ProdutosProcuradosRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
