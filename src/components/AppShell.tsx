@@ -1,7 +1,8 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import {
   LayoutDashboard, MessageCircle, Users, ShoppingBag, Store, Truck,
-  Boxes, Wallet, Megaphone, Zap, PawPrint, Search, Bell, Menu, X
+  Boxes, Wallet, Megaphone, Zap, PawPrint, Search, Bell, Menu, X,
+  Sparkles, PackageSearch
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -9,11 +10,13 @@ import { cn } from "@/lib/utils";
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/conversas", label: "WhatsApp IA", icon: MessageCircle, badge: 6 },
+  { to: "/assistente", label: "Assistente IA", icon: Sparkles },
   { to: "/clientes", label: "Clientes", icon: Users },
   { to: "/pedidos", label: "Pedidos", icon: ShoppingBag, badge: 3 },
   { to: "/pdv", label: "PDV", icon: Store },
   { to: "/entregas", label: "Entregas", icon: Truck },
   { to: "/estoque", label: "Estoque", icon: Boxes },
+  { to: "/produtos-procurados", label: "Procurados", icon: PackageSearch, badge: 6 },
   { to: "/financeiro", label: "Financeiro", icon: Wallet },
   { to: "/campanhas", label: "Campanhas", icon: Megaphone },
   { to: "/automacoes", label: "Automações", icon: Zap },
