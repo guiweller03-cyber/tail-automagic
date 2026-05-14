@@ -33,6 +33,7 @@ export function RecompraPrevista() {
   const [cidade, setCidade] = useState("Todas");
   const [bairro, setBairro] = useState("Todos");
   const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [semana, setSemana] = useState<0 | 1 | 2 | 3 | 4>(0); // 0 = todas
   const [showConfig, setShowConfig] = useState(false);
   const [iaConfig, setIaConfig] = useState({
     sensibilidade: 70,
