@@ -435,7 +435,8 @@ export function RecompraPrevista() {
                   return (
                     <tr
                       key={r.id}
-                      className={`border-t border-border hover:bg-secondary/40 transition ${
+                      onClick={() => setDrawerId(r.id)}
+                      className={`border-t border-border hover:bg-secondary/40 transition cursor-pointer ${
                         r.contatado ? "opacity-60" : ""
                       }`}
                     >
@@ -454,10 +455,18 @@ export function RecompraPrevista() {
                       <td className="px-3 py-3 text-xs">
                         {r.racao}
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {r.pesoKg}kg · {(r.consumoDiaKg * 1000).toFixed(0)}g/dia
+                          última {r.ultimaCompra} · {(r.consumoDiaKg * 1000).toFixed(0)}g/dia
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground">{r.ultimaCompra}</td>
+                      <td className="px-3 py-3 text-center">
+                        <div className="font-bold text-sm tabular-nums">{r.mediaRecompra}d</div>
+                        <div className="text-[10px] text-muted-foreground">base {r.previsaoBase}d</div>
+                      </td>
+                      <td className="px-3 py-3"><ComportamentoPill c={r.comportamento} /></td>
+                      <td className="px-3 py-3">
+                        <PrecisaoBar v={r.precisaoIA} />
+                      </td>
+                      <td className="px-3 py-3"><TendenciaPill t={r.tendencia} /></td>
                       <td className="px-3 py-3 text-center">
                         <span className={`font-bold text-sm ${
                           r.diasRestantes < 0 ? "text-destructive" :
@@ -467,7 +476,12 @@ export function RecompraPrevista() {
                           {r.diasRestantes < 0 ? `${Math.abs(r.diasRestantes)}d atraso` : `${r.diasRestantes}d`}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-xs">{r.dataPrevista}</td>
+                      <td className="px-3 py-3 text-xs">
+                        <div className="flex items-center gap-1">
+                          {r.dataPrevista}
+                          {r.travado && <Lock className="size-3 text-accent" />}
+                        </div>
+                      </td>
                       <td className="px-3 py-3 text-right font-bold text-xs">{brl(r.valorEstimado)}</td>
                       <td className="px-3 py-3 text-center">
                         <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold border ${st.cls}`}>
