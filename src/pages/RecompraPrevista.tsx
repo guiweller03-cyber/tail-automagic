@@ -1,10 +1,11 @@
-import { recomprasPrevistas, produtosPrevistos, iaRecompraAlertas, type RecompraPrevista, type RecompraStatus, type ComportamentoIA, type TendenciaIA } from "@/lib/mock";
+import { recomprasPrevistas, produtosPrevistos, demandaBairros, iaRecompraAlertas, type RecompraPrevista, type RecompraStatus, type ComportamentoIA, type TendenciaIA } from "@/lib/mock";
 import { useMemo, useState } from "react";
 import {
   MessageCircle, ShoppingBag, Bell, CheckCheck, ArrowRightLeft,
   AlertTriangle, TrendingUp, Search, MapPin, Sparkles,
   Package, BarChart3, Boxes, Target, Users, Flame,
   Brain, Activity, Lock, LockOpen, X, TrendingDown, Minus, Settings2,
+  Truck, Map as MapIcon, ShoppingCart,
 } from "lucide-react";
 
 const brl = (n: number) =>
@@ -33,6 +34,7 @@ export function RecompraPrevista() {
   const [cidade, setCidade] = useState("Todas");
   const [bairro, setBairro] = useState("Todos");
   const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [semana, setSemana] = useState<0 | 1 | 2 | 3 | 4>(0); // 0 = todas
   const [showConfig, setShowConfig] = useState(false);
   const [iaConfig, setIaConfig] = useState({
     sensibilidade: 70,
@@ -231,137 +233,11 @@ export function RecompraPrevista() {
       </section>
 
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
-            <Package className="size-4 text-primary" /> Produtos previstos para recompra
-          </h2>
-          <span className="text-[11px] text-muted-foreground">
-            Receita prevista: <b className="text-success">{brl(valorPrevistoProdutos)}</b>
-          </span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          {produtosPrevistos.map((p) => {
-            const receita = p.unidadesPrevistas * p.precoUnit * (p.taxaRecompra / 100);
-            const margem = ((p.precoUnit - p.custoUnit) / p.precoUnit) * 100;
-            const ruptura = p.estoqueAtual < p.unidadesPrevistas;
-            const faltam = Math.max(0, p.unidadesPrevistas - p.estoqueAtual);
-            return (
-              <div key={p.id} className="card-soft p-4 flex flex-col gap-2.5">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-sm leading-tight truncate">{p.nome}</div>
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">
-                      {p.categoria}
-                    </div>
-                  </div>
-                  <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-success/15 text-success">
-                    {p.taxaRecompra}%
-                  </span>
-                </div>
+      {/* PRODUTOS PREVISTOS — PAINEL OPERACIONAL */}
+      <PrevisaoProdutos semana={semana} setSemana={setSemana} />
 
-                <div className="grid grid-cols-2 gap-2">
-                  <Mini label="Previstos" value={`${p.unidadesPrevistas} un`} />
-                  <Mini label="Receita" value={brl(receita)} accent="success" />
-                  <Mini label="Margem" value={`${margem.toFixed(0)}%`} />
-                  <Mini label="Estoque" value={`${p.estoqueAtual} un`} accent={ruptura ? "danger" : undefined} />
-                </div>
-
-                {/* Barra de cobertura */}
-                <div>
-                  <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
-                    <span>Cobertura de demanda</span>
-                    <span>{Math.min(100, Math.round((p.estoqueAtual / p.unidadesPrevistas) * 100))}%</span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                    <div
-                      className={`h-full ${ruptura ? "bg-destructive" : "bg-success"}`}
-                      style={{ width: `${Math.min(100, (p.estoqueAtual / p.unidadesPrevistas) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-
-                {ruptura && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-destructive font-semibold bg-destructive/10 border border-destructive/20 rounded-md px-2 py-1.5">
-                    <AlertTriangle className="size-3.5 shrink-0" />
-                    Pode faltar em {p.diasParaRuptura}d · comprar +{faltam}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* GRID: GRÁFICO + ESTOQUE NECESSÁRIO */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
-        {/* Gráfico horizontal */}
-        <div className="card-soft p-4 lg:col-span-3">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold flex items-center gap-2">
-              <BarChart3 className="size-4 text-primary" /> Mais previstos para recompra
-            </h3>
-            <span className="text-[11px] text-muted-foreground">unidades</span>
-          </div>
-          <div className="space-y-2">
-            {[...produtosPrevistos]
-              .sort((a, b) => b.unidadesPrevistas - a.unidadesPrevistas)
-              .map((p) => {
-                const w = (p.unidadesPrevistas / maxUnidades) * 100;
-                return (
-                  <div key={p.id} className="grid grid-cols-[160px_1fr_44px] items-center gap-2">
-                    <div className="text-xs font-medium truncate">{p.nome}</div>
-                    <div className="h-6 rounded-md bg-secondary/60 overflow-hidden relative">
-                      <div
-                        className="h-full bg-gradient-to-r from-primary to-accent rounded-md"
-                        style={{ width: `${w}%` }}
-                      />
-                    </div>
-                    <div className="text-xs font-bold text-right tabular-nums">
-                      {p.unidadesPrevistas}
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-
-        {/* Estoque necessário */}
-        <div className="card-soft p-4 lg:col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold flex items-center gap-2">
-              <Boxes className="size-4 text-primary" /> Estoque necessário
-            </h3>
-            <span className="text-[11px] text-muted-foreground">próximas recompras</span>
-          </div>
-          <div className="space-y-2">
-            {produtosPrevistos
-              .filter((p) => p.estoqueAtual < p.unidadesPrevistas)
-              .sort((a, b) => (b.unidadesPrevistas - b.estoqueAtual) - (a.unidadesPrevistas - a.estoqueAtual))
-              .map((p) => {
-                const faltam = p.unidadesPrevistas - p.estoqueAtual;
-                return (
-                  <div key={p.id} className="rounded-lg border border-border p-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs font-semibold truncate">{p.nome}</div>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-destructive/15 text-destructive">
-                        +{faltam}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                      <span>Necessário <b className="text-foreground">{p.unidadesPrevistas}</b></span>
-                      <span>·</span>
-                      <span>Atual <b className="text-foreground">{p.estoqueAtual}</b></span>
-                      <span className="ml-auto inline-flex items-center gap-1 text-amber-600 font-semibold">
-                        <AlertTriangle className="size-3" /> {p.diasParaRuptura}d
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      </div>
+      {/* LOGÍSTICA + COMPRAS */}
+      <PrevisaoLogistica semana={semana} />
 
       {/* FILTROS */}
       <section className="space-y-3">
@@ -757,5 +633,265 @@ export function SpeciePill({ especie, compact }: { especie: "cachorro" | "gato";
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${cls}`}>
       {isDog ? "🐶" : "🐱"} {!compact && (isDog ? "Cachorro" : "Gato")}
     </span>
+  );
+}
+
+// ───────────────────────── PRODUTOS PREVISTOS ─────────────────────────
+const SEMANAS = ["Todas semanas", "Semana 1", "Semana 2", "Semana 3", "Semana 4"] as const;
+
+function brl2(n: number) { return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+
+function unidadesNaSemana(p: typeof produtosPrevistos[number], s: 0 | 1 | 2 | 3 | 4) {
+  return s === 0 ? p.semanas.reduce((a, b) => a + b, 0) : p.semanas[s - 1];
+}
+
+function PrevisaoProdutos({ semana, setSemana }: { semana: 0 | 1 | 2 | 3 | 4; setSemana: (s: 0 | 1 | 2 | 3 | 4) => void }) {
+  const totals = useMemo(() => {
+    let unidades = 0, receita = 0, custo = 0, necessario = 0;
+    produtosPrevistos.forEach((p) => {
+      const u = unidadesNaSemana(p, semana);
+      unidades += u;
+      receita  += u * p.precoUnit * (p.taxaRecompra / 100);
+      custo    += u * p.custoUnit;
+      const livre = Math.max(0, p.estoqueAtual - p.estoqueReservado);
+      necessario += Math.max(0, u - livre);
+    });
+    return { unidades, receita, margem: receita - custo, necessario };
+  }, [semana]);
+
+  const rupturas = produtosPrevistos.filter((p) => p.rupturaSemana && (semana === 0 || p.rupturaSemana <= semana));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
+          <Package className="size-4 text-primary" /> Previsão por semana — produtos
+        </h2>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {SEMANAS.map((label, i) => {
+            const on = semana === i;
+            return (
+              <button key={label} onClick={() => setSemana(i as 0 | 1 | 2 | 3 | 4)}
+                className={`px-3 h-8 rounded-full text-[11px] font-bold border transition ${
+                  on ? "bg-primary text-primary-foreground border-primary"
+                     : "bg-card border-border hover:border-foreground/30"
+                }`}>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* KPIs do período */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi icon={<Boxes className="size-4" />}        label="Unidades previstas" value={`${totals.unidades} un`} sub={semana === 0 ? "4 semanas" : `Semana ${semana}`} tone="primary" />
+        <Kpi icon={<TrendingUp className="size-4" />}   label="Receita prevista"   value={brl2(totals.receita)}    sub="recompra ponderada"                                tone="success" />
+        <Kpi icon={<Target className="size-4" />}       label="Margem prevista"    value={brl2(totals.margem)}     sub="receita − custo"                                   tone="success" />
+        <Kpi icon={<ShoppingCart className="size-4" />} label="Estoque a comprar"  value={`+${totals.necessario}`} sub="cobrir o período"                                  tone="destructive" />
+      </div>
+
+      {/* Alertas logísticos */}
+      {rupturas.length > 0 && (
+        <div className="card-soft p-3">
+          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
+            <AlertTriangle className="size-3 text-destructive" /> Alertas logísticos da IA
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {rupturas.map((p) => (
+              <div key={p.id} className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] flex items-start gap-2">
+                <AlertTriangle className="size-3.5 text-destructive shrink-0 mt-0.5" />
+                <div><b className="text-destructive">{p.nome}</b> · pode faltar antes da semana {p.rupturaSemana}</div>
+              </div>
+            ))}
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] flex items-start gap-2">
+              <Truck className="size-3.5 text-amber-600 shrink-0 mt-0.5" />
+              <div><b className="text-amber-600">Bairro Rau</b> · alta concentração de entregas previstas</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TABELA COMPLETA */}
+      <div className="card-soft overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wide text-muted-foreground bg-secondary/40">
+                <th className="text-left   font-semibold px-3 py-2.5">Produto</th>
+                <th className="text-left   font-semibold px-3 py-2.5">Categoria</th>
+                <th className="text-center font-semibold px-3 py-2.5">S1</th>
+                <th className="text-center font-semibold px-3 py-2.5">S2</th>
+                <th className="text-center font-semibold px-3 py-2.5">S3</th>
+                <th className="text-center font-semibold px-3 py-2.5">S4</th>
+                <th className="text-center font-semibold px-3 py-2.5">Total</th>
+                <th className="text-center font-semibold px-3 py-2.5">Estoque</th>
+                <th className="text-center font-semibold px-3 py-2.5">Reservado</th>
+                <th className="text-center font-semibold px-3 py-2.5">Necessário</th>
+                <th className="text-left   font-semibold px-3 py-2.5">Ruptura</th>
+                <th className="text-right  font-semibold px-3 py-2.5">Receita</th>
+                <th className="text-right  font-semibold px-3 py-2.5">Margem</th>
+                <th className="text-center font-semibold px-3 py-2.5">Recompra</th>
+              </tr>
+            </thead>
+            <tbody>
+              {produtosPrevistos.map((p) => {
+                const total = unidadesNaSemana(p, semana);
+                const livre = Math.max(0, p.estoqueAtual - p.estoqueReservado);
+                const necessario = Math.max(0, total - livre);
+                const receita = total * p.precoUnit * (p.taxaRecompra / 100);
+                const margem = total * (p.precoUnit - p.custoUnit) * (p.taxaRecompra / 100);
+                return (
+                  <tr key={p.id} className="border-t border-border hover:bg-secondary/40">
+                    <td className="px-3 py-3 text-xs font-semibold">{p.nome}</td>
+                    <td className="px-3 py-3 text-[11px] text-muted-foreground">{p.categoria}</td>
+                    {p.semanas.map((u, i) => (
+                      <td key={i} className={`px-3 py-3 text-center text-xs tabular-nums ${semana === i + 1 ? "font-bold text-primary" : ""}`}>{u}</td>
+                    ))}
+                    <td className="px-3 py-3 text-center text-xs font-bold tabular-nums">{total}</td>
+                    <td className="px-3 py-3 text-center text-xs tabular-nums">{p.estoqueAtual}</td>
+                    <td className="px-3 py-3 text-center text-xs tabular-nums text-muted-foreground">{p.estoqueReservado}</td>
+                    <td className="px-3 py-3 text-center">
+                      {necessario > 0 ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-destructive/15 text-destructive">+{necessario}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">ok</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-[11px]">
+                      {p.rupturaSemana ? (
+                        <span className="inline-flex items-center gap-1 text-amber-600 font-semibold">
+                          <AlertTriangle className="size-3" /> S{p.rupturaSemana}
+                        </span>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-3 py-3 text-right text-xs font-bold text-success tabular-nums">{brl2(receita)}</td>
+                    <td className="px-3 py-3 text-right text-xs tabular-nums">{brl2(margem)}</td>
+                    <td className="px-3 py-3 text-center">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-success/15 text-success">{p.taxaRecompra}%</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* GRÁFICO BARRAS POR SEMANA + SUGESTÃO COMPRA */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+        <div className="card-soft p-4 lg:col-span-3">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <BarChart3 className="size-4 text-primary" /> Demanda por semana
+            </h3>
+            <span className="text-[11px] text-muted-foreground">unidades previstas</span>
+          </div>
+          <DemandaSemanas />
+        </div>
+
+        <div className="card-soft p-4 lg:col-span-2">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <ShoppingCart className="size-4 text-primary" /> Sugestão de compra · fornecedor
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {produtosPrevistos
+              .map((p) => {
+                const total = unidadesNaSemana(p, semana);
+                const livre = Math.max(0, p.estoqueAtual - p.estoqueReservado);
+                return { p, faltam: Math.max(0, total - livre) };
+              })
+              .filter((x) => x.faltam > 0)
+              .sort((a, b) => b.faltam - a.faltam)
+              .map(({ p, faltam }) => (
+                <div key={p.id} className="rounded-lg border border-border p-2.5 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold truncate">{p.nome}</div>
+                    <div className="text-[10px] text-muted-foreground">custo unit {brl2(p.custoUnit)} · total {brl2(faltam * p.custoUnit)}</div>
+                  </div>
+                  <span className="shrink-0 text-[11px] font-bold px-2 py-1 rounded-md bg-primary/15 text-primary">+{faltam}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DemandaSemanas() {
+  const totals: [number, number, number, number] = [0, 0, 0, 0];
+  produtosPrevistos.forEach((p) => p.semanas.forEach((u, i) => (totals[i] += u)));
+  const max = Math.max(...totals);
+  return (
+    <div className="space-y-2">
+      {totals.map((u, i) => (
+        <div key={i} className="grid grid-cols-[80px_1fr_44px] items-center gap-2">
+          <div className="text-xs font-medium">Semana {i + 1}</div>
+          <div className="h-6 rounded-md bg-secondary/60 overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-primary to-accent" style={{ width: `${(u / max) * 100}%` }} />
+          </div>
+          <div className="text-xs font-bold text-right tabular-nums">{u}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ───────────────────────── LOGÍSTICA / DEMANDA ─────────────────────────
+function PrevisaoLogistica({ semana }: { semana: 0 | 1 | 2 | 3 | 4 }) {
+  const bairros = useMemo(() => {
+    return demandaBairros
+      .map((b) => {
+        const entregas = semana === 0 ? b.entregasPrevistas : b.semanas[semana - 1];
+        return { ...b, entregas, faturamento: entregas * b.ticketMedio };
+      })
+      .sort((a, b) => b.entregas - a.entregas);
+  }, [semana]);
+
+  const totalEntregas = bairros.reduce((s, b) => s + b.entregas, 0);
+  const totalFat = bairros.reduce((s, b) => s + b.faturamento, 0);
+  const ticketMed = totalEntregas ? Math.round(totalFat / totalEntregas) : 0;
+  const max = Math.max(...bairros.map((b) => b.entregas), 1);
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
+        <Truck className="size-4 text-primary" /> Previsão de entregas e demanda por bairro
+      </h2>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi icon={<Truck className="size-4" />}      label="Entregas previstas"  value={String(totalEntregas)} sub={semana === 0 ? "4 semanas" : `Semana ${semana}`} tone="primary" />
+        <Kpi icon={<MapIcon className="size-4" />}    label="Bairros ativos"      value={String(bairros.filter((b) => b.entregas > 0).length)} sub="com pedidos previstos" />
+        <Kpi icon={<Target className="size-4" />}     label="Ticket médio"        value={brl2(ticketMed)} sub="esperado no período" />
+        <Kpi icon={<TrendingUp className="size-4" />} label="Faturamento previsto" value={brl2(totalFat)} sub="entregas × ticket" tone="success" />
+      </div>
+
+      <div className="card-soft p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold flex items-center gap-2">
+            <MapIcon className="size-4 text-primary" /> Mapa de demanda por bairro
+          </h3>
+          <span className="text-[11px] text-muted-foreground">entregas previstas</span>
+        </div>
+        <div className="space-y-2">
+          {bairros.map((b) => (
+            <div key={b.bairro} className="grid grid-cols-[170px_1fr_60px_90px] items-center gap-2">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold truncate">{b.bairro}</div>
+                <div className="text-[10px] text-muted-foreground truncate">{b.cidade}</div>
+              </div>
+              <div className="h-6 rounded-md bg-secondary/60 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-primary to-accent" style={{ width: `${(b.entregas / max) * 100}%` }} />
+              </div>
+              <div className="text-xs font-bold text-right tabular-nums">{b.entregas}</div>
+              <div className="text-[11px] font-semibold text-success text-right tabular-nums">{brl2(b.faturamento)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }

@@ -335,21 +335,43 @@ export type ProdutoPrevisto = {
   id: string;
   nome: string;
   categoria: string;
-  unidadesPrevistas: number;
-  taxaRecompra: number; // 0-100
+  unidadesPrevistas: number;        // total 4 semanas
+  semanas: [number, number, number, number]; // S1..S4
+  taxaRecompra: number;             // 0-100
   precoUnit: number;
   custoUnit: number;
   estoqueAtual: number;
-  diasParaRuptura: number; // dias até estoque acabar conforme demanda
+  estoqueReservado: number;
+  diasParaRuptura: number;
+  rupturaSemana?: 1 | 2 | 3 | 4;    // semana em que pode faltar
 };
 
 export const produtosPrevistos: ProdutoPrevisto[] = [
-  { id: "pp1", nome: "Golden Mini Bits 15kg",     categoria: "Ração",    unidadesPrevistas: 18, taxaRecompra: 84, precoUnit: 189,   custoUnit: 128, estoqueAtual: 7,  diasParaRuptura: 5 },
-  { id: "pp2", nome: "Special Dog Gold 15kg",     categoria: "Ração",    unidadesPrevistas: 11, taxaRecompra: 71, precoUnit: 185,   custoUnit: 122, estoqueAtual: 14, diasParaRuptura: 12 },
-  { id: "pp3", nome: "FN Fresh Meat 7kg",         categoria: "Ração",    unidadesPrevistas: 7,  taxaRecompra: 92, precoUnit: 259,   custoUnit: 178, estoqueAtual: 3,  diasParaRuptura: 3 },
-  { id: "pp4", nome: "Royal Canin Felino 1,5kg",  categoria: "Ração",    unidadesPrevistas: 9,  taxaRecompra: 88, precoUnit: 168,   custoUnit: 112, estoqueAtual: 6,  diasParaRuptura: 7 },
-  { id: "pp5", nome: "Areia Pipicat 12kg",        categoria: "Higiene",  unidadesPrevistas: 22, taxaRecompra: 79, precoUnit: 39.9,  custoUnit: 24,  estoqueAtual: 3,  diasParaRuptura: 2 },
-  { id: "pp6", nome: "Petisco Natural 90g · combo", categoria: "Petiscos", unidadesPrevistas: 31, taxaRecompra: 64, precoUnit: 18.9,  custoUnit: 8.4, estoqueAtual: 47, diasParaRuptura: 18 },
-  { id: "pp7", nome: "Antipulga Frontline G",     categoria: "Saúde",    unidadesPrevistas: 6,  taxaRecompra: 58, precoUnit: 119,   custoUnit: 78,  estoqueAtual: 12, diasParaRuptura: 22 },
-  { id: "pp8", nome: "Hills Felino c/d 1,5kg",    categoria: "Ração",    unidadesPrevistas: 5,  taxaRecompra: 95, precoUnit: 195,   custoUnit: 134, estoqueAtual: 2,  diasParaRuptura: 4 },
+  { id: "pp1", nome: "Golden Mini Bits 15kg",       categoria: "Ração",    semanas: [14, 9, 11, 6],  unidadesPrevistas: 40, taxaRecompra: 84, precoUnit: 189,  custoUnit: 128, estoqueAtual: 12, estoqueReservado: 4, diasParaRuptura: 5,  rupturaSemana: 2 },
+  { id: "pp2", nome: "Special Dog Gold 15kg",       categoria: "Ração",    semanas: [4, 3, 2, 2],    unidadesPrevistas: 11, taxaRecompra: 71, precoUnit: 185,  custoUnit: 122, estoqueAtual: 14, estoqueReservado: 2, diasParaRuptura: 12 },
+  { id: "pp3", nome: "FN Fresh Meat 7kg",           categoria: "Ração",    semanas: [3, 2, 1, 1],    unidadesPrevistas: 7,  taxaRecompra: 92, precoUnit: 259,  custoUnit: 178, estoqueAtual: 3,  estoqueReservado: 1, diasParaRuptura: 3,  rupturaSemana: 1 },
+  { id: "pp4", nome: "Royal Canin Felino 1,5kg",    categoria: "Ração",    semanas: [3, 2, 2, 2],    unidadesPrevistas: 9,  taxaRecompra: 88, precoUnit: 168,  custoUnit: 112, estoqueAtual: 6,  estoqueReservado: 1, diasParaRuptura: 7,  rupturaSemana: 3 },
+  { id: "pp5", nome: "Areia Pipicat 12kg",          categoria: "Higiene",  semanas: [9, 5, 4, 4],    unidadesPrevistas: 22, taxaRecompra: 79, precoUnit: 39.9, custoUnit: 24,  estoqueAtual: 3,  estoqueReservado: 0, diasParaRuptura: 2,  rupturaSemana: 1 },
+  { id: "pp6", nome: "Petisco Natural 90g · combo", categoria: "Petiscos", semanas: [10, 8, 7, 6],   unidadesPrevistas: 31, taxaRecompra: 64, precoUnit: 18.9, custoUnit: 8.4, estoqueAtual: 47, estoqueReservado: 5, diasParaRuptura: 18 },
+  { id: "pp7", nome: "Antipulga Frontline G",       categoria: "Saúde",    semanas: [2, 1, 2, 1],    unidadesPrevistas: 6,  taxaRecompra: 58, precoUnit: 119,  custoUnit: 78,  estoqueAtual: 12, estoqueReservado: 0, diasParaRuptura: 22 },
+  { id: "pp8", nome: "Hills Felino c/d 1,5kg",      categoria: "Ração",    semanas: [2, 1, 1, 1],    unidadesPrevistas: 5,  taxaRecompra: 95, precoUnit: 195,  custoUnit: 134, estoqueAtual: 2,  estoqueReservado: 0, diasParaRuptura: 4,  rupturaSemana: 1 },
 ];
+
+// ── Demanda por bairro (logística prevista) ──
+export type DemandaBairro = {
+  bairro: string;
+  cidade: string;
+  entregasPrevistas: number;
+  ticketMedio: number;
+  semanas: [number, number, number, number];
+};
+
+export const demandaBairros: DemandaBairro[] = [
+  { bairro: "Rau",          cidade: "Jaraguá do Sul", entregasPrevistas: 28, ticketMedio: 198, semanas: [10, 7, 6, 5] },
+  { bairro: "Centro",       cidade: "Jaraguá do Sul", entregasPrevistas: 22, ticketMedio: 224, semanas: [8, 6, 4, 4] },
+  { bairro: "Vila Nova",    cidade: "Jaraguá do Sul", entregasPrevistas: 18, ticketMedio: 176, semanas: [6, 5, 4, 3] },
+  { bairro: "Vila Mariana", cidade: "São Paulo",      entregasPrevistas: 14, ticketMedio: 240, semanas: [5, 4, 3, 2] },
+  { bairro: "Pinheiros",    cidade: "São Paulo",      entregasPrevistas: 12, ticketMedio: 268, semanas: [4, 3, 3, 2] },
+  { bairro: "Brooklin",     cidade: "São Paulo",      entregasPrevistas: 9,  ticketMedio: 312, semanas: [3, 2, 2, 2] },
+];
+
