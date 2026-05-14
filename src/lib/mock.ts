@@ -162,6 +162,8 @@ export const clientes: Cliente[] = [
 
 // ── Recompra Prevista ──
 export type RecompraStatus = "ok" | "semana" | "urgente" | "atrasado";
+export type ComportamentoIA = "antecipado" | "pontual" | "atrasado" | "instavel";
+export type TendenciaIA = "acelerando" | "estavel" | "desacelerando";
 export type RecompraPrevista = {
   id: string;
   clienteId: string;
@@ -181,19 +183,45 @@ export type RecompraPrevista = {
   valorEstimado: number;
   status: RecompraStatus;
   contatado?: boolean;
+  // ── IA adaptativa ──
+  mediaRecompra: number;        // dias médios reais do cliente
+  previsaoBase: number;         // o que o cálculo geral previa
+  comportamento: ComportamentoIA;
+  precisaoIA: number;           // 0-100
+  tendencia: TendenciaIA;
+  historicoDias: number[];      // dias entre compras (mais antigo → mais recente)
+  travado?: boolean;            // previsão fixada manualmente
 };
 
 export const recomprasPrevistas: RecompraPrevista[] = [
-  { id: "r1", clienteId: "1", cliente: "Marina Costa", telefone: "(11) 99812-3344", cidade: "São Paulo", bairro: "Vila Mariana", pet: "Thor", especie: "cachorro", perfil: "VIP", racao: "Golden Adultos 15kg", pesoKg: 15, consumoDiaKg: 0.5, ultimaCompra: "16/04", diasRestantes: 0, dataPrevista: "16/05", valorEstimado: 289.9, status: "urgente" },
-  { id: "r2", clienteId: "5", cliente: "Ana Beatriz", telefone: "(11) 99988-1144", cidade: "São Paulo", bairro: "Vila Olímpia", pet: "Nina", especie: "cachorro", perfil: "Premium", racao: "Premier Gourmet 10,1kg", pesoKg: 10.1, consumoDiaKg: 0.35, ultimaCompra: "20/04", diasRestantes: 2, dataPrevista: "18/05", valorEstimado: 318, status: "urgente" },
-  { id: "r3", clienteId: "6", cliente: "Roberto Lima", telefone: "(11) 98234-6677", cidade: "São Paulo", bairro: "Brooklin", pet: "Zeus", especie: "cachorro", perfil: "VIP", racao: "Golden Raças Grandes 20kg", pesoKg: 20, consumoDiaKg: 0.7, ultimaCompra: "23/04", diasRestantes: 4, dataPrevista: "20/05", valorEstimado: 419, status: "semana" },
-  { id: "r4", clienteId: "4", cliente: "Carlos Mendes", telefone: "(11) 97812-5599", cidade: "São Paulo", bairro: "Itaim", pet: "Luna", especie: "gato", perfil: "VIP", racao: "Hills Felino 3kg + Areia 12kg", pesoKg: 3, consumoDiaKg: 0.06, ultimaCompra: "27/04", diasRestantes: 6, dataPrevista: "22/05", valorEstimado: 248, status: "semana" },
-  { id: "r5", clienteId: "2", cliente: "Pedro Alves", telefone: "(11) 99423-7788", cidade: "São Paulo", bairro: "Moema", pet: "Mel", especie: "cachorro", perfil: "Econômico", racao: "Premier Filhotes 3kg", pesoKg: 3, consumoDiaKg: 0.12, ultimaCompra: "02/05", diasRestantes: 11, dataPrevista: "27/05", valorEstimado: 142, status: "ok" },
-  { id: "r6", clienteId: "3", cliente: "Júlia Ramos", telefone: "(11) 98011-2231", cidade: "São Paulo", bairro: "Pinheiros", pet: "Bento", especie: "cachorro", perfil: "Premium", racao: "Golden Mini 10,1kg", pesoKg: 10.1, consumoDiaKg: 0.18, ultimaCompra: "10/04", diasRestantes: 18, dataPrevista: "03/06", valorEstimado: 264, status: "ok" },
-  { id: "r7", clienteId: "7", cliente: "Helena Souza", telefone: "(11) 97001-2233", cidade: "São Paulo", bairro: "Saúde", pet: "Pretinha", especie: "gato", perfil: "Risco", racao: "Whiskas Adulto 3kg", pesoKg: 3, consumoDiaKg: 0.06, ultimaCompra: "13/03", diasRestantes: -8, dataPrevista: "07/05", valorEstimado: 78, status: "atrasado" },
-  { id: "r8", clienteId: "3", cliente: "Júlia Ramos", telefone: "(11) 98011-2231", cidade: "São Paulo", bairro: "Pinheiros", pet: "Lola", especie: "gato", perfil: "Premium", racao: "Royal Canin Felino 1,5kg", pesoKg: 1.5, consumoDiaKg: 0.05, ultimaCompra: "21/04", diasRestantes: 1, dataPrevista: "17/05", valorEstimado: 168, status: "urgente" },
-  { id: "r9", clienteId: "1", cliente: "Marina Costa", telefone: "(11) 99812-3344", cidade: "São Paulo", bairro: "Vila Mariana", pet: "Thor", especie: "cachorro", perfil: "VIP", racao: "Petisco Natural 90g · combo", pesoKg: 0.27, consumoDiaKg: 0.01, ultimaCompra: "30/04", diasRestantes: -2, dataPrevista: "14/05", valorEstimado: 56, status: "atrasado" },
+  { id: "r1", clienteId: "1", cliente: "Marina Costa", telefone: "(11) 99812-3344", cidade: "São Paulo", bairro: "Vila Mariana", pet: "Thor", especie: "cachorro", perfil: "VIP", racao: "Golden Adultos 15kg", pesoKg: 15, consumoDiaKg: 0.5, ultimaCompra: "16/04", diasRestantes: 0, dataPrevista: "16/05", valorEstimado: 289.9, status: "urgente",
+    mediaRecompra: 27, previsaoBase: 30, comportamento: "antecipado", precisaoIA: 92, tendencia: "acelerando", historicoDias: [31, 30, 29, 28, 27, 27] },
+  { id: "r2", clienteId: "5", cliente: "Ana Beatriz", telefone: "(11) 99988-1144", cidade: "São Paulo", bairro: "Vila Olímpia", pet: "Nina", especie: "cachorro", perfil: "Premium", racao: "Premier Gourmet 10,1kg", pesoKg: 10.1, consumoDiaKg: 0.35, ultimaCompra: "20/04", diasRestantes: 2, dataPrevista: "18/05", valorEstimado: 318, status: "urgente",
+    mediaRecompra: 28, previsaoBase: 29, comportamento: "pontual", precisaoIA: 88, tendencia: "estavel", historicoDias: [29, 28, 28, 29, 28] },
+  { id: "r3", clienteId: "6", cliente: "Roberto Lima", telefone: "(11) 98234-6677", cidade: "São Paulo", bairro: "Brooklin", pet: "Zeus", especie: "cachorro", perfil: "VIP", racao: "Golden Raças Grandes 20kg", pesoKg: 20, consumoDiaKg: 0.7, ultimaCompra: "23/04", diasRestantes: 4, dataPrevista: "20/05", valorEstimado: 419, status: "semana",
+    mediaRecompra: 26, previsaoBase: 28, comportamento: "antecipado", precisaoIA: 94, tendencia: "acelerando", historicoDias: [30, 29, 27, 26, 25] },
+  { id: "r4", clienteId: "4", cliente: "Carlos Mendes", telefone: "(11) 97812-5599", cidade: "São Paulo", bairro: "Itaim", pet: "Luna", especie: "gato", perfil: "VIP", racao: "Hills Felino 3kg + Areia 12kg", pesoKg: 3, consumoDiaKg: 0.06, ultimaCompra: "27/04", diasRestantes: 6, dataPrevista: "22/05", valorEstimado: 248, status: "semana",
+    mediaRecompra: 30, previsaoBase: 30, comportamento: "pontual", precisaoIA: 96, tendencia: "estavel", historicoDias: [30, 30, 30, 30, 30, 30] },
+  { id: "r5", clienteId: "2", cliente: "Pedro Alves", telefone: "(11) 99423-7788", cidade: "São Paulo", bairro: "Moema", pet: "Mel", especie: "cachorro", perfil: "Econômico", racao: "Premier Filhotes 3kg", pesoKg: 3, consumoDiaKg: 0.12, ultimaCompra: "02/05", diasRestantes: 11, dataPrevista: "27/05", valorEstimado: 142, status: "ok",
+    mediaRecompra: 25, previsaoBase: 25, comportamento: "instavel", precisaoIA: 61, tendencia: "estavel", historicoDias: [22, 28, 21, 31, 23] },
+  { id: "r6", clienteId: "3", cliente: "Júlia Ramos", telefone: "(11) 98011-2231", cidade: "São Paulo", bairro: "Pinheiros", pet: "Bento", especie: "cachorro", perfil: "Premium", racao: "Golden Mini 10,1kg", pesoKg: 10.1, consumoDiaKg: 0.18, ultimaCompra: "10/04", diasRestantes: 18, dataPrevista: "03/06", valorEstimado: 264, status: "ok",
+    mediaRecompra: 54, previsaoBase: 56, comportamento: "pontual", precisaoIA: 89, tendencia: "estavel", historicoDias: [55, 54, 56, 53, 54] },
+  { id: "r7", clienteId: "7", cliente: "Helena Souza", telefone: "(11) 97001-2233", cidade: "São Paulo", bairro: "Saúde", pet: "Pretinha", especie: "gato", perfil: "Risco", racao: "Whiskas Adulto 3kg", pesoKg: 3, consumoDiaKg: 0.06, ultimaCompra: "13/03", diasRestantes: -8, dataPrevista: "07/05", valorEstimado: 78, status: "atrasado",
+    mediaRecompra: 48, previsaoBase: 40, comportamento: "atrasado", precisaoIA: 54, tendencia: "desacelerando", historicoDias: [40, 44, 47, 52, 60] },
+  { id: "r8", clienteId: "3", cliente: "Júlia Ramos", telefone: "(11) 98011-2231", cidade: "São Paulo", bairro: "Pinheiros", pet: "Lola", especie: "gato", perfil: "Premium", racao: "Royal Canin Felino 1,5kg", pesoKg: 1.5, consumoDiaKg: 0.05, ultimaCompra: "21/04", diasRestantes: 1, dataPrevista: "17/05", valorEstimado: 168, status: "urgente",
+    mediaRecompra: 26, previsaoBase: 30, comportamento: "antecipado", precisaoIA: 90, tendencia: "acelerando", historicoDias: [30, 29, 28, 26, 25], travado: false },
+  { id: "r9", clienteId: "1", cliente: "Marina Costa", telefone: "(11) 99812-3344", cidade: "São Paulo", bairro: "Vila Mariana", pet: "Thor", especie: "cachorro", perfil: "VIP", racao: "Petisco Natural 90g · combo", pesoKg: 0.27, consumoDiaKg: 0.01, ultimaCompra: "30/04", diasRestantes: -2, dataPrevista: "14/05", valorEstimado: 56, status: "atrasado",
+    mediaRecompra: 14, previsaoBase: 16, comportamento: "atrasado", precisaoIA: 72, tendencia: "desacelerando", historicoDias: [14, 14, 15, 17, 18] },
 ];
+
+export const iaRecompraAlertas = [
+  { tipo: "antecipou",    cliente: "Marina Costa",  msg: "começou a recomprar 3 dias mais cedo · ajuste automático aplicado" },
+  { tipo: "antecipou",    cliente: "Roberto Lima",  msg: "consumo do Zeus aumentando · ciclo caiu de 30 → 26 dias" },
+  { tipo: "atrasou",      cliente: "Helena Souza",  msg: "atrasando recompra há 2 ciclos · risco de churn" },
+  { tipo: "instavel",     cliente: "Pedro Alves",   msg: "comportamento irregular · IA com 61% de precisão" },
+  { tipo: "previsivel",   cliente: "Carlos Mendes", msg: "padrão extremamente estável · 96% de precisão" },
+];
+
 
 export type Produto = {
   sku: string;

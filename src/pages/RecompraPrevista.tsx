@@ -1,9 +1,10 @@
-import { recomprasPrevistas, produtosPrevistos, type RecompraPrevista, type RecompraStatus } from "@/lib/mock";
+import { recomprasPrevistas, produtosPrevistos, iaRecompraAlertas, type RecompraPrevista, type RecompraStatus, type ComportamentoIA, type TendenciaIA } from "@/lib/mock";
 import { useMemo, useState } from "react";
 import {
   MessageCircle, ShoppingBag, Bell, CheckCheck, ArrowRightLeft,
-  AlertTriangle, Calendar, TrendingUp, Search, MapPin, Sparkles,
+  AlertTriangle, TrendingUp, Search, MapPin, Sparkles,
   Package, BarChart3, Boxes, Target, Users, Flame,
+  Brain, Activity, Lock, LockOpen, X, TrendingDown, Minus, Settings2,
 } from "lucide-react";
 
 const brl = (n: number) =>
@@ -31,6 +32,14 @@ export function RecompraPrevista() {
   const [busca, setBusca] = useState("");
   const [cidade, setCidade] = useState("Todas");
   const [bairro, setBairro] = useState("Todos");
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [showConfig, setShowConfig] = useState(false);
+  const [iaConfig, setIaConfig] = useState({
+    sensibilidade: 70,
+    minCompras: 3,
+    pesoRecente: 60,
+    ajusteAuto: true,
+  });
 
   const cidades = useMemo(() => ["Todas", ...Array.from(new Set(items.map((r) => r.cidade)))], [items]);
   const bairros = useMemo(() => ["Todos", ...Array.from(new Set(items.map((r) => r.bairro)))], [items]);
@@ -72,6 +81,19 @@ export function RecompraPrevista() {
   function marcarContatado(id: string) {
     setItems((arr) => arr.map((r) => (r.id === id ? { ...r, contatado: !r.contatado } : r)));
   }
+  function toggleTravado(id: string) {
+    setItems((arr) => arr.map((r) => (r.id === id ? { ...r, travado: !r.travado } : r)));
+  }
+
+  // ── IA stats ──
+  const antecipando = items.filter((r) => r.comportamento === "antecipado").length;
+  const atrasando   = items.filter((r) => r.comportamento === "atrasado").length;
+  const instaveis   = items.filter((r) => r.comportamento === "instavel").length;
+  const previsiveis = items.filter((r) => r.precisaoIA >= 85).length;
+  const precisaoMedia = Math.round(items.reduce((s, r) => s + r.precisaoIA, 0) / items.length);
+
+  const drawerItem = items.find((i) => i.id === drawerId) || null;
+
 
   return (
     <div className="space-y-6">
@@ -85,9 +107,17 @@ export function RecompraPrevista() {
             Painel de vendas futuras · previsão de produtos, estoque e clientes
           </p>
         </div>
-        <button className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90">
-          <Sparkles className="size-3.5" /> Disparar todos via IA
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowConfig((v) => !v)}
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-secondary text-foreground text-xs font-semibold hover:bg-secondary/70"
+          >
+            <Settings2 className="size-3.5" /> Config IA
+          </button>
+          <button className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90">
+            <Sparkles className="size-3.5" /> Disparar todos via IA
+          </button>
+        </div>
       </div>
 
       {/* RESUMO SUPERIOR */}
@@ -128,7 +158,79 @@ export function RecompraPrevista() {
         />
       </div>
 
-      {/* PRODUTOS PREVISTOS */}
+      {/* IA ADAPTATIVA — DASHBOARD */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
+            <Brain className="size-4 text-accent" /> IA adaptativa por cliente
+          </h2>
+          <span className="text-[11px] text-muted-foreground">
+            aprende o ciclo real de cada cliente · ajustes automáticos
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <Kpi icon={<TrendingUp className="size-4" />} label="Antecipando"      value={String(antecipando)} sub="recompra mais cedo" tone="success" />
+          <Kpi icon={<TrendingDown className="size-4" />} label="Atrasando"       value={String(atrasando)}   sub="ciclo aumentando"   tone="destructive" />
+          <Kpi icon={<Activity className="size-4" />} label="Instáveis"           value={String(instaveis)}   sub="padrão irregular"   tone="amber" />
+          <Kpi icon={<Target className="size-4" />} label="Altamente previsíveis" value={String(previsiveis)} sub="precisão ≥ 85%"     tone="primary" />
+          <Kpi icon={<Brain className="size-4" />} label="Precisão IA média"      value={`${precisaoMedia}%`} sub="todos os clientes"  tone="primary" />
+        </div>
+
+        {/* Alertas IA */}
+        <div className="card-soft p-3">
+          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Sparkles className="size-3 text-accent" /> Alertas da IA
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {iaRecompraAlertas.map((a, i) => {
+              const tone =
+                a.tipo === "antecipou"  ? "border-success/30 bg-success/5 text-success" :
+                a.tipo === "atrasou"    ? "border-destructive/30 bg-destructive/5 text-destructive" :
+                a.tipo === "instavel"   ? "border-amber-500/30 bg-amber-500/5 text-amber-600" :
+                                          "border-primary/30 bg-primary/5 text-primary";
+              return (
+                <div key={i} className={`rounded-lg border px-3 py-2 text-[11px] flex items-start gap-2 ${tone}`}>
+                  <Sparkles className="size-3.5 shrink-0 mt-0.5" />
+                  <div className="text-foreground/90">
+                    <b>{a.cliente}</b> <span className="opacity-80">{a.msg}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {showConfig && (
+          <div className="card-soft p-4 space-y-3 border border-accent/30">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-bold flex items-center gap-2">
+                <Settings2 className="size-4 text-accent" /> Configurações da IA de recompra
+              </div>
+              <button onClick={() => setShowConfig(false)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <ConfigSlider label="Sensibilidade do aprendizado" value={iaConfig.sensibilidade} onChange={(v) => setIaConfig({ ...iaConfig, sensibilidade: v })} hint="quão rápido a IA muda a previsão" />
+              <ConfigSlider label="Peso do histórico recente"    value={iaConfig.pesoRecente}    onChange={(v) => setIaConfig({ ...iaConfig, pesoRecente: v })}    hint="prioriza últimas compras vs média geral" />
+              <ConfigNumber label="Mínimo de compras p/ aprender" value={iaConfig.minCompras} onChange={(v) => setIaConfig({ ...iaConfig, minCompras: v })} />
+              <label className="flex items-center justify-between rounded-lg bg-secondary/60 px-3 py-2.5">
+                <div>
+                  <div className="text-xs font-semibold">Ajuste automático</div>
+                  <div className="text-[10px] text-muted-foreground">aplicar correção sem confirmação</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={iaConfig.ajusteAuto}
+                  onChange={(e) => setIaConfig({ ...iaConfig, ajusteAuto: e.target.checked })}
+                  className="size-4 accent-accent"
+                />
+              </label>
+            </div>
+          </div>
+        )}
+      </section>
+
+
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
@@ -313,7 +415,10 @@ export function RecompraPrevista() {
                   <th className="text-left font-semibold px-3 py-2.5">Cliente</th>
                   <th className="text-left font-semibold px-3 py-2.5">Pet</th>
                   <th className="text-left font-semibold px-3 py-2.5">Ração atual</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Última</th>
+                  <th className="text-center font-semibold px-3 py-2.5" title="Média real do cliente">Média IA</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Comportamento</th>
+                  <th className="text-center font-semibold px-3 py-2.5">Precisão</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Tendência</th>
                   <th className="text-center font-semibold px-3 py-2.5">Dias</th>
                   <th className="text-left font-semibold px-3 py-2.5">Prevista</th>
                   <th className="text-right font-semibold px-3 py-2.5">Estimado</th>
@@ -330,7 +435,8 @@ export function RecompraPrevista() {
                   return (
                     <tr
                       key={r.id}
-                      className={`border-t border-border hover:bg-secondary/40 transition ${
+                      onClick={() => setDrawerId(r.id)}
+                      className={`border-t border-border hover:bg-secondary/40 transition cursor-pointer ${
                         r.contatado ? "opacity-60" : ""
                       }`}
                     >
@@ -349,10 +455,18 @@ export function RecompraPrevista() {
                       <td className="px-3 py-3 text-xs">
                         {r.racao}
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {r.pesoKg}kg · {(r.consumoDiaKg * 1000).toFixed(0)}g/dia
+                          última {r.ultimaCompra} · {(r.consumoDiaKg * 1000).toFixed(0)}g/dia
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground">{r.ultimaCompra}</td>
+                      <td className="px-3 py-3 text-center">
+                        <div className="font-bold text-sm tabular-nums">{r.mediaRecompra}d</div>
+                        <div className="text-[10px] text-muted-foreground">base {r.previsaoBase}d</div>
+                      </td>
+                      <td className="px-3 py-3"><ComportamentoPill c={r.comportamento} /></td>
+                      <td className="px-3 py-3">
+                        <PrecisaoBar v={r.precisaoIA} />
+                      </td>
+                      <td className="px-3 py-3"><TendenciaPill t={r.tendencia} /></td>
                       <td className="px-3 py-3 text-center">
                         <span className={`font-bold text-sm ${
                           r.diasRestantes < 0 ? "text-destructive" :
@@ -362,7 +476,12 @@ export function RecompraPrevista() {
                           {r.diasRestantes < 0 ? `${Math.abs(r.diasRestantes)}d atraso` : `${r.diasRestantes}d`}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-xs">{r.dataPrevista}</td>
+                      <td className="px-3 py-3 text-xs">
+                        <div className="flex items-center gap-1">
+                          {r.dataPrevista}
+                          {r.travado && <Lock className="size-3 text-accent" />}
+                        </div>
+                      </td>
                       <td className="px-3 py-3 text-right font-bold text-xs">{brl(r.valorEstimado)}</td>
                       <td className="px-3 py-3 text-center">
                         <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold border ${st.cls}`}>
@@ -370,7 +489,7 @@ export function RecompraPrevista() {
                           {st.label}
                         </span>
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           <a
                             href={wpp} target="_blank" rel="noreferrer"
@@ -389,6 +508,15 @@ export function RecompraPrevista() {
                             <Bell className="size-4" />
                           </button>
                           <button
+                            title={r.travado ? "Destravar previsão" : "Travar previsão"}
+                            onClick={() => toggleTravado(r.id)}
+                            className={`size-8 grid place-items-center rounded-lg transition ${
+                              r.travado ? "bg-accent text-accent-foreground" : "bg-secondary hover:bg-secondary/70"
+                            }`}
+                          >
+                            {r.travado ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
+                          </button>
+                          <button
                             title="Marcar contatado"
                             onClick={() => marcarContatado(r.id)}
                             className={`size-8 grid place-items-center rounded-lg transition ${
@@ -405,7 +533,7 @@ export function RecompraPrevista() {
                   );
                 })}
                 {filtrados.length === 0 && (
-                  <tr><td colSpan={9} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  <tr><td colSpan={12} className="px-4 py-10 text-center text-xs text-muted-foreground">
                     Nenhum cliente neste filtro.
                   </td></tr>
                 )}
@@ -414,6 +542,8 @@ export function RecompraPrevista() {
           </div>
         </div>
       </section>
+
+      {drawerItem && <ClienteDrawer item={drawerItem} onClose={() => setDrawerId(null)} />}
     </div>
   );
 }
@@ -448,6 +578,175 @@ function Mini({ label, value, accent }: { label: string; value: string; accent?:
     </div>
   );
 }
+
+function ConfigSlider({ label, value, onChange, hint }: { label: string; value: number; onChange: (v: number) => void; hint?: string }) {
+  return (
+    <div className="rounded-lg bg-secondary/60 px-3 py-2.5">
+      <div className="flex items-center justify-between text-xs font-semibold">
+        <span>{label}</span><span className="tabular-nums text-accent">{value}%</span>
+      </div>
+      {hint && <div className="text-[10px] text-muted-foreground mb-1.5">{hint}</div>}
+      <input type="range" min={0} max={100} value={value} onChange={(e) => onChange(+e.target.value)} className="w-full accent-accent" />
+    </div>
+  );
+}
+
+function ConfigNumber({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <label className="flex items-center justify-between rounded-lg bg-secondary/60 px-3 py-2.5">
+      <div className="text-xs font-semibold">{label}</div>
+      <input type="number" min={1} max={20} value={value} onChange={(e) => onChange(+e.target.value)}
+        className="w-16 h-7 px-2 rounded-md bg-background text-xs font-bold text-right outline-none ring-1 ring-border focus:ring-accent" />
+    </label>
+  );
+}
+
+function ComportamentoPill({ c }: { c: ComportamentoIA }) {
+  const map: Record<ComportamentoIA, { label: string; cls: string; icon: React.ReactNode }> = {
+    antecipado: { label: "Antecipado", cls: "bg-success/15 text-success border-success/30",       icon: <TrendingUp className="size-3" /> },
+    pontual:    { label: "Pontual",    cls: "bg-primary/15 text-primary border-primary/30",       icon: <Target className="size-3" /> },
+    atrasado:   { label: "Atrasado",   cls: "bg-destructive/15 text-destructive border-destructive/30", icon: <TrendingDown className="size-3" /> },
+    instavel:   { label: "Instável",   cls: "bg-amber-500/15 text-amber-600 border-amber-500/30", icon: <Activity className="size-3" /> },
+  };
+  const x = map[c];
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${x.cls}`}>
+      {x.icon}{x.label}
+    </span>
+  );
+}
+
+function TendenciaPill({ t }: { t: TendenciaIA }) {
+  const map: Record<TendenciaIA, { label: string; cls: string; icon: React.ReactNode }> = {
+    acelerando:    { label: "Comprando antes",   cls: "text-success",      icon: <TrendingUp className="size-3" /> },
+    estavel:       { label: "Estável",            cls: "text-muted-foreground", icon: <Minus className="size-3" /> },
+    desacelerando: { label: "Comprando depois",  cls: "text-destructive",  icon: <TrendingDown className="size-3" /> },
+  };
+  const x = map[t];
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${x.cls}`}>
+      {x.icon}{x.label}
+    </span>
+  );
+}
+
+function PrecisaoBar({ v }: { v: number }) {
+  const tone = v >= 85 ? "bg-success" : v >= 70 ? "bg-primary" : v >= 60 ? "bg-amber-500" : "bg-destructive";
+  return (
+    <div className="flex items-center gap-1.5 min-w-[70px]">
+      <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+        <div className={`h-full ${tone}`} style={{ width: `${v}%` }} />
+      </div>
+      <span className="text-[10px] font-bold tabular-nums">{v}%</span>
+    </div>
+  );
+}
+
+function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () => void }) {
+  const hist = item.historicoDias;
+  const max = Math.max(...hist);
+  const min = Math.min(...hist);
+  const delta = hist.length > 1 ? hist[hist.length - 1] - hist[0] : 0;
+  const insight =
+    delta < -1 ? "Consumo aumentando · ciclo encurtando" :
+    delta > 1  ? "Consumo diminuindo · ciclo aumentando" :
+                 "Padrão estável · alta previsibilidade";
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative ml-auto h-full w-full max-w-md bg-card border-l border-border shadow-2xl overflow-y-auto p-5 space-y-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+              <Brain className="size-3 text-accent" /> Perfil IA · {item.pet}
+            </div>
+            <h3 className="text-lg font-bold mt-0.5">{item.cliente}</h3>
+            <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+              <MapPin className="size-3" /> {item.cidade} · {item.bairro}
+            </div>
+          </div>
+          <button onClick={onClose} className="size-8 grid place-items-center rounded-lg bg-secondary hover:bg-secondary/70">
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Mini label="Média real" value={`${item.mediaRecompra}d`} accent="success" />
+          <Mini label="Previsão base" value={`${item.previsaoBase}d`} />
+          <Mini label="Precisão IA" value={`${item.precisaoIA}%`} accent={item.precisaoIA >= 85 ? "success" : undefined} />
+          <Mini label="Compras analisadas" value={`${item.historicoDias.length}`} />
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <ComportamentoPill c={item.comportamento} />
+          <TendenciaPill t={item.tendencia} />
+          {item.travado && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border border-accent/30 bg-accent/10 text-accent">
+              <Lock className="size-3" /> Travado
+            </span>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2.5 text-[11px] flex items-start gap-2">
+          <Sparkles className="size-3.5 text-accent shrink-0 mt-0.5" />
+          <div><b className="text-accent">IA:</b> {insight}</div>
+        </div>
+
+        <div>
+          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2">Histórico de ciclos</div>
+          <div className="space-y-1.5">
+            {hist.map((d, i) => {
+              const w = ((d - min) / Math.max(1, max - min)) * 100;
+              const isLast = i === hist.length - 1;
+              return (
+                <div key={i} className="grid grid-cols-[60px_1fr_40px] items-center gap-2">
+                  <div className="text-[11px] text-muted-foreground">Compra {i + 1}</div>
+                  <div className="h-5 rounded-md bg-secondary/60 overflow-hidden">
+                    <div className={`h-full ${isLast ? "bg-gradient-to-r from-primary to-accent" : "bg-primary/40"}`} style={{ width: `${30 + w * 0.7}%` }} />
+                  </div>
+                  <div className="text-[11px] font-bold text-right tabular-nums">{d}d</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-2 text-[10px] text-muted-foreground">
+            mín {min}d · máx {max}d · variação {max - min}d
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2">Próxima recompra</div>
+          <div className="rounded-lg bg-secondary/60 p-3 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-muted-foreground">Previsão ajustada IA</div>
+              <div className="text-lg font-bold">{item.dataPrevista}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-muted-foreground">Estimado</div>
+              <div className="text-lg font-bold text-success">{item.valorEstimado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 pt-2">
+          <button className="h-9 rounded-lg bg-success/15 text-success text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-success/25">
+            <MessageCircle className="size-3.5" /> WhatsApp
+          </button>
+          <button className="h-9 rounded-lg bg-primary/15 text-primary text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-primary/25">
+            <ShoppingBag className="size-3.5" /> Gerar pedido
+          </button>
+          <button className="h-9 rounded-lg bg-accent/15 text-accent text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-accent/25">
+            <Sparkles className="size-3.5" /> Lembrete IA
+          </button>
+          <button className="h-9 rounded-lg bg-secondary text-foreground text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-secondary/70">
+            <Bell className="size-3.5" /> Follow-up
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 export function SpeciePill({ especie, compact }: { especie: "cachorro" | "gato"; compact?: boolean }) {
   const isDog = especie === "cachorro";
