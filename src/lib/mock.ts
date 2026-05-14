@@ -1,6 +1,7 @@
 // Mock data for Mundo Pet CRM (frontend-only demo)
 export const kpis = {
   faturamentoHoje: 4870.5,
+  faturamentoSemana: 31420,
   faturamentoMes: 87420,
   lucroMes: 24180,
   ticketMedio: 142.3,
@@ -10,7 +11,29 @@ export const kpis = {
   clientesVip: 142,
   clientesRisco: 18,
   estoqueCritico: 7,
+  leadsHoje: 22,
+  leadsSemana: 168,
+  conversaoHoje: 31,
+  conversaoSemana: 28,
+  conversaoMes: 26,
+  recompraPrevista: 14,
 };
+
+export const funilDados = [
+  { etapa: "Leads", valor: 168, cor: "var(--color-chart-4)" },
+  { etapa: "Conversas", valor: 124, cor: "var(--color-accent)" },
+  { etapa: "Pedidos", valor: 86, cor: "var(--color-primary)" },
+  { etapa: "Clientes ativos", valor: 72, cor: "var(--color-success)" },
+  { etapa: "Recompra", valor: 49, cor: "var(--color-chart-2)" },
+];
+
+export const crescimentoMensal = [
+  { mes: "Jan", valor: 52000 }, { mes: "Fev", valor: 58400 },
+  { mes: "Mar", valor: 61200 }, { mes: "Abr", valor: 67800 },
+  { mes: "Mai", valor: 74300 }, { mes: "Jun", valor: 79100 },
+  { mes: "Jul", valor: 82900 }, { mes: "Ago", valor: 87420 },
+];
+
 
 export const vendasSemana = [
   { dia: "Seg", vendas: 3200, lucro: 980 },
