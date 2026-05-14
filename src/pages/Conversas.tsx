@@ -356,6 +356,18 @@ function CrmPanel({ cli }: { cli: typeof clientes[number] }) {
           </div>
         </Section>
 
+        {/* Comportamento */}
+        <Section icon={<Sparkles className="size-3" />} title="Comportamento">
+          <div className="grid grid-cols-2 gap-1.5">
+            <Behavior label="Aceita upsell" value={cli.perfil !== "Econômico"} />
+            <Behavior label="Ignora promoções" value={cli.perfil === "Premium"} invert />
+            <Behavior label="Sensível a preço" value={cli.perfil === "Econômico"} invert />
+            <Behavior label="Cliente VIP" value={cli.perfil === "VIP" || cli.perfil === "Premium"} />
+            <Behavior label="Risco de perder" value={cli.perfil === "Risco"} invert />
+            <Behavior label="Bom pagador" value={cli.totalDescontos < cli.totalGasto * 0.1} />
+          </div>
+        </Section>
+
         {/* IA Aprendeu */}
         <Section icon={<Zap className="size-3" />} title="IA aprendeu">
           <ul className="space-y-1 text-[11px]">
@@ -366,9 +378,24 @@ function CrmPanel({ cli }: { cli: typeof clientes[number] }) {
           </ul>
         </Section>
 
-        <button className="w-full text-xs font-semibold py-2 rounded-xl bg-gradient-to-r from-primary to-accent text-primary-foreground inline-flex items-center justify-center gap-1.5">
-          <TrendingUp className="size-3.5" /> Ver perfil completo
-        </button>
+        {/* Ações Rápidas */}
+        <Section icon={<Zap className="size-3" />} title="Ações rápidas">
+          <div className="grid grid-cols-2 gap-1.5">
+            <ActionBtn icon="📋" label="Abrir pedido" />
+            <ActionBtn icon="💸" label="Gerar Pix" primary />
+            <ActionBtn icon="🏷️" label="Aplicar desconto" />
+            <ActionBtn icon="🔔" label="Follow-up" />
+            <ActionBtn icon="📊" label="Mover kanban" />
+            <ActionBtn icon="📜" label="Histórico" />
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cli.endereco + " " + cli.bairro)}`}
+              target="_blank" rel="noreferrer"
+              className="col-span-2 inline-flex items-center justify-center gap-1.5 h-9 rounded-lg bg-secondary hover:bg-secondary/70 text-xs font-semibold transition"
+            >
+              📍 Abrir endereço no Maps
+            </a>
+          </div>
+        </Section>
       </div>
     </div>
   );
@@ -391,6 +418,27 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
       <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</div>
       <div className={`font-bold text-xs mt-0.5 truncate ${accent === "success" ? "text-success" : ""}`}>{value}</div>
     </div>
+  );
+}
+
+function Behavior({ label, value, invert }: { label: string; value: boolean; invert?: boolean }) {
+  return (
+    <div className={`rounded-lg p-2 border ${value ? (invert ? "bg-destructive/10 border-destructive/20" : "bg-success/10 border-success/20") : "bg-secondary/40 border-transparent"}`}>
+      <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">{label}</div>
+      <div className={`font-bold text-xs mt-0.5 ${value ? (invert ? "text-destructive" : "text-success") : "text-muted-foreground"}`}>
+        {value ? "Sim" : "Não"}
+      </div>
+    </div>
+  );
+}
+
+function ActionBtn({ icon, label, primary }: { icon: string; label: string; primary?: boolean }) {
+  return (
+    <button className={`h-9 px-2 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition ${
+      primary ? "bg-success text-success-foreground hover:opacity-90" : "bg-secondary hover:bg-secondary/70"
+    }`}>
+      <span>{icon}</span> {label}
+    </button>
   );
 }
 

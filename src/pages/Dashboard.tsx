@@ -1,206 +1,255 @@
-import { kpis, vendasSemana, origemLeads, pedidos, conversas } from "@/lib/mock";
-import { StatusBadge } from "@/components/StatusBadge";
+import { kpis, vendasSemana, funilDados, crescimentoMensal, conversas } from "@/lib/mock";
 import {
   TrendingUp, ShoppingBag, Wallet, RefreshCw, Crown, AlertTriangle,
-  ArrowUpRight, Sparkles
+  ArrowUpRight, Sparkles, Target, Users, Zap, AlertCircle, TrendingDown,
+  Lightbulb, Package2,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-  PieChart, Pie, Cell, Legend
+  LineChart, Line,
 } from "recharts";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export function Dashboard() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold">Bom dia, Ana 👋</h1>
+          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Bom dia, Ana 👋</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Aqui está o resumo do Mundo Pet — atualizado em tempo real.
+            Painel de crescimento — Mundo Pet em tempo real
           </p>
         </div>
         <div className="flex gap-2">
           <button className="h-10 px-4 rounded-xl border border-border bg-card text-sm font-medium hover:bg-secondary transition">
             Hoje
           </button>
-          <button className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-2">
+          <button className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
             <Sparkles className="size-4" /> Relatório IA
           </button>
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 lg:gap-4">
-        <KpiCard icon={<Wallet className="size-4" />} label="Faturamento hoje" value={brl(kpis.faturamentoHoje)} delta="+18%" />
-        <KpiCard icon={<TrendingUp className="size-4" />} label="Faturamento mês" value={brl(kpis.faturamentoMes)} delta="+12%" />
-        <KpiCard icon={<ShoppingBag className="size-4" />} label="Pedidos hoje" value={String(kpis.pedidosHoje)} delta="+6" />
-        <KpiCard icon={<RefreshCw className="size-4" />} label="Recompra" value={`${kpis.taxaRecompra}%`} delta="+3%" />
-        <KpiCard icon={<Crown className="size-4" />} label="Ticket médio" value={brl(kpis.ticketMedio)} delta="+R$ 8" />
-      </div>
+      {/* LINHA 1 — Receita */}
+      <Section title="Receita" subtitle="visão financeira do período">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Kpi icon={<Wallet />} label="Faturamento hoje" value={brl(kpis.faturamentoHoje)} delta="+18%" tone="primary" />
+          <Kpi icon={<TrendingUp />} label="Faturamento semana" value={brl(kpis.faturamentoSemana)} delta="+9%" tone="primary" />
+          <Kpi icon={<TrendingUp />} label="Faturamento mês" value={brl(kpis.faturamentoMes)} delta="+12%" tone="primary" />
+          <Kpi icon={<Crown />} label="Lucro líquido mês" value={brl(kpis.lucroMes)} delta="+14%" tone="success" />
+        </div>
+      </Section>
 
-      {/* Charts row */}
+      {/* LINHA 2 — Aquisição & Conversão */}
+      <Section title="Aquisição & Conversão" subtitle="leads novos e taxas">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <Kpi icon={<Users />} label="Leads hoje" value={String(kpis.leadsHoje)} delta="+5" tone="accent" />
+          <Kpi icon={<Users />} label="Leads semana" value={String(kpis.leadsSemana)} delta="+22" tone="accent" />
+          <Kpi icon={<Target />} label="Conversão hoje" value={`${kpis.conversaoHoje}%`} delta="+3pp" tone="success" />
+          <Kpi icon={<Target />} label="Conversão semana" value={`${kpis.conversaoSemana}%`} delta="+1pp" tone="success" />
+          <Kpi icon={<Target />} label="Conversão mês" value={`${kpis.conversaoMes}%`} delta="-1pp" tone="warning" />
+        </div>
+      </Section>
+
+      {/* LINHA 3 — Operação */}
+      <Section title="Operação" subtitle="pedidos, recompra e risco">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Kpi icon={<ShoppingBag />} label="Pedidos hoje" value={String(kpis.pedidosHoje)} delta="+6" tone="primary" />
+          <Kpi icon={<RefreshCw />} label="Recompra prevista" value={String(kpis.recompraPrevista)} delta="hoje" tone="success" />
+          <Kpi icon={<AlertTriangle />} label="Clientes em risco" value={String(kpis.clientesRisco)} delta="-2" tone="destructive" />
+          <Kpi icon={<Zap />} label="Taxa upsell" value={`${kpis.taxaUpsell}%`} delta="+4pp" tone="accent" />
+        </div>
+      </Section>
+
+      {/* GRÁFICOS */}
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="card-soft p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-semibold">Vendas e lucro · últimos 7 dias</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Comparativo diário</p>
+              <h3 className="font-semibold">Crescimento mensal · 8 meses</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Faturamento consolidado</p>
             </div>
             <span className="text-xs font-semibold text-success bg-success/10 px-2 py-1 rounded-md inline-flex items-center gap-1">
-              <ArrowUpRight className="size-3" /> +14%
+              <ArrowUpRight className="size-3" /> +68% YTD
             </span>
           </div>
-          <div className="h-64">
+          <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={vendasSemana}>
-                <defs>
-                  <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="var(--color-primary)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--color-accent)" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="var(--color-accent)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+              <LineChart data={crescimentoMensal}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                <XAxis dataKey="dia" stroke="var(--color-muted-foreground)" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--color-muted-foreground)" fontSize={12} tickLine={false} axisLine={false} />
+                <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${v / 1000}k`} />
                 <Tooltip
-                  contentStyle={{
-                    background: "var(--color-card)",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: 12,
-                    fontSize: 12,
-                  }}
+                  contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12, fontSize: 12 }}
                   formatter={(v: number) => brl(v)}
                 />
-                <Area type="monotone" dataKey="vendas" stroke="var(--color-primary)" strokeWidth={2.5} fill="url(#g1)" />
-                <Area type="monotone" dataKey="lucro" stroke="var(--color-accent)" strokeWidth={2.5} fill="url(#g2)" />
-              </AreaChart>
+                <Line type="monotone" dataKey="valor" stroke="var(--color-primary)" strokeWidth={3} dot={{ r: 4, fill: "var(--color-primary)" }} activeDot={{ r: 6 }} />
+              </LineChart>
             </ResponsiveContainer>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-border">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Crescimento diário (semana)</h4>
+            <div className="h-32">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={vendasSemana}>
+                  <defs>
+                    <linearGradient id="dg" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--color-accent)" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="var(--color-accent)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="dia" stroke="var(--color-muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12, fontSize: 12 }} formatter={(v: number) => brl(v)} />
+                  <Area type="monotone" dataKey="vendas" stroke="var(--color-accent)" strokeWidth={2} fill="url(#dg)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
 
+        {/* FUNIL */}
         <div className="card-soft p-5">
-          <h3 className="font-semibold">Origem dos leads</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Onde seus clientes vêm</p>
-          <div className="h-64 mt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={origemLeads} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={3}>
-                  {origemLeads.map((_, i) => (
-                    <Cell key={i} fill={["var(--color-primary)","var(--color-accent)","var(--color-success)","var(--color-chart-4)","var(--color-muted-foreground)"][i]} />
-                  ))}
-                </Pie>
-                <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
-              </PieChart>
-            </ResponsiveContainer>
+          <h3 className="font-semibold">Funil de conversão</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Lead → Recompra</p>
+          <div className="mt-4 space-y-2">
+            {funilDados.map((f, i) => {
+              const prev = i === 0 ? f.valor : funilDados[i - 1].valor;
+              const taxa = ((f.valor / funilDados[0].valor) * 100).toFixed(0);
+              const conv = i === 0 ? null : ((f.valor / prev) * 100).toFixed(0);
+              const width = (f.valor / funilDados[0].valor) * 100;
+              return (
+                <div key={f.etapa}>
+                  <div className="flex justify-between items-baseline text-xs mb-1">
+                    <span className="font-semibold">{f.etapa}</span>
+                    <span className="text-muted-foreground">
+                      <b className="text-foreground">{f.valor}</b> · {taxa}%
+                      {conv && <span className="text-success ml-1">↳ {conv}%</span>}
+                    </span>
+                  </div>
+                  <div className="h-7 rounded-lg bg-secondary overflow-hidden">
+                    <div
+                      className="h-full rounded-lg transition-all"
+                      style={{ width: `${width}%`, background: f.cor }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* Lower row */}
+      {/* ALERTAS IA + WHATSAPP */}
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="card-soft p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold">Pedidos recentes</h3>
-            <a className="text-xs font-semibold text-primary">Ver todos →</a>
+            <div>
+              <h3 className="font-semibold inline-flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" /> Alertas da IA
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Análise automática a cada 15 min</p>
+            </div>
           </div>
-          <div className="overflow-x-auto -mx-2">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-muted-foreground text-left">
-                  <th className="font-medium px-2 py-2">Pedido</th>
-                  <th className="font-medium px-2 py-2">Cliente</th>
-                  <th className="font-medium px-2 py-2 hidden md:table-cell">Bairro</th>
-                  <th className="font-medium px-2 py-2">Status</th>
-                  <th className="font-medium px-2 py-2 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pedidos.slice(0, 6).map((p) => (
-                  <tr key={p.id} className="border-t border-border hover:bg-secondary/40">
-                    <td className="px-2 py-3 font-mono text-xs font-semibold">{p.id}</td>
-                    <td className="px-2 py-3">
-                      <div className="font-medium">{p.cliente}</div>
-                      <div className="text-xs text-muted-foreground">{p.pet}</div>
-                    </td>
-                    <td className="px-2 py-3 hidden md:table-cell text-muted-foreground">{p.bairro}</td>
-                    <td className="px-2 py-3"><StatusBadge value={p.status} /></td>
-                    <td className="px-2 py-3 text-right font-semibold">{brl(p.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="grid sm:grid-cols-2 gap-2.5">
+            <IaAlert tone="destructive" icon={<TrendingDown />} title="Queda de conversão −3pp"
+              desc="Conversão de hoje 31% vs meta 34%. Reveja respostas IA." />
+            <IaAlert tone="success" icon={<TrendingUp />} title="Recompra +18% em ração"
+              desc="Categoria premium acelera. Estoque suficiente para 9 dias." />
+            <IaAlert tone="destructive" icon={<AlertCircle />} title="Estoque crítico · 7 itens"
+              desc="Shampoo Hipoalergênico tem 1 unidade." />
+            <IaAlert tone="warning" icon={<Target />} title="Campanha ruim · Black Pet"
+              desc="ROI 1.1x. Sugiro pausar e realocar verba." />
+            <IaAlert tone="primary" icon={<Lightbulb />} title="Oportunidade · Royal Canin Renal"
+              desc="Pedido 8x sem estoque. R$ 2.560 em vendas perdidas." />
+            <IaAlert tone="primary" icon={<Crown />} title="Cliente lucrativo: Roberto Lima"
+              desc="Margem 39%, comprou +3 vezes esse mês." />
+          </ul>
         </div>
 
-        <div className="space-y-4">
-          <div className="card-soft p-5">
-            <h3 className="font-semibold mb-3">Alertas inteligentes</h3>
-            <ul className="space-y-3 text-sm">
-              <Alert color="destructive" icon={<AlertTriangle className="size-4" />} title={`${kpis.estoqueCritico} produtos em ruptura`} desc="Areia Pipicat 12kg acaba em 2 dias." />
-              <Alert color="accent" icon={<RefreshCw className="size-4" />} title="14 recompras previstas hoje" desc="A IA já enviou 8 ofertas no WhatsApp." />
-              <Alert color="primary" icon={<Crown className="size-4" />} title={`${kpis.clientesVip} clientes VIP ativos`} desc="Considere campanha exclusiva de fim de mês." />
-            </ul>
-          </div>
-
-          <div className="card-soft p-5">
-            <h3 className="font-semibold mb-3">WhatsApp · ao vivo</h3>
-            <ul className="space-y-3">
-              {conversas.slice(0, 4).map((c) => (
-                <li key={c.id} className="flex items-center gap-3">
-                  <div className="size-9 rounded-full bg-primary/15 grid place-items-center text-primary font-semibold text-xs">
-                    {c.cliente.split(" ").map(n=>n[0]).slice(0,2).join("")}
+        <div className="card-soft p-5">
+          <h3 className="font-semibold mb-3 inline-flex items-center gap-2">
+            WhatsApp · ao vivo
+            <span className="size-2 rounded-full bg-success animate-pulse" />
+          </h3>
+          <ul className="space-y-3">
+            {conversas.slice(0, 5).map((c) => (
+              <li key={c.id} className="flex items-center gap-3">
+                <div className="size-9 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 grid place-items-center font-semibold text-xs">
+                  {c.cliente.split(" ").map(n => n[0]).slice(0, 2).join("")}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <p className="text-sm font-semibold truncate">{c.cliente}</p>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{c.hora}</span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-baseline gap-2">
-                      <p className="text-sm font-semibold truncate">{c.cliente}</p>
-                      <span className="text-[10px] text-muted-foreground shrink-0">{c.hora}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">{c.ultima}</p>
-                  </div>
-                  {c.naoLidas > 0 && (
-                    <span className="text-[10px] font-bold size-5 grid place-items-center rounded-full bg-success text-success-foreground">{c.naoLidas}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
+                  <p className="text-xs text-muted-foreground truncate">{c.ultima}</p>
+                </div>
+                {c.naoLidas > 0 && (
+                  <span className="text-[10px] font-bold size-5 grid place-items-center rounded-full bg-success text-success-foreground">{c.naoLidas}</span>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </div>
   );
 }
 
-function KpiCard({ icon, label, value, delta }: { icon: React.ReactNode; label: string; value: string; delta: string }) {
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="card-soft p-4">
-      <div className="flex items-center justify-between text-muted-foreground">
-        <div className="size-8 rounded-lg bg-secondary grid place-items-center">{icon}</div>
-        <span className="text-[11px] font-semibold text-success">{delta}</span>
+    <section>
+      <div className="flex items-baseline gap-3 mb-2.5 px-1">
+        <h2 className="text-xs uppercase font-bold tracking-wider text-muted-foreground">{title}</h2>
+        {subtitle && <span className="text-[10px] text-muted-foreground/70">· {subtitle}</span>}
       </div>
-      <div className="mt-3 text-xs text-muted-foreground">{label}</div>
-      <div className="text-xl lg:text-2xl font-bold mt-0.5 tracking-tight">{value}</div>
+      {children}
+    </section>
+  );
+}
+
+function Kpi({ icon, label, value, delta, tone }: {
+  icon: React.ReactNode; label: string; value: string; delta: string;
+  tone: "primary" | "success" | "accent" | "warning" | "destructive";
+}) {
+  const tones = {
+    primary: { bg: "bg-primary/10", fg: "text-primary", delta: "text-success" },
+    success: { bg: "bg-success/10", fg: "text-success", delta: "text-success" },
+    accent: { bg: "bg-accent/10", fg: "text-accent", delta: "text-success" },
+    warning: { bg: "bg-accent/10", fg: "text-accent", delta: "text-accent" },
+    destructive: { bg: "bg-destructive/10", fg: "text-destructive", delta: "text-destructive" },
+  }[tone];
+  return (
+    <div className="card-soft p-4 hover:shadow-md transition">
+      <div className="flex items-center justify-between">
+        <div className={`size-8 rounded-lg grid place-items-center ${tones.bg} ${tones.fg} [&_svg]:size-4`}>
+          {icon}
+        </div>
+        <span className={`text-[10px] font-bold ${tones.delta}`}>{delta}</span>
+      </div>
+      <div className="mt-3 text-[11px] text-muted-foreground leading-tight">{label}</div>
+      <div className="text-xl lg:text-2xl font-bold mt-0.5 tracking-tight tabular-nums">{value}</div>
     </div>
   );
 }
 
-function Alert({ color, icon, title, desc }: { color: "destructive"|"accent"|"primary"; icon: React.ReactNode; title: string; desc: string }) {
-  const cls = {
+function IaAlert({ tone, icon, title, desc }: {
+  tone: "destructive" | "warning" | "success" | "primary"; icon: React.ReactNode; title: string; desc: string;
+}) {
+  const tones = {
     destructive: "bg-destructive/10 text-destructive",
-    accent: "bg-accent/15 text-accent",
-    primary: "bg-primary/15 text-primary",
-  }[color];
+    warning: "bg-accent/15 text-accent",
+    success: "bg-success/10 text-success",
+    primary: "bg-primary/10 text-primary",
+  }[tone];
   return (
-    <li className="flex gap-3">
-      <div className={`size-9 rounded-lg grid place-items-center shrink-0 ${cls}`}>{icon}</div>
+    <li className="flex gap-3 p-2.5 rounded-xl border border-border hover:bg-secondary/40 transition">
+      <div className={`size-8 rounded-lg grid place-items-center shrink-0 ${tones} [&_svg]:size-4`}>{icon}</div>
       <div className="min-w-0">
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="text-xs text-muted-foreground">{desc}</p>
+        <p className="text-sm font-semibold leading-tight">{title}</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">{desc}</p>
       </div>
     </li>
   );
