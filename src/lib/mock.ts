@@ -146,16 +146,53 @@ export type Cliente = {
   lucroLiquido: number;
   pedidos: number;
   proxRecompra: string;
+  cidade?: string;
+  especies?: ("cachorro" | "gato")[];
 };
 
 export const clientes: Cliente[] = [
-  { id: "1", nome: "Marina Costa", telefone: "(11) 99812-3344", endereco: "R. Vergueiro, 1240", bairro: "Vila Mariana", pets: ["Thor"], ticket: 210, frequencia: "Mensal", ultima: "há 3 dias", perfil: "VIP", origem: "Influenciadora Gabi Pets", origemDetalhe: "Story patrocinado · 12/03", campanha: "Influencer @gabipets", campanhaCusto: 300, campanhaConvertidos: 15, cupom: "GABI10", influenciador: "@gabipets", cac: 20, totalGasto: 2940, totalDescontos: 180, lucroLiquido: 1180, pedidos: 14, proxRecompra: "em 4 dias" },
-  { id: "2", nome: "Pedro Alves", telefone: "(11) 99423-7788", endereco: "R. Tuim, 220", bairro: "Moema", pets: ["Mel"], ticket: 95, frequencia: "Bimestral", ultima: "há 12 dias", perfil: "Econômico", origem: "Meta Ads", origemDetalhe: "Campanha Black Pet · Nov", campanha: "Black Pet Nov", campanhaCusto: 880, campanhaConvertidos: 40, cac: 22, totalGasto: 760, totalDescontos: 40, lucroLiquido: 210, pedidos: 8, proxRecompra: "em 18 dias" },
-  { id: "3", nome: "Júlia Ramos", telefone: "(11) 98011-2231", endereco: "R. dos Pinheiros, 412", bairro: "Pinheiros", pets: ["Bento", "Lola"], ticket: 280, frequencia: "Mensal", ultima: "há 1 dia", perfil: "Premium", origem: "Instagram Orgânico", origemDetalhe: "Reels viral · 02/04", cac: 0, totalGasto: 4480, totalDescontos: 220, lucroLiquido: 1620, pedidos: 16, proxRecompra: "em 22 dias" },
-  { id: "4", nome: "Carlos Mendes", telefone: "(11) 97812-5599", endereco: "R. Iguatemi, 88", bairro: "Itaim", pets: ["Luna"], ticket: 142, frequencia: "Mensal", ultima: "há 5 dias", perfil: "VIP", origem: "Indicação", origemDetalhe: "Indicado por João Silva", cac: 0, totalGasto: 1988, totalDescontos: 60, lucroLiquido: 720, pedidos: 14, proxRecompra: "em 12 dias" },
-  { id: "5", nome: "Ana Beatriz", telefone: "(11) 99988-1144", endereco: "R. Funchal, 200", bairro: "Vila Olímpia", pets: ["Nina"], ticket: 320, frequencia: "Mensal", ultima: "há 2 dias", perfil: "Premium", origem: "TikTok", origemDetalhe: "Reels orgânico · #petlovers", campanha: "Reels orgânico", campanhaCusto: 0, campanhaConvertidos: 24, cac: 0, totalGasto: 5120, totalDescontos: 320, lucroLiquido: 1980, pedidos: 16, proxRecompra: "em 9 dias" },
-  { id: "6", nome: "Roberto Lima", telefone: "(11) 98234-6677", endereco: "Av. Berrini, 880", bairro: "Brooklin", pets: ["Zeus"], ticket: 540, frequencia: "Mensal", ultima: "há 1 dia", perfil: "VIP", origem: "Google Ads", origemDetalhe: "Search · ração premium", campanha: "Search ração premium", campanhaCusto: 1520, campanhaConvertidos: 40, cac: 38, totalGasto: 7560, totalDescontos: 410, lucroLiquido: 2980, pedidos: 14, proxRecompra: "em 7 dias" },
-  { id: "7", nome: "Helena Souza", telefone: "(11) 97001-2233", endereco: "R. das Rosas, 14", bairro: "Saúde", pets: ["Pretinha"], ticket: 78, frequencia: "—", ultima: "há 62 dias", perfil: "Risco", origem: "WhatsApp direto", cac: 0, totalGasto: 234, totalDescontos: 0, lucroLiquido: 38, pedidos: 3, proxRecompra: "atrasada" },
+  { id: "1", nome: "Marina Costa", telefone: "(11) 99812-3344", endereco: "R. Vergueiro, 1240", bairro: "Vila Mariana", cidade: "São Paulo", especies: ["cachorro"], pets: ["Thor"], ticket: 210, frequencia: "Mensal", ultima: "há 3 dias", perfil: "VIP", origem: "Influenciadora Gabi Pets", origemDetalhe: "Story patrocinado · 12/03", campanha: "Influencer @gabipets", campanhaCusto: 300, campanhaConvertidos: 15, cupom: "GABI10", influenciador: "@gabipets", cac: 20, totalGasto: 2940, totalDescontos: 180, lucroLiquido: 1180, pedidos: 14, proxRecompra: "em 4 dias" },
+  { id: "2", nome: "Pedro Alves", telefone: "(11) 99423-7788", endereco: "R. Tuim, 220", bairro: "Moema", cidade: "São Paulo", especies: ["cachorro"], pets: ["Mel"], ticket: 95, frequencia: "Bimestral", ultima: "há 12 dias", perfil: "Econômico", origem: "Meta Ads", origemDetalhe: "Campanha Black Pet · Nov", campanha: "Black Pet Nov", campanhaCusto: 880, campanhaConvertidos: 40, cac: 22, totalGasto: 760, totalDescontos: 40, lucroLiquido: 210, pedidos: 8, proxRecompra: "em 18 dias" },
+  { id: "3", nome: "Júlia Ramos", telefone: "(11) 98011-2231", endereco: "R. dos Pinheiros, 412", bairro: "Pinheiros", cidade: "São Paulo", especies: ["cachorro", "gato"], pets: ["Bento", "Lola"], ticket: 280, frequencia: "Mensal", ultima: "há 1 dia", perfil: "Premium", origem: "Instagram Orgânico", origemDetalhe: "Reels viral · 02/04", cac: 0, totalGasto: 4480, totalDescontos: 220, lucroLiquido: 1620, pedidos: 16, proxRecompra: "em 22 dias" },
+  { id: "4", nome: "Carlos Mendes", telefone: "(11) 97812-5599", endereco: "R. Iguatemi, 88", bairro: "Itaim", cidade: "São Paulo", especies: ["gato"], pets: ["Luna"], ticket: 142, frequencia: "Mensal", ultima: "há 5 dias", perfil: "VIP", origem: "Indicação", origemDetalhe: "Indicado por João Silva", cac: 0, totalGasto: 1988, totalDescontos: 60, lucroLiquido: 720, pedidos: 14, proxRecompra: "em 12 dias" },
+  { id: "5", nome: "Ana Beatriz", telefone: "(11) 99988-1144", endereco: "R. Funchal, 200", bairro: "Vila Olímpia", cidade: "São Paulo", especies: ["cachorro"], pets: ["Nina"], ticket: 320, frequencia: "Mensal", ultima: "há 2 dias", perfil: "Premium", origem: "TikTok", origemDetalhe: "Reels orgânico · #petlovers", campanha: "Reels orgânico", campanhaCusto: 0, campanhaConvertidos: 24, cac: 0, totalGasto: 5120, totalDescontos: 320, lucroLiquido: 1980, pedidos: 16, proxRecompra: "em 9 dias" },
+  { id: "6", nome: "Roberto Lima", telefone: "(11) 98234-6677", endereco: "Av. Berrini, 880", bairro: "Brooklin", cidade: "São Paulo", especies: ["cachorro"], pets: ["Zeus"], ticket: 540, frequencia: "Mensal", ultima: "há 1 dia", perfil: "VIP", origem: "Google Ads", origemDetalhe: "Search · ração premium", campanha: "Search ração premium", campanhaCusto: 1520, campanhaConvertidos: 40, cac: 38, totalGasto: 7560, totalDescontos: 410, lucroLiquido: 2980, pedidos: 14, proxRecompra: "em 7 dias" },
+  { id: "7", nome: "Helena Souza", telefone: "(11) 97001-2233", endereco: "R. das Rosas, 14", bairro: "Saúde", cidade: "São Paulo", especies: ["gato"], pets: ["Pretinha"], ticket: 78, frequencia: "—", ultima: "há 62 dias", perfil: "Risco", origem: "WhatsApp direto", cac: 0, totalGasto: 234, totalDescontos: 0, lucroLiquido: 38, pedidos: 3, proxRecompra: "atrasada" },
+];
+
+// ── Recompra Prevista ──
+export type RecompraStatus = "ok" | "semana" | "urgente" | "atrasado";
+export type RecompraPrevista = {
+  id: string;
+  clienteId: string;
+  cliente: string;
+  telefone: string;
+  cidade: string;
+  bairro: string;
+  pet: string;
+  especie: "cachorro" | "gato";
+  perfil: Cliente["perfil"];
+  racao: string;
+  pesoKg: number;
+  consumoDiaKg: number;
+  ultimaCompra: string; // dd/mm
+  diasRestantes: number; // negativo = atrasado
+  dataPrevista: string; // dd/mm
+  valorEstimado: number;
+  status: RecompraStatus;
+  contatado?: boolean;
+};
+
+export const recomprasPrevistas: RecompraPrevista[] = [
+  { id: "r1", clienteId: "1", cliente: "Marina Costa", telefone: "(11) 99812-3344", cidade: "São Paulo", bairro: "Vila Mariana", pet: "Thor", especie: "cachorro", perfil: "VIP", racao: "Golden Adultos 15kg", pesoKg: 15, consumoDiaKg: 0.5, ultimaCompra: "16/04", diasRestantes: 0, dataPrevista: "16/05", valorEstimado: 289.9, status: "urgente" },
+  { id: "r2", clienteId: "5", cliente: "Ana Beatriz", telefone: "(11) 99988-1144", cidade: "São Paulo", bairro: "Vila Olímpia", pet: "Nina", especie: "cachorro", perfil: "Premium", racao: "Premier Gourmet 10,1kg", pesoKg: 10.1, consumoDiaKg: 0.35, ultimaCompra: "20/04", diasRestantes: 2, dataPrevista: "18/05", valorEstimado: 318, status: "urgente" },
+  { id: "r3", clienteId: "6", cliente: "Roberto Lima", telefone: "(11) 98234-6677", cidade: "São Paulo", bairro: "Brooklin", pet: "Zeus", especie: "cachorro", perfil: "VIP", racao: "Golden Raças Grandes 20kg", pesoKg: 20, consumoDiaKg: 0.7, ultimaCompra: "23/04", diasRestantes: 4, dataPrevista: "20/05", valorEstimado: 419, status: "semana" },
+  { id: "r4", clienteId: "4", cliente: "Carlos Mendes", telefone: "(11) 97812-5599", cidade: "São Paulo", bairro: "Itaim", pet: "Luna", especie: "gato", perfil: "VIP", racao: "Hills Felino 3kg + Areia 12kg", pesoKg: 3, consumoDiaKg: 0.06, ultimaCompra: "27/04", diasRestantes: 6, dataPrevista: "22/05", valorEstimado: 248, status: "semana" },
+  { id: "r5", clienteId: "2", cliente: "Pedro Alves", telefone: "(11) 99423-7788", cidade: "São Paulo", bairro: "Moema", pet: "Mel", especie: "cachorro", perfil: "Econômico", racao: "Premier Filhotes 3kg", pesoKg: 3, consumoDiaKg: 0.12, ultimaCompra: "02/05", diasRestantes: 11, dataPrevista: "27/05", valorEstimado: 142, status: "ok" },
+  { id: "r6", clienteId: "3", cliente: "Júlia Ramos", telefone: "(11) 98011-2231", cidade: "São Paulo", bairro: "Pinheiros", pet: "Bento", especie: "cachorro", perfil: "Premium", racao: "Golden Mini 10,1kg", pesoKg: 10.1, consumoDiaKg: 0.18, ultimaCompra: "10/04", diasRestantes: 18, dataPrevista: "03/06", valorEstimado: 264, status: "ok" },
+  { id: "r7", clienteId: "7", cliente: "Helena Souza", telefone: "(11) 97001-2233", cidade: "São Paulo", bairro: "Saúde", pet: "Pretinha", especie: "gato", perfil: "Risco", racao: "Whiskas Adulto 3kg", pesoKg: 3, consumoDiaKg: 0.06, ultimaCompra: "13/03", diasRestantes: -8, dataPrevista: "07/05", valorEstimado: 78, status: "atrasado" },
+  { id: "r8", clienteId: "3", cliente: "Júlia Ramos", telefone: "(11) 98011-2231", cidade: "São Paulo", bairro: "Pinheiros", pet: "Lola", especie: "gato", perfil: "Premium", racao: "Royal Canin Felino 1,5kg", pesoKg: 1.5, consumoDiaKg: 0.05, ultimaCompra: "21/04", diasRestantes: 1, dataPrevista: "17/05", valorEstimado: 168, status: "urgente" },
+  { id: "r9", clienteId: "1", cliente: "Marina Costa", telefone: "(11) 99812-3344", cidade: "São Paulo", bairro: "Vila Mariana", pet: "Thor", especie: "cachorro", perfil: "VIP", racao: "Petisco Natural 90g · combo", pesoKg: 0.27, consumoDiaKg: 0.01, ultimaCompra: "30/04", diasRestantes: -2, dataPrevista: "14/05", valorEstimado: 56, status: "atrasado" },
 ];
 
 export type Produto = {
