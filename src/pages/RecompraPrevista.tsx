@@ -1,9 +1,10 @@
-import { recomprasPrevistas, produtosPrevistos, type RecompraPrevista, type RecompraStatus } from "@/lib/mock";
+import { recomprasPrevistas, produtosPrevistos, iaRecompraAlertas, type RecompraPrevista, type RecompraStatus, type ComportamentoIA, type TendenciaIA } from "@/lib/mock";
 import { useMemo, useState } from "react";
 import {
   MessageCircle, ShoppingBag, Bell, CheckCheck, ArrowRightLeft,
-  AlertTriangle, Calendar, TrendingUp, Search, MapPin, Sparkles,
+  AlertTriangle, TrendingUp, Search, MapPin, Sparkles,
   Package, BarChart3, Boxes, Target, Users, Flame,
+  Brain, Activity, Lock, LockOpen, X, TrendingDown, Minus, Settings2,
 } from "lucide-react";
 
 const brl = (n: number) =>
