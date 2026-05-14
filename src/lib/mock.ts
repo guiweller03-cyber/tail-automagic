@@ -111,7 +111,10 @@ export type Cliente = {
   ultima: string;
   perfil: "VIP" | "Premium" | "Econômico" | "Novo" | "Risco";
   origem: string;
+  origemDetalhe?: string;
   campanha?: string;
+  campanhaCusto?: number;
+  campanhaConvertidos?: number;
   cupom?: string;
   influenciador?: string;
   cac: number;
@@ -123,12 +126,12 @@ export type Cliente = {
 };
 
 export const clientes: Cliente[] = [
-  { id: "1", nome: "Marina Costa", telefone: "(11) 99812-3344", endereco: "R. Vergueiro, 1240", bairro: "Vila Mariana", pets: ["Thor"], ticket: 210, frequencia: "Mensal", ultima: "há 3 dias", perfil: "VIP", origem: "Influenciadora Gabi Pets", campanha: "Influencer @gabipets", cupom: "GABI10", influenciador: "@gabipets", cac: 14.5, totalGasto: 2940, totalDescontos: 180, lucroLiquido: 1180, pedidos: 14, proxRecompra: "em 4 dias" },
-  { id: "2", nome: "Pedro Alves", telefone: "(11) 99423-7788", endereco: "R. Tuim, 220", bairro: "Moema", pets: ["Mel"], ticket: 95, frequencia: "Bimestral", ultima: "há 12 dias", perfil: "Econômico", origem: "Meta Ads", campanha: "Black Pet Nov", cac: 22, totalGasto: 760, totalDescontos: 40, lucroLiquido: 210, pedidos: 8, proxRecompra: "em 18 dias" },
-  { id: "3", nome: "Júlia Ramos", telefone: "(11) 98011-2231", endereco: "R. dos Pinheiros, 412", bairro: "Pinheiros", pets: ["Bento", "Lola"], ticket: 280, frequencia: "Mensal", ultima: "há 1 dia", perfil: "Premium", origem: "Instagram Orgânico", cac: 0, totalGasto: 4480, totalDescontos: 220, lucroLiquido: 1620, pedidos: 16, proxRecompra: "em 22 dias" },
-  { id: "4", nome: "Carlos Mendes", telefone: "(11) 97812-5599", endereco: "R. Iguatemi, 88", bairro: "Itaim", pets: ["Luna"], ticket: 142, frequencia: "Mensal", ultima: "há 5 dias", perfil: "VIP", origem: "Indicação", cac: 0, totalGasto: 1988, totalDescontos: 60, lucroLiquido: 720, pedidos: 14, proxRecompra: "em 12 dias" },
-  { id: "5", nome: "Ana Beatriz", telefone: "(11) 99988-1144", endereco: "R. Funchal, 200", bairro: "Vila Olímpia", pets: ["Nina"], ticket: 320, frequencia: "Mensal", ultima: "há 2 dias", perfil: "Premium", origem: "TikTok", campanha: "Reels orgânico", cac: 4, totalGasto: 5120, totalDescontos: 320, lucroLiquido: 1980, pedidos: 16, proxRecompra: "em 9 dias" },
-  { id: "6", nome: "Roberto Lima", telefone: "(11) 98234-6677", endereco: "Av. Berrini, 880", bairro: "Brooklin", pets: ["Zeus"], ticket: 540, frequencia: "Mensal", ultima: "há 1 dia", perfil: "VIP", origem: "Google", campanha: "Search ração premium", cac: 38, totalGasto: 7560, totalDescontos: 410, lucroLiquido: 2980, pedidos: 14, proxRecompra: "em 7 dias" },
+  { id: "1", nome: "Marina Costa", telefone: "(11) 99812-3344", endereco: "R. Vergueiro, 1240", bairro: "Vila Mariana", pets: ["Thor"], ticket: 210, frequencia: "Mensal", ultima: "há 3 dias", perfil: "VIP", origem: "Influenciadora Gabi Pets", origemDetalhe: "Story patrocinado · 12/03", campanha: "Influencer @gabipets", campanhaCusto: 300, campanhaConvertidos: 15, cupom: "GABI10", influenciador: "@gabipets", cac: 20, totalGasto: 2940, totalDescontos: 180, lucroLiquido: 1180, pedidos: 14, proxRecompra: "em 4 dias" },
+  { id: "2", nome: "Pedro Alves", telefone: "(11) 99423-7788", endereco: "R. Tuim, 220", bairro: "Moema", pets: ["Mel"], ticket: 95, frequencia: "Bimestral", ultima: "há 12 dias", perfil: "Econômico", origem: "Meta Ads", origemDetalhe: "Campanha Black Pet · Nov", campanha: "Black Pet Nov", campanhaCusto: 880, campanhaConvertidos: 40, cac: 22, totalGasto: 760, totalDescontos: 40, lucroLiquido: 210, pedidos: 8, proxRecompra: "em 18 dias" },
+  { id: "3", nome: "Júlia Ramos", telefone: "(11) 98011-2231", endereco: "R. dos Pinheiros, 412", bairro: "Pinheiros", pets: ["Bento", "Lola"], ticket: 280, frequencia: "Mensal", ultima: "há 1 dia", perfil: "Premium", origem: "Instagram Orgânico", origemDetalhe: "Reels viral · 02/04", cac: 0, totalGasto: 4480, totalDescontos: 220, lucroLiquido: 1620, pedidos: 16, proxRecompra: "em 22 dias" },
+  { id: "4", nome: "Carlos Mendes", telefone: "(11) 97812-5599", endereco: "R. Iguatemi, 88", bairro: "Itaim", pets: ["Luna"], ticket: 142, frequencia: "Mensal", ultima: "há 5 dias", perfil: "VIP", origem: "Indicação", origemDetalhe: "Indicado por João Silva", cac: 0, totalGasto: 1988, totalDescontos: 60, lucroLiquido: 720, pedidos: 14, proxRecompra: "em 12 dias" },
+  { id: "5", nome: "Ana Beatriz", telefone: "(11) 99988-1144", endereco: "R. Funchal, 200", bairro: "Vila Olímpia", pets: ["Nina"], ticket: 320, frequencia: "Mensal", ultima: "há 2 dias", perfil: "Premium", origem: "TikTok", origemDetalhe: "Reels orgânico · #petlovers", campanha: "Reels orgânico", campanhaCusto: 0, campanhaConvertidos: 24, cac: 0, totalGasto: 5120, totalDescontos: 320, lucroLiquido: 1980, pedidos: 16, proxRecompra: "em 9 dias" },
+  { id: "6", nome: "Roberto Lima", telefone: "(11) 98234-6677", endereco: "Av. Berrini, 880", bairro: "Brooklin", pets: ["Zeus"], ticket: 540, frequencia: "Mensal", ultima: "há 1 dia", perfil: "VIP", origem: "Google Ads", origemDetalhe: "Search · ração premium", campanha: "Search ração premium", campanhaCusto: 1520, campanhaConvertidos: 40, cac: 38, totalGasto: 7560, totalDescontos: 410, lucroLiquido: 2980, pedidos: 14, proxRecompra: "em 7 dias" },
   { id: "7", nome: "Helena Souza", telefone: "(11) 97001-2233", endereco: "R. das Rosas, 14", bairro: "Saúde", pets: ["Pretinha"], ticket: 78, frequencia: "—", ultima: "há 62 dias", perfil: "Risco", origem: "WhatsApp direto", cac: 0, totalGasto: 234, totalDescontos: 0, lucroLiquido: 38, pedidos: 3, proxRecompra: "atrasada" },
 ];
 
