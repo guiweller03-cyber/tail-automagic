@@ -59,7 +59,31 @@ export type Conversa = {
   tag: "IA" | "Humano" | "Aguardando";
   pet?: string;
   estagio: KanbanStage;
+  valorPotencial: number;
+  filtros: ConversaFiltro[];
 };
+
+export type ConversaFiltro =
+  | "Novos leads"
+  | "Recompra"
+  | "Follow-up"
+  | "VIP"
+  | "Sem resposta"
+  | "Em negociação"
+  | "Upsell"
+  | "Pedido hoje";
+
+export const filtrosConversa: ("Todos" | ConversaFiltro)[] = [
+  "Todos",
+  "Novos leads",
+  "Recompra",
+  "Follow-up",
+  "VIP",
+  "Sem resposta",
+  "Em negociação",
+  "Upsell",
+  "Pedido hoje",
+];
 
 export type KanbanStage = "Hoje" | "Recompra" | "Follow-up" | "Aguardando pagamento" | "Upsell" | "Risco";
 
