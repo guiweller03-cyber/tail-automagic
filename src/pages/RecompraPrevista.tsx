@@ -158,7 +158,79 @@ export function RecompraPrevista() {
         />
       </div>
 
-      {/* PRODUTOS PREVISTOS */}
+      {/* IA ADAPTATIVA — DASHBOARD */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
+            <Brain className="size-4 text-accent" /> IA adaptativa por cliente
+          </h2>
+          <span className="text-[11px] text-muted-foreground">
+            aprende o ciclo real de cada cliente · ajustes automáticos
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <Kpi icon={<TrendingUp className="size-4" />} label="Antecipando"      value={String(antecipando)} sub="recompra mais cedo" tone="success" />
+          <Kpi icon={<TrendingDown className="size-4" />} label="Atrasando"       value={String(atrasando)}   sub="ciclo aumentando"   tone="destructive" />
+          <Kpi icon={<Activity className="size-4" />} label="Instáveis"           value={String(instaveis)}   sub="padrão irregular"   tone="amber" />
+          <Kpi icon={<Target className="size-4" />} label="Altamente previsíveis" value={String(previsiveis)} sub="precisão ≥ 85%"     tone="primary" />
+          <Kpi icon={<Brain className="size-4" />} label="Precisão IA média"      value={`${precisaoMedia}%`} sub="todos os clientes"  tone="primary" />
+        </div>
+
+        {/* Alertas IA */}
+        <div className="card-soft p-3">
+          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Sparkles className="size-3 text-accent" /> Alertas da IA
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {iaRecompraAlertas.map((a, i) => {
+              const tone =
+                a.tipo === "antecipou"  ? "border-success/30 bg-success/5 text-success" :
+                a.tipo === "atrasou"    ? "border-destructive/30 bg-destructive/5 text-destructive" :
+                a.tipo === "instavel"   ? "border-amber-500/30 bg-amber-500/5 text-amber-600" :
+                                          "border-primary/30 bg-primary/5 text-primary";
+              return (
+                <div key={i} className={`rounded-lg border px-3 py-2 text-[11px] flex items-start gap-2 ${tone}`}>
+                  <Sparkles className="size-3.5 shrink-0 mt-0.5" />
+                  <div className="text-foreground/90">
+                    <b>{a.cliente}</b> <span className="opacity-80">{a.msg}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {showConfig && (
+          <div className="card-soft p-4 space-y-3 border border-accent/30">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-bold flex items-center gap-2">
+                <Settings2 className="size-4 text-accent" /> Configurações da IA de recompra
+              </div>
+              <button onClick={() => setShowConfig(false)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <ConfigSlider label="Sensibilidade do aprendizado" value={iaConfig.sensibilidade} onChange={(v) => setIaConfig({ ...iaConfig, sensibilidade: v })} hint="quão rápido a IA muda a previsão" />
+              <ConfigSlider label="Peso do histórico recente"    value={iaConfig.pesoRecente}    onChange={(v) => setIaConfig({ ...iaConfig, pesoRecente: v })}    hint="prioriza últimas compras vs média geral" />
+              <ConfigNumber label="Mínimo de compras p/ aprender" value={iaConfig.minCompras} onChange={(v) => setIaConfig({ ...iaConfig, minCompras: v })} />
+              <label className="flex items-center justify-between rounded-lg bg-secondary/60 px-3 py-2.5">
+                <div>
+                  <div className="text-xs font-semibold">Ajuste automático</div>
+                  <div className="text-[10px] text-muted-foreground">aplicar correção sem confirmação</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={iaConfig.ajusteAuto}
+                  onChange={(e) => setIaConfig({ ...iaConfig, ajusteAuto: e.target.checked })}
+                  className="size-4 accent-accent"
+                />
+              </label>
+            </div>
+          </div>
+        )}
+      </section>
+
+
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
