@@ -301,3 +301,27 @@ export const iaAlertas = [
   { tipo: "Recompra subindo +18%", desc: "Categoria Ração Premium", tone: "success" as const },
   { tipo: "Entrega atrasada", desc: "Pedido #10233 · ETA estourou em 12 min", tone: "destructive" as const },
 ];
+
+// ── Produtos previstos para recompra ──
+export type ProdutoPrevisto = {
+  id: string;
+  nome: string;
+  categoria: string;
+  unidadesPrevistas: number;
+  taxaRecompra: number; // 0-100
+  precoUnit: number;
+  custoUnit: number;
+  estoqueAtual: number;
+  diasParaRuptura: number; // dias até estoque acabar conforme demanda
+};
+
+export const produtosPrevistos: ProdutoPrevisto[] = [
+  { id: "pp1", nome: "Golden Mini Bits 15kg",     categoria: "Ração",    unidadesPrevistas: 18, taxaRecompra: 84, precoUnit: 189,   custoUnit: 128, estoqueAtual: 7,  diasParaRuptura: 5 },
+  { id: "pp2", nome: "Special Dog Gold 15kg",     categoria: "Ração",    unidadesPrevistas: 11, taxaRecompra: 71, precoUnit: 185,   custoUnit: 122, estoqueAtual: 14, diasParaRuptura: 12 },
+  { id: "pp3", nome: "FN Fresh Meat 7kg",         categoria: "Ração",    unidadesPrevistas: 7,  taxaRecompra: 92, precoUnit: 259,   custoUnit: 178, estoqueAtual: 3,  diasParaRuptura: 3 },
+  { id: "pp4", nome: "Royal Canin Felino 1,5kg",  categoria: "Ração",    unidadesPrevistas: 9,  taxaRecompra: 88, precoUnit: 168,   custoUnit: 112, estoqueAtual: 6,  diasParaRuptura: 7 },
+  { id: "pp5", nome: "Areia Pipicat 12kg",        categoria: "Higiene",  unidadesPrevistas: 22, taxaRecompra: 79, precoUnit: 39.9,  custoUnit: 24,  estoqueAtual: 3,  diasParaRuptura: 2 },
+  { id: "pp6", nome: "Petisco Natural 90g · combo", categoria: "Petiscos", unidadesPrevistas: 31, taxaRecompra: 64, precoUnit: 18.9,  custoUnit: 8.4, estoqueAtual: 47, diasParaRuptura: 18 },
+  { id: "pp7", nome: "Antipulga Frontline G",     categoria: "Saúde",    unidadesPrevistas: 6,  taxaRecompra: 58, precoUnit: 119,   custoUnit: 78,  estoqueAtual: 12, diasParaRuptura: 22 },
+  { id: "pp8", nome: "Hills Felino c/d 1,5kg",    categoria: "Ração",    unidadesPrevistas: 5,  taxaRecompra: 95, precoUnit: 195,   custoUnit: 134, estoqueAtual: 2,  diasParaRuptura: 4 },
+];
