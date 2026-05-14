@@ -421,6 +421,27 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   );
 }
 
+function Behavior({ label, value, invert }: { label: string; value: boolean; invert?: boolean }) {
+  return (
+    <div className={`rounded-lg p-2 border ${value ? (invert ? "bg-destructive/10 border-destructive/20" : "bg-success/10 border-success/20") : "bg-secondary/40 border-transparent"}`}>
+      <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">{label}</div>
+      <div className={`font-bold text-xs mt-0.5 ${value ? (invert ? "text-destructive" : "text-success") : "text-muted-foreground"}`}>
+        {value ? "Sim" : "Não"}
+      </div>
+    </div>
+  );
+}
+
+function ActionBtn({ icon, label, primary }: { icon: string; label: string; primary?: boolean }) {
+  return (
+    <button className={`h-9 px-2 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition ${
+      primary ? "bg-success text-success-foreground hover:opacity-90" : "bg-secondary hover:bg-secondary/70"
+    }`}>
+      <span>{icon}</span> {label}
+    </button>
+  );
+}
+
 function QuickReply({ label, icon }: { label: string; icon?: React.ReactNode }) {
   return (
     <button className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20 inline-flex items-center gap-1 transition">
