@@ -489,7 +489,7 @@ export function RecompraPrevista() {
                           {st.label}
                         </span>
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           <a
                             href={wpp} target="_blank" rel="noreferrer"
@@ -508,6 +508,15 @@ export function RecompraPrevista() {
                             <Bell className="size-4" />
                           </button>
                           <button
+                            title={r.travado ? "Destravar previsão" : "Travar previsão"}
+                            onClick={() => toggleTravado(r.id)}
+                            className={`size-8 grid place-items-center rounded-lg transition ${
+                              r.travado ? "bg-accent text-accent-foreground" : "bg-secondary hover:bg-secondary/70"
+                            }`}
+                          >
+                            {r.travado ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
+                          </button>
+                          <button
                             title="Marcar contatado"
                             onClick={() => marcarContatado(r.id)}
                             className={`size-8 grid place-items-center rounded-lg transition ${
@@ -524,7 +533,7 @@ export function RecompraPrevista() {
                   );
                 })}
                 {filtrados.length === 0 && (
-                  <tr><td colSpan={9} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  <tr><td colSpan={12} className="px-4 py-10 text-center text-xs text-muted-foreground">
                     Nenhum cliente neste filtro.
                   </td></tr>
                 )}
@@ -533,6 +542,8 @@ export function RecompraPrevista() {
           </div>
         </div>
       </section>
+
+      {drawerItem && <ClienteDrawer item={drawerItem} onClose={() => setDrawerId(null)} />}
     </div>
   );
 }
