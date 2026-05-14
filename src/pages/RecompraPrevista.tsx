@@ -81,6 +81,19 @@ export function RecompraPrevista() {
   function marcarContatado(id: string) {
     setItems((arr) => arr.map((r) => (r.id === id ? { ...r, contatado: !r.contatado } : r)));
   }
+  function toggleTravado(id: string) {
+    setItems((arr) => arr.map((r) => (r.id === id ? { ...r, travado: !r.travado } : r)));
+  }
+
+  // ── IA stats ──
+  const antecipando = items.filter((r) => r.comportamento === "antecipado").length;
+  const atrasando   = items.filter((r) => r.comportamento === "atrasado").length;
+  const instaveis   = items.filter((r) => r.comportamento === "instavel").length;
+  const previsiveis = items.filter((r) => r.precisaoIA >= 85).length;
+  const precisaoMedia = Math.round(items.reduce((s, r) => s + r.precisaoIA, 0) / items.length);
+
+  const drawerItem = items.find((i) => i.id === drawerId) || null;
+
 
   return (
     <div className="space-y-6">
