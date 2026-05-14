@@ -32,6 +32,14 @@ export function RecompraPrevista() {
   const [busca, setBusca] = useState("");
   const [cidade, setCidade] = useState("Todas");
   const [bairro, setBairro] = useState("Todos");
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [showConfig, setShowConfig] = useState(false);
+  const [iaConfig, setIaConfig] = useState({
+    sensibilidade: 70,
+    minCompras: 3,
+    pesoRecente: 60,
+    ajusteAuto: true,
+  });
 
   const cidades = useMemo(() => ["Todas", ...Array.from(new Set(items.map((r) => r.cidade)))], [items]);
   const bairros = useMemo(() => ["Todos", ...Array.from(new Set(items.map((r) => r.bairro)))], [items]);
