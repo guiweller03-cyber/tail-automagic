@@ -415,7 +415,10 @@ export function RecompraPrevista() {
                   <th className="text-left font-semibold px-3 py-2.5">Cliente</th>
                   <th className="text-left font-semibold px-3 py-2.5">Pet</th>
                   <th className="text-left font-semibold px-3 py-2.5">Ração atual</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Última</th>
+                  <th className="text-center font-semibold px-3 py-2.5" title="Média real do cliente">Média IA</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Comportamento</th>
+                  <th className="text-center font-semibold px-3 py-2.5">Precisão</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Tendência</th>
                   <th className="text-center font-semibold px-3 py-2.5">Dias</th>
                   <th className="text-left font-semibold px-3 py-2.5">Prevista</th>
                   <th className="text-right font-semibold px-3 py-2.5">Estimado</th>
