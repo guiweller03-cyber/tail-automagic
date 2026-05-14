@@ -579,6 +579,175 @@ function Mini({ label, value, accent }: { label: string; value: string; accent?:
   );
 }
 
+function ConfigSlider({ label, value, onChange, hint }: { label: string; value: number; onChange: (v: number) => void; hint?: string }) {
+  return (
+    <div className="rounded-lg bg-secondary/60 px-3 py-2.5">
+      <div className="flex items-center justify-between text-xs font-semibold">
+        <span>{label}</span><span className="tabular-nums text-accent">{value}%</span>
+      </div>
+      {hint && <div className="text-[10px] text-muted-foreground mb-1.5">{hint}</div>}
+      <input type="range" min={0} max={100} value={value} onChange={(e) => onChange(+e.target.value)} className="w-full accent-accent" />
+    </div>
+  );
+}
+
+function ConfigNumber({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <label className="flex items-center justify-between rounded-lg bg-secondary/60 px-3 py-2.5">
+      <div className="text-xs font-semibold">{label}</div>
+      <input type="number" min={1} max={20} value={value} onChange={(e) => onChange(+e.target.value)}
+        className="w-16 h-7 px-2 rounded-md bg-background text-xs font-bold text-right outline-none ring-1 ring-border focus:ring-accent" />
+    </label>
+  );
+}
+
+function ComportamentoPill({ c }: { c: ComportamentoIA }) {
+  const map: Record<ComportamentoIA, { label: string; cls: string; icon: React.ReactNode }> = {
+    antecipado: { label: "Antecipado", cls: "bg-success/15 text-success border-success/30",       icon: <TrendingUp className="size-3" /> },
+    pontual:    { label: "Pontual",    cls: "bg-primary/15 text-primary border-primary/30",       icon: <Target className="size-3" /> },
+    atrasado:   { label: "Atrasado",   cls: "bg-destructive/15 text-destructive border-destructive/30", icon: <TrendingDown className="size-3" /> },
+    instavel:   { label: "Instável",   cls: "bg-amber-500/15 text-amber-600 border-amber-500/30", icon: <Activity className="size-3" /> },
+  };
+  const x = map[c];
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${x.cls}`}>
+      {x.icon}{x.label}
+    </span>
+  );
+}
+
+function TendenciaPill({ t }: { t: TendenciaIA }) {
+  const map: Record<TendenciaIA, { label: string; cls: string; icon: React.ReactNode }> = {
+    acelerando:    { label: "Comprando antes",   cls: "text-success",      icon: <TrendingUp className="size-3" /> },
+    estavel:       { label: "Estável",            cls: "text-muted-foreground", icon: <Minus className="size-3" /> },
+    desacelerando: { label: "Comprando depois",  cls: "text-destructive",  icon: <TrendingDown className="size-3" /> },
+  };
+  const x = map[t];
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${x.cls}`}>
+      {x.icon}{x.label}
+    </span>
+  );
+}
+
+function PrecisaoBar({ v }: { v: number }) {
+  const tone = v >= 85 ? "bg-success" : v >= 70 ? "bg-primary" : v >= 60 ? "bg-amber-500" : "bg-destructive";
+  return (
+    <div className="flex items-center gap-1.5 min-w-[70px]">
+      <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+        <div className={`h-full ${tone}`} style={{ width: `${v}%` }} />
+      </div>
+      <span className="text-[10px] font-bold tabular-nums">{v}%</span>
+    </div>
+  );
+}
+
+function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () => void }) {
+  const hist = item.historicoDias;
+  const max = Math.max(...hist);
+  const min = Math.min(...hist);
+  const delta = hist.length > 1 ? hist[hist.length - 1] - hist[0] : 0;
+  const insight =
+    delta < -1 ? "Consumo aumentando · ciclo encurtando" :
+    delta > 1  ? "Consumo diminuindo · ciclo aumentando" :
+                 "Padrão estável · alta previsibilidade";
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative ml-auto h-full w-full max-w-md bg-card border-l border-border shadow-2xl overflow-y-auto p-5 space-y-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+              <Brain className="size-3 text-accent" /> Perfil IA · {item.pet}
+            </div>
+            <h3 className="text-lg font-bold mt-0.5">{item.cliente}</h3>
+            <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+              <MapPin className="size-3" /> {item.cidade} · {item.bairro}
+            </div>
+          </div>
+          <button onClick={onClose} className="size-8 grid place-items-center rounded-lg bg-secondary hover:bg-secondary/70">
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Mini label="Média real" value={`${item.mediaRecompra}d`} accent="success" />
+          <Mini label="Previsão base" value={`${item.previsaoBase}d`} />
+          <Mini label="Precisão IA" value={`${item.precisaoIA}%`} accent={item.precisaoIA >= 85 ? "success" : undefined} />
+          <Mini label="Compras analisadas" value={`${item.historicoDias.length}`} />
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <ComportamentoPill c={item.comportamento} />
+          <TendenciaPill t={item.tendencia} />
+          {item.travado && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border border-accent/30 bg-accent/10 text-accent">
+              <Lock className="size-3" /> Travado
+            </span>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2.5 text-[11px] flex items-start gap-2">
+          <Sparkles className="size-3.5 text-accent shrink-0 mt-0.5" />
+          <div><b className="text-accent">IA:</b> {insight}</div>
+        </div>
+
+        <div>
+          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2">Histórico de ciclos</div>
+          <div className="space-y-1.5">
+            {hist.map((d, i) => {
+              const w = ((d - min) / Math.max(1, max - min)) * 100;
+              const isLast = i === hist.length - 1;
+              return (
+                <div key={i} className="grid grid-cols-[60px_1fr_40px] items-center gap-2">
+                  <div className="text-[11px] text-muted-foreground">Compra {i + 1}</div>
+                  <div className="h-5 rounded-md bg-secondary/60 overflow-hidden">
+                    <div className={`h-full ${isLast ? "bg-gradient-to-r from-primary to-accent" : "bg-primary/40"}`} style={{ width: `${30 + w * 0.7}%` }} />
+                  </div>
+                  <div className="text-[11px] font-bold text-right tabular-nums">{d}d</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-2 text-[10px] text-muted-foreground">
+            mín {min}d · máx {max}d · variação {max - min}d
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2">Próxima recompra</div>
+          <div className="rounded-lg bg-secondary/60 p-3 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-muted-foreground">Previsão ajustada IA</div>
+              <div className="text-lg font-bold">{item.dataPrevista}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-muted-foreground">Estimado</div>
+              <div className="text-lg font-bold text-success">{item.valorEstimado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 pt-2">
+          <button className="h-9 rounded-lg bg-success/15 text-success text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-success/25">
+            <MessageCircle className="size-3.5" /> WhatsApp
+          </button>
+          <button className="h-9 rounded-lg bg-primary/15 text-primary text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-primary/25">
+            <ShoppingBag className="size-3.5" /> Gerar pedido
+          </button>
+          <button className="h-9 rounded-lg bg-accent/15 text-accent text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-accent/25">
+            <Sparkles className="size-3.5" /> Lembrete IA
+          </button>
+          <button className="h-9 rounded-lg bg-secondary text-foreground text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-secondary/70">
+            <Bell className="size-3.5" /> Follow-up
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 export function SpeciePill({ especie, compact }: { especie: "cachorro" | "gato"; compact?: boolean }) {
   const isDog = especie === "cachorro";
   const cls = isDog
