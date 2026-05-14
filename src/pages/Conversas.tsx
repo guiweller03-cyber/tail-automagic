@@ -7,6 +7,7 @@ import {
   DollarSign, Tag, Users, PawPrint, Zap, ChevronDown,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { SpeciePill } from "@/pages/RecompraPrevista";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
