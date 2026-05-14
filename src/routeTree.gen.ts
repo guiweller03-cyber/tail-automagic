@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RecompraPrevistaRouteImport } from './routes/recompra-prevista'
 import { Route as ProdutosProcuradosRouteImport } from './routes/produtos-procurados'
 import { Route as PedidosRouteImport } from './routes/pedidos'
 import { Route as PdvRouteImport } from './routes/pdv'
@@ -22,6 +23,11 @@ import { Route as AutomacoesRouteImport } from './routes/automacoes'
 import { Route as AssistenteRouteImport } from './routes/assistente'
 import { Route as IndexRouteImport } from './routes/index'
 
+const RecompraPrevistaRoute = RecompraPrevistaRouteImport.update({
+  id: '/recompra-prevista',
+  path: '/recompra-prevista',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProdutosProcuradosRoute = ProdutosProcuradosRouteImport.update({
   id: '/produtos-procurados',
   path: '/produtos-procurados',
@@ -96,6 +102,7 @@ export interface FileRoutesByFullPath {
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
+  '/recompra-prevista': typeof RecompraPrevistaRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
+  '/recompra-prevista': typeof RecompraPrevistaRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -125,6 +133,7 @@ export interface FileRoutesById {
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
+  '/recompra-prevista': typeof RecompraPrevistaRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -141,6 +150,7 @@ export interface FileRouteTypes {
     | '/pdv'
     | '/pedidos'
     | '/produtos-procurados'
+    | '/recompra-prevista'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -155,6 +165,7 @@ export interface FileRouteTypes {
     | '/pdv'
     | '/pedidos'
     | '/produtos-procurados'
+    | '/recompra-prevista'
   id:
     | '__root__'
     | '/'
@@ -169,6 +180,7 @@ export interface FileRouteTypes {
     | '/pdv'
     | '/pedidos'
     | '/produtos-procurados'
+    | '/recompra-prevista'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -184,10 +196,18 @@ export interface RootRouteChildren {
   PdvRoute: typeof PdvRoute
   PedidosRoute: typeof PedidosRoute
   ProdutosProcuradosRoute: typeof ProdutosProcuradosRoute
+  RecompraPrevistaRoute: typeof RecompraPrevistaRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/recompra-prevista': {
+      id: '/recompra-prevista'
+      path: '/recompra-prevista'
+      fullPath: '/recompra-prevista'
+      preLoaderRoute: typeof RecompraPrevistaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/produtos-procurados': {
       id: '/produtos-procurados'
       path: '/produtos-procurados'
@@ -288,6 +308,7 @@ const rootRouteChildren: RootRouteChildren = {
   PdvRoute: PdvRoute,
   PedidosRoute: PedidosRoute,
   ProdutosProcuradosRoute: ProdutosProcuradosRoute,
+  RecompraPrevistaRoute: RecompraPrevistaRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

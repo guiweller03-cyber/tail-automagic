@@ -7,6 +7,7 @@ import {
   DollarSign, Tag, Users, PawPrint, Zap, ChevronDown,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { SpeciePill } from "@/pages/RecompraPrevista";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -275,9 +276,17 @@ function CrmPanel({ cli }: { cli: typeof clientes[number] }) {
             <div className="text-[11px] text-muted-foreground">{cli.telefone}</div>
           </div>
         </div>
-        <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <MapPin className="size-3 shrink-0" />
-          <span className="truncate">{cli.endereco} · {cli.bairro}</span>
+        {/* Etiquetas visuais: cidade + espécie */}
+        <div className="mt-3 flex items-center gap-1.5 flex-wrap">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border bg-card text-foreground">
+            <MapPin className="size-3" /> {cli.cidade ?? "São Paulo"}{cli.bairro ? ` — ${cli.bairro}` : ""}
+          </span>
+          {(cli.especies ?? []).map((e) => (
+            <SpeciePill key={e} especie={e} />
+          ))}
+          {(!cli.especies || cli.especies.length === 0) && (
+            <SpeciePill especie="cachorro" />
+          )}
         </div>
       </div>
 
