@@ -162,6 +162,8 @@ export const clientes: Cliente[] = [
 
 // ── Recompra Prevista ──
 export type RecompraStatus = "ok" | "semana" | "urgente" | "atrasado";
+export type ComportamentoIA = "antecipado" | "pontual" | "atrasado" | "instavel";
+export type TendenciaIA = "acelerando" | "estavel" | "desacelerando";
 export type RecompraPrevista = {
   id: string;
   clienteId: string;
@@ -181,6 +183,14 @@ export type RecompraPrevista = {
   valorEstimado: number;
   status: RecompraStatus;
   contatado?: boolean;
+  // ── IA adaptativa ──
+  mediaRecompra: number;        // dias médios reais do cliente
+  previsaoBase: number;         // o que o cálculo geral previa
+  comportamento: ComportamentoIA;
+  precisaoIA: number;           // 0-100
+  tendencia: TendenciaIA;
+  historicoDias: number[];      // dias entre compras (mais antigo → mais recente)
+  travado?: boolean;            // previsão fixada manualmente
 };
 
 export const recomprasPrevistas: RecompraPrevista[] = [
