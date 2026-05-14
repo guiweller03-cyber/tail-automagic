@@ -107,9 +107,17 @@ export function RecompraPrevista() {
             Painel de vendas futuras · previsão de produtos, estoque e clientes
           </p>
         </div>
-        <button className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90">
-          <Sparkles className="size-3.5" /> Disparar todos via IA
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowConfig((v) => !v)}
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-secondary text-foreground text-xs font-semibold hover:bg-secondary/70"
+          >
+            <Settings2 className="size-3.5" /> Config IA
+          </button>
+          <button className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90">
+            <Sparkles className="size-3.5" /> Disparar todos via IA
+          </button>
+        </div>
       </div>
 
       {/* RESUMO SUPERIOR */}
