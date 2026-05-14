@@ -90,13 +90,13 @@ export type KanbanStage = "Hoje" | "Recompra" | "Follow-up" | "Aguardando pagame
 export const kanbanStages: KanbanStage[] = ["Hoje", "Recompra", "Follow-up", "Aguardando pagamento", "Upsell", "Risco"];
 
 export const conversas: Conversa[] = [
-  { id: "1", cliente: "Marina Costa", pet: "Thor", ultima: "Pode mandar o Pix? 🙏", hora: "14:32", naoLidas: 2, tag: "IA", estagio: "Aguardando pagamento" },
-  { id: "2", cliente: "Pedro Alves", pet: "Mel", ultima: "Beleza, pode confirmar!", hora: "14:18", naoLidas: 0, tag: "IA", estagio: "Hoje" },
-  { id: "3", cliente: "Júlia Ramos", pet: "Bento", ultima: "Vocês têm shampoo hipoalergênico?", hora: "13:50", naoLidas: 1, tag: "Aguardando", estagio: "Upsell" },
-  { id: "4", cliente: "Carlos Mendes", pet: "Luna", ultima: "Recebi, obrigado! ❤️", hora: "13:14", naoLidas: 0, tag: "Humano", estagio: "Follow-up" },
-  { id: "5", cliente: "Ana Beatriz", pet: "Nina", ultima: "A ração da Nina tá acabando 😅", hora: "12:58", naoLidas: 3, tag: "IA", estagio: "Recompra" },
-  { id: "6", cliente: "Roberto Lima", pet: "Zeus", ultima: "Quanto sai o saco de 15kg?", hora: "12:30", naoLidas: 0, tag: "IA", estagio: "Hoje" },
-  { id: "7", cliente: "Helena Souza", pet: "Pretinha", ultima: "—", hora: "ontem", naoLidas: 0, tag: "Humano", estagio: "Risco" },
+  { id: "1", cliente: "Marina Costa", pet: "Thor", ultima: "Pode mandar o Pix? 🙏", hora: "14:32", naoLidas: 2, tag: "IA", estagio: "Aguardando pagamento", valorPotencial: 210, filtros: ["VIP", "Em negociação", "Pedido hoje"] },
+  { id: "2", cliente: "Pedro Alves", pet: "Mel", ultima: "Beleza, pode confirmar!", hora: "14:18", naoLidas: 0, tag: "IA", estagio: "Hoje", valorPotencial: 95, filtros: ["Pedido hoje"] },
+  { id: "3", cliente: "Júlia Ramos", pet: "Bento", ultima: "Vocês têm shampoo hipoalergênico?", hora: "13:50", naoLidas: 1, tag: "Aguardando", estagio: "Upsell", valorPotencial: 280, filtros: ["Upsell", "Em negociação"] },
+  { id: "4", cliente: "Carlos Mendes", pet: "Luna", ultima: "Recebi, obrigado! ❤️", hora: "13:14", naoLidas: 0, tag: "Humano", estagio: "Follow-up", valorPotencial: 142, filtros: ["Follow-up", "VIP"] },
+  { id: "5", cliente: "Ana Beatriz", pet: "Nina", ultima: "A ração da Nina tá acabando 😅", hora: "12:58", naoLidas: 3, tag: "IA", estagio: "Recompra", valorPotencial: 320, filtros: ["Recompra", "VIP"] },
+  { id: "6", cliente: "Roberto Lima", pet: "Zeus", ultima: "Quanto sai o saco de 15kg?", hora: "12:30", naoLidas: 0, tag: "IA", estagio: "Hoje", valorPotencial: 540, filtros: ["Novos leads", "Em negociação", "VIP"] },
+  { id: "7", cliente: "Helena Souza", pet: "Pretinha", ultima: "—", hora: "ontem", naoLidas: 0, tag: "Humano", estagio: "Risco", valorPotencial: 78, filtros: ["Sem resposta"] },
 ];
 
 export type Cliente = {
