@@ -1,10 +1,11 @@
-import { recomprasPrevistas, produtosPrevistos, iaRecompraAlertas, type RecompraPrevista, type RecompraStatus, type ComportamentoIA, type TendenciaIA } from "@/lib/mock";
+import { recomprasPrevistas, produtosPrevistos, demandaBairros, iaRecompraAlertas, type RecompraPrevista, type RecompraStatus, type ComportamentoIA, type TendenciaIA } from "@/lib/mock";
 import { useMemo, useState } from "react";
 import {
   MessageCircle, ShoppingBag, Bell, CheckCheck, ArrowRightLeft,
   AlertTriangle, TrendingUp, Search, MapPin, Sparkles,
   Package, BarChart3, Boxes, Target, Users, Flame,
   Brain, Activity, Lock, LockOpen, X, TrendingDown, Minus, Settings2,
+  Truck, Map as MapIcon, ShoppingCart,
 } from "lucide-react";
 
 const brl = (n: number) =>
