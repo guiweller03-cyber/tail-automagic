@@ -8,8 +8,9 @@ import {
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 type Recompensa = { id: string; nome: string; custo: number; tipo: "desconto" | "produto" | "brinde"; emoji: string };
-type Indicacao = { clienteId: string; indicado: string; status: "pendente" | "convertido"; data: string; pontos: number };
+type Indicacao = { clienteId: string; indicado: string; status: "pendente" | "convertido" | "pago"; data: string; pontos: number; valorComprado: number; valorGanho: number };
 type Campanha = { id: string; titulo: string; regra: string; bonus: number; ativo: boolean; participantes: number };
+type ConfigIndic = { porcentagem: number; limiteMax: number; validadeDias: number; compraMinima: number };
 
 const recompensasIniciais: Recompensa[] = [
   { id: "r1", nome: "10% OFF próxima compra", custo: 50, tipo: "desconto", emoji: "🏷️" },
