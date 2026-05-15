@@ -20,6 +20,7 @@ export function Conversas() {
   const [items, setItems] = useState<Conversa[]>(conversas);
   const [filtro, setFiltro] = useState<(typeof filtrosConversa)[number]>("Todos");
   const [busca, setBusca] = useState("");
+  const { aiEnabled, toggleAIAssistant } = useAIAssistant();
 
   const filtered = useMemo(() => {
     return items.filter((c) => {
