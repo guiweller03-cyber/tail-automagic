@@ -2,7 +2,7 @@ import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import {
   LayoutDashboard, MessageCircle, Users, ShoppingBag, Store, Truck,
   Boxes, Wallet, Megaphone, Zap, PawPrint, Search, Bell, Menu, X,
-  Sparkles, PackageSearch, ArrowRightLeft
+  Sparkles, PackageSearch, ArrowRightLeft, Gift
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
