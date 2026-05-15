@@ -58,7 +58,7 @@ export function Dashboard() {
           <button className="h-10 px-4 rounded-xl border border-border bg-card text-sm font-medium hover:bg-secondary transition">
             Hoje
           </button>
-          <button className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
+          <button onClick={()=>setShowRelatorio(true)} className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
             <Sparkles className="size-4" /> Relatório IA
           </button>
         </div>
