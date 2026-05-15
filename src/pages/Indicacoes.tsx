@@ -321,3 +321,21 @@ function Kpi({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: 
     </div>
   );
 }
+
+function ConfigField({ icon, label, value, onChange, prefix, suffix }: { icon: React.ReactNode; label: string; value: number; onChange: (v: number) => void; prefix?: string; suffix?: string }) {
+  return (
+    <div className="rounded-xl bg-secondary/40 p-3">
+      <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground inline-flex items-center gap-1">{icon} {label}</div>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        {prefix && <span className="text-xs font-semibold text-muted-foreground">{prefix}</span>}
+        <input
+          type="number"
+          value={value || ""}
+          onChange={(e) => onChange(Number(e.target.value) || 0)}
+          className="w-full bg-transparent text-xl font-bold tabular-nums outline-none"
+        />
+        {suffix && <span className="text-xs font-semibold text-muted-foreground">{suffix}</span>}
+      </div>
+    </div>
+  );
+}
