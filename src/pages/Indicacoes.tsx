@@ -42,12 +42,14 @@ export function Indicacoes() {
   const ranking = useMemo(calcularRanking, []);
   const [recompensas] = useState(recompensasIniciais);
   const [campanhas, setCampanhas] = useState(campanhasIniciais);
+  const [config, setConfig] = useState<ConfigIndic>({ porcentagem: 5, limiteMax: 100, validadeDias: 90, compraMinima: 50 });
+  const calc = (valor: number) => Math.min(config.limiteMax, valor >= config.compraMinima ? (valor * config.porcentagem) / 100 : 0);
   const [indicacoes, setIndicacoes] = useState<Indicacao[]>([
-    { clienteId: "1", indicado: "Letícia Prado", status: "convertido", data: "há 2 dias", pontos: 20 },
-    { clienteId: "4", indicado: "Bruno Tavares", status: "convertido", data: "há 5 dias", pontos: 20 },
-    { clienteId: "1", indicado: "Mateus Lima", status: "pendente", data: "há 1 dia", pontos: 0 },
-    { clienteId: "3", indicado: "Renata Souza", status: "convertido", data: "há 8 dias", pontos: 20 },
-    { clienteId: "5", indicado: "Diego Costa", status: "pendente", data: "há 3 dias", pontos: 0 },
+    { clienteId: "1", indicado: "Letícia Prado", status: "pago", data: "há 2 dias", pontos: 20, valorComprado: 240, valorGanho: 12 },
+    { clienteId: "4", indicado: "Bruno Tavares", status: "convertido", data: "há 5 dias", pontos: 20, valorComprado: 180, valorGanho: 9 },
+    { clienteId: "1", indicado: "Mateus Lima", status: "pendente", data: "há 1 dia", pontos: 0, valorComprado: 0, valorGanho: 0 },
+    { clienteId: "3", indicado: "Renata Souza", status: "pago", data: "há 8 dias", pontos: 20, valorComprado: 320, valorGanho: 16 },
+    { clienteId: "5", indicado: "Diego Costa", status: "pendente", data: "há 3 dias", pontos: 0, valorComprado: 0, valorGanho: 0 },
   ]);
   const [novoModal, setNovoModal] = useState(false);
   const [novoCliente, setNovoCliente] = useState("");
@@ -55,14 +57,16 @@ export function Indicacoes() {
 
   const totalPontos = ranking.reduce((s, c) => s + c.pontos, 0);
   const totalIndicacoes = indicacoes.length;
-  const convertidas = indicacoes.filter(i => i.status === "convertido").length;
+  const convertidas = indicacoes.filter(i => i.status !== "pendente").length;
   const taxaConv = totalIndicacoes ? (convertidas / totalIndicacoes) * 100 : 0;
+  const totalGanho = indicacoes.reduce((s, i) => s + i.valorGanho, 0);
+  const totalGeradoIndicados = indicacoes.reduce((s, i) => s + i.valorComprado, 0);
 
   const adicionarIndicacao = () => {
     if (!novoCliente || !novoIndicado) return;
     const c = clientes.find(c => c.nome === novoCliente);
     if (!c) return;
-    setIndicacoes(prev => [{ clienteId: c.id, indicado: novoIndicado, status: "pendente", data: "agora", pontos: 0 }, ...prev]);
+    setIndicacoes(prev => [{ clienteId: c.id, indicado: novoIndicado, status: "pendente", data: "agora", pontos: 0, valorComprado: 0, valorGanho: 0 }, ...prev]);
     setNovoCliente(""); setNovoIndicado(""); setNovoModal(false);
   };
 
