@@ -8,6 +8,9 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { SpeciePill } from "@/pages/RecompraPrevista";
+import { SmartKanban } from "@/features/whatsapp-crm/components/SmartKanban";
+import { AIAssistantToggle } from "@/features/whatsapp-crm/components/AIAssistantToggle";
+import { useAIAssistant } from "@/features/whatsapp-crm/hooks/useAIAssistant";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -17,6 +20,7 @@ export function Conversas() {
   const [items, setItems] = useState<Conversa[]>(conversas);
   const [filtro, setFiltro] = useState<(typeof filtrosConversa)[number]>("Todos");
   const [busca, setBusca] = useState("");
+  const { aiEnabled, toggleAIAssistant } = useAIAssistant();
 
   const filtered = useMemo(() => {
     return items.filter((c) => {
@@ -40,23 +44,26 @@ export function Conversas() {
             em pipeline
           </p>
         </div>
-        <div className="inline-flex p-1 rounded-xl bg-secondary">
-          <button
-            onClick={() => setView("chat")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
-              view === "chat" ? "bg-card shadow-sm" : ""
-            }`}
-          >
-            <MessageSquare className="size-3.5" /> Chat
-          </button>
-          <button
-            onClick={() => setView("kanban")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
-              view === "kanban" ? "bg-card shadow-sm" : ""
-            }`}
-          >
-            <LayoutGrid className="size-3.5" /> Kanban
-          </button>
+        <div className="flex items-center gap-2">
+          <AIAssistantToggle enabled={aiEnabled} onToggle={toggleAIAssistant} />
+          <div className="inline-flex p-1 rounded-xl bg-secondary">
+            <button
+              onClick={() => setView("chat")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
+                view === "chat" ? "bg-card shadow-sm" : ""
+              }`}
+            >
+              <MessageSquare className="size-3.5" /> Chat
+            </button>
+            <button
+              onClick={() => setView("kanban")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
+                view === "kanban" ? "bg-card shadow-sm" : ""
+              }`}
+            >
+              <LayoutGrid className="size-3.5" /> Kanban IA
+            </button>
+          </div>
         </div>
       </div>
 
@@ -94,7 +101,7 @@ export function Conversas() {
       {view === "chat" ? (
         <ChatView active={active} setActive={setActive} items={filtered} busca={busca} setBusca={setBusca} />
       ) : (
-        <KanbanView items={items} setItems={setItems} />
+        <SmartKanban aiEnabled={aiEnabled} />
       )}
     </div>
   );
