@@ -311,11 +311,13 @@ export function Indicacoes() {
             <thead className="bg-secondary/50">
               <tr className="text-xs text-muted-foreground text-left">
                 <th className="font-medium px-5 py-3">Indicador</th>
-                <th className="font-medium px-5 py-3">Amigo</th>
+                <th className="font-medium px-5 py-3">Tel. indicador</th>
+                <th className="font-medium px-5 py-3">Indicado</th>
                 <th className="font-medium px-5 py-3">Categorias</th>
                 <th className="font-medium px-5 py-3">Quando</th>
                 <th className="font-medium px-5 py-3 text-right">Comprou</th>
                 <th className="font-medium px-5 py-3 text-right">Pontos</th>
+                <th className="font-medium px-5 py-3">Desconto</th>
                 <th className="font-medium px-5 py-3">Status</th>
               </tr>
             </thead>
@@ -325,13 +327,27 @@ export function Indicacoes() {
                 const tot = totalCompra(c);
                 const pts = pontosCompra(c, categorias);
                 const pendente = c.itens.length === 0;
+                const isNova = c.id === novaConversaoId;
                 const cats = Array.from(new Set(c.itens.map((i) => i.categoriaId)))
                   .map((id) => categorias.find((k) => k.id === id))
                   .filter(Boolean) as CategoriaRegra[];
                 return (
-                  <tr key={c.id} className="border-t border-border hover:bg-secondary/30 cursor-pointer" onClick={() => !pendente && setDetalheCompra(c)}>
-                    <td className="px-5 py-3 font-semibold">{cli?.nome || "—"}</td>
-                    <td className="px-5 py-3">{c.indicadoNome}</td>
+                  <tr
+                    key={c.id}
+                    className={`border-t border-border hover:bg-secondary/30 cursor-pointer transition ${isNova ? "bg-primary/10 ring-1 ring-primary/40 animate-pulse" : ""}`}
+                    onClick={() => !pendente && setDetalheCompra(c)}
+                  >
+                    <td className="px-5 py-3 font-semibold">
+                      <div className="inline-flex items-center gap-2">
+                        {cli?.nome || "—"}
+                        {isNova && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-primary/20 text-primary">NOVA</span>}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-xs text-muted-foreground tabular-nums">{cli ? formatPhone(cli.telefone) : "—"}</td>
+                    <td className="px-5 py-3">
+                      <div className="font-medium">{c.indicadoNome}</div>
+                      {c.indicadoTelefone && <div className="text-[10px] text-muted-foreground tabular-nums">{formatPhone(c.indicadoTelefone)}</div>}
+                    </td>
                     <td className="px-5 py-3">
                       <div className="flex flex-wrap gap-1">
                         {pendente
@@ -351,6 +367,15 @@ export function Indicacoes() {
                         : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
                     <td className="px-5 py-3">
+                      {c.descontoAplicado ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md bg-primary/15 text-primary" title={c.dataDesconto ? `Aplicado em ${c.dataDesconto}` : undefined}>
+                          🎁 10% OFF aplicado
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
                       <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md ${pendente ? "bg-warning/15 text-warning" : "bg-success/15 text-success"}`}>
                         {pendente ? "Aguardando 1ª compra" : <><Check className="size-3" /> Pontos liberados</>}
                       </span>
@@ -359,9 +384,6 @@ export function Indicacoes() {
                 );
               })}
             </tbody>
-          </table>
-        </div>
-      </section>
 
       {/* Modal detalhe da compra */}
       {detalheCompra && (
