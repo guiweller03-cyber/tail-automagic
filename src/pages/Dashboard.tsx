@@ -2,16 +2,49 @@ import { kpis, vendasSemana, funilDados, crescimentoMensal, conversas } from "@/
 import {
   TrendingUp, ShoppingBag, Wallet, RefreshCw, Crown, AlertTriangle,
   ArrowUpRight, Sparkles, Target, Users, Zap, AlertCircle, TrendingDown,
-  Lightbulb, Package2,
+  Lightbulb, Loader2, X,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   LineChart, Line,
 } from "recharts";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import { useVendas } from "@/contexts/VendasContext";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+const WEBHOOK_RELATORIO = "https://webhook.n8n.clinizap.com.br/webhook/relatorio-diario";
+const WEBHOOK_ALERTA = "https://webhook.n8n.clinizap.com.br/webhook/alerta-acao";
+
 export function Dashboard() {
+  const { vendas } = useVendas();
+  const [showRelatorio, setShowRelatorio] = useState(false);
+  const [enviandoRel, setEnviandoRel] = useState(false);
+
+  const { pedidosHoje, faturamentoHoje } = useMemo(() => {
+    const hoje = vendas.filter(v => v.data === "hoje" && v.status === "Concluída");
+    return { pedidosHoje: hoje.length, faturamentoHoje: hoje.reduce((s, v) => s + v.total, 0) };
+  }, [vendas]);
+
+  async function enviarRelatorio() {
+    setEnviandoRel(true);
+    try {
+      const r = await fetch(WEBHOOK_RELATORIO, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trigger: "manual", timestamp: new Date().toISOString(), origem: "dashboard" }),
+      });
+      if (!r.ok) throw new Error();
+      toast.success("Relatório enviado no WhatsApp ✅");
+      setShowRelatorio(false);
+    } catch {
+      toast.error("Erro ao enviar. Verifique o n8n ❌");
+    } finally {
+      setEnviandoRel(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
