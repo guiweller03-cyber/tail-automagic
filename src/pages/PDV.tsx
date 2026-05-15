@@ -136,12 +136,23 @@ Qualquer dúvida estamos por aqui 🐾`;
             />
           </div>
 
-          <button
-            disabled={!cliente || !totalRapido}
-            className="w-full h-14 rounded-xl bg-success text-success-foreground font-bold text-lg shadow hover:opacity-90 disabled:opacity-40 transition"
-          >
-            Finalizar venda · {brl(total)}
-          </button>
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <button
+              disabled={!cliente || !totalRapido}
+              className="h-14 rounded-xl bg-success text-success-foreground font-bold text-lg shadow hover:opacity-90 disabled:opacity-40 transition"
+            >
+              Finalizar · {brl(total)}
+            </button>
+            <button
+              onClick={enviarWhats}
+              disabled={!cliente || !totalRapido}
+              title="Enviar resumo no WhatsApp"
+              className="h-14 px-5 rounded-xl bg-[#25D366] text-white font-semibold shadow hover:opacity-90 disabled:opacity-40 transition inline-flex items-center gap-2"
+            >
+              <MessageCircle className="size-5" />
+              <span className="hidden sm:inline">WhatsApp</span>
+            </button>
+          </div>
         </div>
       ) : (
         // ==================== MODO COMPLETO ====================
