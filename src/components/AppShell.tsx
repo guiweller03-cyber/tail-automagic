@@ -2,7 +2,7 @@ import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import {
   LayoutDashboard, MessageCircle, Users, ShoppingBag, Store, Truck,
   Boxes, Wallet, Megaphone, Zap, PawPrint, Search, Bell, Menu, X,
-  Sparkles, PackageSearch, ArrowRightLeft
+  Sparkles, PackageSearch, ArrowRightLeft, Gift
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ const nav = [
   { to: "/conversas", label: "WhatsApp IA", icon: MessageCircle, badge: 6 },
   { to: "/assistente", label: "Assistente IA", icon: Sparkles },
   { to: "/clientes", label: "Clientes", icon: Users },
+  { to: "/indicacoes", label: "Indicações", icon: Gift },
   { to: "/recompra-prevista", label: "Recompra Prevista", icon: ArrowRightLeft, badge: 4 },
   { to: "/pedidos", label: "Pedidos", icon: ShoppingBag, badge: 3 },
   { to: "/pdv", label: "PDV", icon: Store },

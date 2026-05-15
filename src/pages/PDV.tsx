@@ -1,7 +1,7 @@
 import { produtos, clientes } from "@/lib/mock";
 import {
   Search, Plus, Minus, Trash2, CreditCard, Banknote, QrCode,
-  ChevronDown, ChevronUp, Zap, User, Receipt,
+  ChevronDown, ChevronUp, Zap, User, Receipt, MessageCircle,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -29,6 +29,32 @@ export function PDV() {
 
   const totalRapido = Number(valor.replace(",", ".")) || 0;
   const total = expandido ? totalFull : totalRapido;
+
+  const enviarWhats = () => {
+    const c = clientes.find((x) => x.nome.toLowerCase() === cliente.toLowerCase());
+    if (!c && !cliente) return;
+    const fone = (c?.telefone || "").replace(/\D/g, "");
+    const nomeCli = c?.nome || cliente;
+    const itens = expandido && carrinho.length
+      ? carrinho.map((i) => `• ${i.qtd}× ${i.nome} — ${brl(i.preco * i.qtd)}`).join("\n")
+      : "• Pedido avulso";
+    const endereco = c?.endereco ? `\n📍 ${c.endereco}${c.bairro ? `, ${c.bairro}` : ""}` : "";
+    const obsLinha = obs ? `\n📝 ${obs}` : "";
+    const msg =
+`Olá ${nomeCli.split(" ")[0]} 😊 seu pedido foi separado!
+
+${itens}
+
+💰 Total: ${brl(total)}
+💳 Pagamento: ${pay}${endereco}${obsLinha}
+
+Qualquer dúvida estamos por aqui 🐾`;
+    const url = fone
+      ? `https://wa.me/55${fone}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank");
+  };
+
 
   const add = (p: typeof produtos[number]) =>
     setCarrinho((c) => {
@@ -110,12 +136,23 @@ export function PDV() {
             />
           </div>
 
-          <button
-            disabled={!cliente || !totalRapido}
-            className="w-full h-14 rounded-xl bg-success text-success-foreground font-bold text-lg shadow hover:opacity-90 disabled:opacity-40 transition"
-          >
-            Finalizar venda · {brl(total)}
-          </button>
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <button
+              disabled={!cliente || !totalRapido}
+              className="h-14 rounded-xl bg-success text-success-foreground font-bold text-lg shadow hover:opacity-90 disabled:opacity-40 transition"
+            >
+              Finalizar · {brl(total)}
+            </button>
+            <button
+              onClick={enviarWhats}
+              disabled={!cliente || !totalRapido}
+              title="Enviar resumo no WhatsApp"
+              className="h-14 px-5 rounded-xl bg-[#25D366] text-white font-semibold shadow hover:opacity-90 disabled:opacity-40 transition inline-flex items-center gap-2"
+            >
+              <MessageCircle className="size-5" />
+              <span className="hidden sm:inline">WhatsApp</span>
+            </button>
+          </div>
         </div>
       ) : (
         // ==================== MODO COMPLETO ====================
@@ -195,12 +232,22 @@ export function PDV() {
                 <PayBtn icon={<Banknote className="size-4" />} label="Dinheiro" active={pay === "Dinheiro"} onClick={() => setPay("Dinheiro")} />
               </div>
 
-              <button
-                disabled={carrinho.length === 0}
-                className="w-full h-12 rounded-xl bg-success text-success-foreground font-bold text-base hover:opacity-90 disabled:opacity-40 transition"
-              >
-                Finalizar · {brl(totalFull)}
-              </button>
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <button
+                  disabled={carrinho.length === 0}
+                  className="h-12 rounded-xl bg-success text-success-foreground font-bold text-base hover:opacity-90 disabled:opacity-40 transition"
+                >
+                  Finalizar · {brl(totalFull)}
+                </button>
+                <button
+                  onClick={enviarWhats}
+                  disabled={carrinho.length === 0}
+                  title="Enviar resumo no WhatsApp"
+                  className="h-12 px-4 rounded-xl bg-[#25D366] text-white font-semibold hover:opacity-90 disabled:opacity-40 transition inline-flex items-center gap-1.5"
+                >
+                  <MessageCircle className="size-4" /> WhatsApp
+                </button>
+              </div>
             </div>
           </div>
         </div>
