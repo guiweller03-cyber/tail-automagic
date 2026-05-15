@@ -1,7 +1,7 @@
 import { produtos, clientes } from "@/lib/mock";
 import {
   Search, Plus, Minus, Trash2, CreditCard, Banknote, QrCode,
-  ChevronDown, ChevronUp, Zap, User, Receipt,
+  ChevronDown, ChevronUp, Zap, User, Receipt, MessageCircle,
 } from "lucide-react";
 import { useState } from "react";
 
