@@ -101,7 +101,7 @@ export function Conversas() {
       {view === "chat" ? (
         <ChatView active={active} setActive={setActive} items={filtered} busca={busca} setBusca={setBusca} />
       ) : (
-        <KanbanView items={items} setItems={setItems} />
+        <SmartKanban aiEnabled={aiEnabled} />
       )}
     </div>
   );
