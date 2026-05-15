@@ -230,24 +230,24 @@ export function Estoque() {
               <button onClick={()=>setShowNovo(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="size-4" /></button>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="SKO"><input value={novo.sku} onChange={e=>setNovo(s=>({...s, sku: e.target.value.toUpperCase()}))} placeholder="RAC-XXX-00" className="inp" /></Field>
+              <Field label="SKU"><input value={novo.sku} onChange={e=>setNovo(s=>({...s, sku: e.target.value.toUpperCase()}))} placeholder="RAC-XXX-00" className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
               <Field label="Categoria">
-                <select value={novo.categoria} onChange={e=>setNovo(s=>({...s, categoria: e.target.value}))} className="inp">
+                <select value={novo.categoria} onChange={e=>setNovo(s=>({...s, categoria: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30">
                   {CATEGORIAS.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
               </Field>
-              <Field label="Nome" full><input value={novo.nome} onChange={e=>setNovo(s=>({...s, nome: e.target.value}))} className="inp" /></Field>
+              <Field label="Nome" full><input value={novo.nome} onChange={e=>setNovo(s=>({...s, nome: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
               <Field label="Tipo">
-                <select value={novo.tipo} onChange={e=>setNovo(s=>({...s, tipo: e.target.value as Produto["tipo"]}))} className="inp">
+                <select value={novo.tipo} onChange={e=>setNovo(s=>({...s, tipo: e.target.value as Produto["tipo"]}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30">
                   <option value="próprio">Próprio</option>
                   <option value="consignado">Consignado</option>
                 </select>
               </Field>
-              <Field label="Fornecedor (opcional)"><input value={novo.fornecedor} onChange={e=>setNovo(s=>({...s, fornecedor: e.target.value}))} className="inp" /></Field>
-              <Field label="Estoque atual"><input type="number" value={novo.estoque} onChange={e=>setNovo(s=>({...s, estoque: e.target.value}))} className="inp" /></Field>
-              <Field label="Estoque mínimo"><input type="number" value={novo.minimo} onChange={e=>setNovo(s=>({...s, minimo: e.target.value}))} className="inp" /></Field>
-              <Field label="Preço de compra"><input type="number" step="0.01" value={novo.precoCompra} onChange={e=>setNovo(s=>({...s, precoCompra: e.target.value}))} className="inp" /></Field>
-              <Field label="Preço de venda"><input type="number" step="0.01" value={novo.preco} onChange={e=>setNovo(s=>({...s, preco: e.target.value}))} className="inp" /></Field>
+              <Field label="Fornecedor (opcional)"><input value={novo.fornecedor} onChange={e=>setNovo(s=>({...s, fornecedor: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Estoque atual"><input type="number" value={novo.estoque} onChange={e=>setNovo(s=>({...s, estoque: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Estoque mínimo"><input type="number" value={novo.minimo} onChange={e=>setNovo(s=>({...s, minimo: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Preço de compra"><input type="number" step="0.01" value={novo.precoCompra} onChange={e=>setNovo(s=>({...s, precoCompra: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Preço de venda"><input type="number" step="0.01" value={novo.preco} onChange={e=>setNovo(s=>({...s, preco: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
             </div>
             {novaMargem && (
               <div className={`rounded-xl p-3 ${novaMargem.pct < 0 ? "bg-destructive/10" : novaMargem.pct < 20 ? "bg-accent/10" : "bg-success/10"}`}>
