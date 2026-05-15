@@ -44,23 +44,26 @@ export function Conversas() {
             em pipeline
           </p>
         </div>
-        <div className="inline-flex p-1 rounded-xl bg-secondary">
-          <button
-            onClick={() => setView("chat")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
-              view === "chat" ? "bg-card shadow-sm" : ""
-            }`}
-          >
-            <MessageSquare className="size-3.5" /> Chat
-          </button>
-          <button
-            onClick={() => setView("kanban")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
-              view === "kanban" ? "bg-card shadow-sm" : ""
-            }`}
-          >
-            <LayoutGrid className="size-3.5" /> Kanban
-          </button>
+        <div className="flex items-center gap-2">
+          <AIAssistantToggle enabled={aiEnabled} onToggle={toggleAIAssistant} />
+          <div className="inline-flex p-1 rounded-xl bg-secondary">
+            <button
+              onClick={() => setView("chat")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
+                view === "chat" ? "bg-card shadow-sm" : ""
+              }`}
+            >
+              <MessageSquare className="size-3.5" /> Chat
+            </button>
+            <button
+              onClick={() => setView("kanban")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
+                view === "kanban" ? "bg-card shadow-sm" : ""
+              }`}
+            >
+              <LayoutGrid className="size-3.5" /> Kanban IA
+            </button>
+          </div>
         </div>
       </div>
 
