@@ -1,15 +1,19 @@
 import { clientes } from "@/lib/mock";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Gift, Trophy, Users, Plus, Share2, Crown, Medal, Award,
   PawPrint, Flame, Target, Check, Percent, Settings2, Clock, Wallet,
-  ChevronRight, X, ShieldAlert, Tag, Sparkles, TrendingUp,
+  ChevronRight, X, ShieldAlert, Tag, Sparkles, TrendingUp, Phone, BadgeCheck,
 } from "lucide-react";
 import {
   brl, categoriasIniciais, campanhasIniciais, comprasIniciais,
   pontosCompra, pontosPorCategoria, totalCompra,
   type CategoriaRegra, type CompraIndicado, type CampanhaTemp,
 } from "@/features/indicacoes/data";
+import {
+  validateReferralPhone, formatPhone, applyReferralDiscount, normalizePhone, findClienteByPhone,
+} from "@/features/indicacoes/phone-referrals";
 
 type Recompensa = { id: string; nome: string; custo: number; tipo: "desconto" | "produto" | "brinde" | "cashback"; emoji: string };
 
@@ -27,15 +31,25 @@ export function Indicacoes() {
   const [compras, setCompras] = useState<CompraIndicado[]>(comprasIniciais);
   const [campanhas, setCampanhas] = useState<CampanhaTemp[]>(campanhasIniciais);
   const [recompensas] = useState(recompensasIniciais);
+  const [novaConversaoId, setNovaConversaoId] = useState<string | null>(null);
 
-  // Modais
+  // Modal: nova indicação por telefone
   const [novoModal, setNovoModal] = useState(false);
-  const [novoCliente, setNovoCliente] = useState("");
-  const [novoIndicado, setNovoIndicado] = useState("");
-  const [novoTel, setNovoTel] = useState("");
+  const [telIndicador, setTelIndicador] = useState("");
+  const [telIndicado, setTelIndicado] = useState("");
+  const [nomeIndicado, setNomeIndicado] = useState("");
+  const [valorPrimeiraCompra, setValorPrimeiraCompra] = useState<number>(0);
   const [erroNovo, setErroNovo] = useState<string | null>(null);
+
   const [detalheCompra, setDetalheCompra] = useState<CompraIndicado | null>(null);
   const [indicadorAberto, setIndicadorAberto] = useState<string | null>(null);
+
+  // Resolução em tempo real do indicador pelo telefone
+  const indicadorEncontrado = useMemo(
+    () => (normalizePhone(telIndicador).length >= 8 ? findClienteByPhone(telIndicador) : null),
+    [telIndicador],
+  );
+  const previewDesconto = useMemo(() => applyReferralDiscount(valorPrimeiraCompra || 0), [valorPrimeiraCompra]);
 
   // ─── Agregações ───
   const indicadores = useMemo(() => {
@@ -59,28 +73,50 @@ export function Indicacoes() {
   const totalPontos = compras.reduce((s, c) => s + pontosCompra(c, categorias), 0);
   const top = indicadores[0];
 
-  const adicionarIndicacao = () => {
-    setErroNovo(null);
-    if (!novoCliente || !novoIndicado) return;
-    const c = clientes.find((x) => x.nome === novoCliente);
-    if (!c) { setErroNovo("Cliente indicador não encontrado."); return; }
-    // Anti auto-indicação
-    if (novoIndicado.trim().toLowerCase() === c.nome.toLowerCase()) {
-      setErroNovo("Auto-indicação não é permitida."); return;
-    }
-    if (novoTel && novoTel === c.telefone) {
-      setErroNovo("O telefone do indicado é igual ao do indicador."); return;
-    }
-    // Anti duplicidade
-    const dup = compras.some((cc) => cc.indicadoNome.toLowerCase() === novoIndicado.trim().toLowerCase());
-    if (dup) { setErroNovo("Esse amigo já foi indicado anteriormente."); return; }
+  useEffect(() => {
+    if (!novaConversaoId) return;
+    const t = setTimeout(() => setNovaConversaoId(null), 4000);
+    return () => clearTimeout(t);
+  }, [novaConversaoId]);
 
-    setCompras((prev) => [
-      { id: `c${Date.now()}`, indicadorId: c.id, indicadoNome: novoIndicado.trim(), indicadoTelefone: novoTel || undefined, data: "agora", itens: [] },
-      ...prev,
-    ]);
-    setNovoCliente(""); setNovoIndicado(""); setNovoTel(""); setNovoModal(false);
+  const resetModal = () => {
+    setTelIndicador(""); setTelIndicado(""); setNomeIndicado("");
+    setValorPrimeiraCompra(0); setErroNovo(null); setNovoModal(false);
   };
+
+  const registrarIndicacao = () => {
+    setErroNovo(null);
+    const v = validateReferralPhone({
+      telefoneIndicador: telIndicador,
+      telefoneIndicado: telIndicado,
+      nomeIndicado,
+      comprasExistentes: compras,
+    });
+    if (!v.ok) { setErroNovo(v.message); return; }
+    if (!nomeIndicado.trim()) { setErroNovo("Informe o nome do indicado."); return; }
+
+    const id = `c${Date.now()}`;
+    const nova: CompraIndicado = {
+      id,
+      indicadorId: v.indicador.id,
+      indicadoNome: nomeIndicado.trim(),
+      indicadoTelefone: telIndicado || undefined,
+      data: "agora",
+      descontoAplicado: true,
+      primeiraCompra: true,
+      dataDesconto: new Date().toLocaleDateString("pt-BR"),
+      itens: valorPrimeiraCompra > 0
+        ? [{ produto: "1ª compra (indicação)", categoriaId: "rac", qtd: 1, preco: valorPrimeiraCompra }]
+        : [],
+    };
+    setCompras((prev) => [nova, ...prev]);
+    setNovaConversaoId(id);
+    toast.success(`🎁 10% OFF aplicado para ${nova.indicadoNome}`, {
+      description: `Indicado por ${v.indicador.nome} · pontos liberados em tempo real`,
+    });
+    resetModal();
+  };
+
 
   return (
     <div className="space-y-5">
