@@ -8,6 +8,9 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { SpeciePill } from "@/pages/RecompraPrevista";
+import { SmartKanban } from "@/features/whatsapp-crm/components/SmartKanban";
+import { AIAssistantToggle } from "@/features/whatsapp-crm/components/AIAssistantToggle";
+import { useAIAssistant } from "@/features/whatsapp-crm/hooks/useAIAssistant";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
