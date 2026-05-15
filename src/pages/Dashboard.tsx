@@ -289,19 +289,39 @@ function Kpi({ icon, label, value, delta, tone }: {
 function IaAlert({ tone, icon, title, desc }: {
   tone: "destructive" | "warning" | "success" | "primary"; icon: React.ReactNode; title: string; desc: string;
 }) {
+  const [loading, setLoading] = useState(false);
   const tones = {
     destructive: "bg-destructive/10 text-destructive",
     warning: "bg-accent/15 text-accent",
     success: "bg-success/10 text-success",
     primary: "bg-primary/10 text-primary",
   }[tone];
+  async function agir() {
+    setLoading(true);
+    try {
+      const r = await fetch(WEBHOOK_ALERTA, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alerta: title, descricao: desc, timestamp: new Date().toISOString() }),
+      });
+      if (!r.ok) throw new Error();
+      toast.success("Ação enviada ✅");
+    } catch {
+      toast.error("Erro ao enviar. Verifique o n8n ❌");
+    } finally {
+      setLoading(false);
+    }
+  }
   return (
     <li className="flex gap-3 p-2.5 rounded-xl border border-border hover:bg-secondary/40 transition">
       <div className={`size-8 rounded-lg grid place-items-center shrink-0 ${tones} [&_svg]:size-4`}>{icon}</div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold leading-tight">{title}</p>
         <p className="text-[11px] text-muted-foreground mt-0.5">{desc}</p>
       </div>
+      <button onClick={agir} disabled={loading} className="self-center h-7 px-2.5 rounded-lg bg-foreground text-background text-[10px] font-bold inline-flex items-center gap-1 disabled:opacity-60">
+        {loading ? <Loader2 className="size-3 animate-spin" /> : "Agir"}
+      </button>
     </li>
   );
 }
