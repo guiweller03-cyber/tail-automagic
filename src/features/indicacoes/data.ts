@@ -25,6 +25,9 @@ export type CompraIndicado = {
   indicadoTelefone?: string;
   data: string;            // "há 2 dias"
   itens: ItemCompra[];
+  descontoAplicado?: boolean;  // 10% OFF aplicado na 1ª compra
+  dataDesconto?: string;       // ISO ou data legível
+  primeiraCompra?: boolean;
 };
 
 export type CampanhaTemp = {
@@ -47,32 +50,32 @@ export const categoriasIniciais: CategoriaRegra[] = [
 
 export const comprasIniciais: CompraIndicado[] = [
   // João (clienteId "1") indicou 3 amigos
-  { id: "c1", indicadorId: "1", indicadoNome: "Carlos Souza", indicadoTelefone: "(11) 99000-1111", data: "há 2 dias", itens: [
+  { id: "c1", indicadorId: "1", indicadoNome: "Carlos Souza", indicadoTelefone: "(11) 99000-1111", data: "há 2 dias", descontoAplicado: true, primeiraCompra: true, dataDesconto: "13/05/2026", itens: [
     { produto: "Antipulgas Bravecto", categoriaId: "med", qtd: 1, preco: 140 },
     { produto: "Ração Golden 3kg",     categoriaId: "rac", qtd: 1, preco: 60 },
   ]},
-  { id: "c2", indicadorId: "1", indicadoNome: "Maria Lopes", indicadoTelefone: "(11) 99000-2222", data: "há 5 dias", itens: [
+  { id: "c2", indicadorId: "1", indicadoNome: "Maria Lopes", indicadoTelefone: "(11) 99000-2222", data: "há 5 dias", descontoAplicado: true, primeiraCompra: true, dataDesconto: "10/05/2026", itens: [
     { produto: "Shampoo hipoalergênico", categoriaId: "hig", qtd: 1, preco: 55 },
     { produto: "Coleira ajustável",       categoriaId: "ace", qtd: 1, preco: 45 },
     { produto: "Petisco Natural 90g",     categoriaId: "petisco", qtd: 2, preco: 25 },
   ]},
-  { id: "c3", indicadorId: "1", indicadoNome: "Pedro Lima", indicadoTelefone: "(11) 99000-3333", data: "há 1 dia", itens: [
+  { id: "c3", indicadorId: "1", indicadoNome: "Pedro Lima", indicadoTelefone: "(11) 99000-3333", data: "há 1 dia", descontoAplicado: true, primeiraCompra: true, dataDesconto: "14/05/2026", itens: [
     { produto: "Vermífugo Drontal",     categoriaId: "med", qtd: 2, preco: 60 },
     { produto: "Ração Premier 10kg",    categoriaId: "rac", qtd: 1, preco: 130 },
   ]},
   // Outros indicadores
-  { id: "c4", indicadorId: "3", indicadoNome: "Renata Souza", data: "há 8 dias", itens: [
+  { id: "c4", indicadorId: "3", indicadoNome: "Renata Souza", indicadoTelefone: "(11) 99000-4444", data: "há 8 dias", descontoAplicado: true, primeiraCompra: true, dataDesconto: "07/05/2026", itens: [
     { produto: "Ração Premier 7kg",  categoriaId: "rac", qtd: 1, preco: 180 },
     { produto: "Brinquedo de corda", categoriaId: "brinq", qtd: 1, preco: 35 },
     { produto: "Shampoo neutro",     categoriaId: "hig", qtd: 1, preco: 45 },
     { produto: "Petisco bifinho",    categoriaId: "petisco", qtd: 2, preco: 30 },
   ]},
-  { id: "c5", indicadorId: "4", indicadoNome: "Bruno Tavares", data: "há 5 dias", itens: [
+  { id: "c5", indicadorId: "4", indicadoNome: "Bruno Tavares", indicadoTelefone: "(11) 99000-5555", data: "há 5 dias", descontoAplicado: true, primeiraCompra: true, dataDesconto: "10/05/2026", itens: [
     { produto: "Antialérgico veterinário", categoriaId: "med", qtd: 1, preco: 95 },
     { produto: "Coleira premium",          categoriaId: "ace", qtd: 1, preco: 85 },
   ]},
-  { id: "c6", indicadorId: "5", indicadoNome: "Diego Costa", data: "agora", itens: [
-    // pendente: sem itens (aguardando 1ª compra)
+  { id: "c6", indicadorId: "5", indicadoNome: "Diego Costa", indicadoTelefone: "(11) 99000-6666", data: "agora", descontoAplicado: false, primeiraCompra: true, itens: [
+    // pendente: aguardando 1ª compra
   ]},
 ];
 

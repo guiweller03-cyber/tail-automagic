@@ -1,15 +1,19 @@
 import { clientes } from "@/lib/mock";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Gift, Trophy, Users, Plus, Share2, Crown, Medal, Award,
   PawPrint, Flame, Target, Check, Percent, Settings2, Clock, Wallet,
-  ChevronRight, X, ShieldAlert, Tag, Sparkles, TrendingUp,
+  ChevronRight, X, ShieldAlert, Tag, Sparkles, TrendingUp, Phone, BadgeCheck,
 } from "lucide-react";
 import {
   brl, categoriasIniciais, campanhasIniciais, comprasIniciais,
   pontosCompra, pontosPorCategoria, totalCompra,
   type CategoriaRegra, type CompraIndicado, type CampanhaTemp,
 } from "@/features/indicacoes/data";
+import {
+  validateReferralPhone, formatPhone, applyReferralDiscount, normalizePhone, findClienteByPhone,
+} from "@/features/indicacoes/phone-referrals";
 
 type Recompensa = { id: string; nome: string; custo: number; tipo: "desconto" | "produto" | "brinde" | "cashback"; emoji: string };
 
@@ -27,15 +31,25 @@ export function Indicacoes() {
   const [compras, setCompras] = useState<CompraIndicado[]>(comprasIniciais);
   const [campanhas, setCampanhas] = useState<CampanhaTemp[]>(campanhasIniciais);
   const [recompensas] = useState(recompensasIniciais);
+  const [novaConversaoId, setNovaConversaoId] = useState<string | null>(null);
 
-  // Modais
+  // Modal: nova indicação por telefone
   const [novoModal, setNovoModal] = useState(false);
-  const [novoCliente, setNovoCliente] = useState("");
-  const [novoIndicado, setNovoIndicado] = useState("");
-  const [novoTel, setNovoTel] = useState("");
+  const [telIndicador, setTelIndicador] = useState("");
+  const [telIndicado, setTelIndicado] = useState("");
+  const [nomeIndicado, setNomeIndicado] = useState("");
+  const [valorPrimeiraCompra, setValorPrimeiraCompra] = useState<number>(0);
   const [erroNovo, setErroNovo] = useState<string | null>(null);
+
   const [detalheCompra, setDetalheCompra] = useState<CompraIndicado | null>(null);
   const [indicadorAberto, setIndicadorAberto] = useState<string | null>(null);
+
+  // Resolução em tempo real do indicador pelo telefone
+  const indicadorEncontrado = useMemo(
+    () => (normalizePhone(telIndicador).length >= 8 ? findClienteByPhone(telIndicador) : null),
+    [telIndicador],
+  );
+  const previewDesconto = useMemo(() => applyReferralDiscount(valorPrimeiraCompra || 0), [valorPrimeiraCompra]);
 
   // ─── Agregações ───
   const indicadores = useMemo(() => {
@@ -59,28 +73,50 @@ export function Indicacoes() {
   const totalPontos = compras.reduce((s, c) => s + pontosCompra(c, categorias), 0);
   const top = indicadores[0];
 
-  const adicionarIndicacao = () => {
-    setErroNovo(null);
-    if (!novoCliente || !novoIndicado) return;
-    const c = clientes.find((x) => x.nome === novoCliente);
-    if (!c) { setErroNovo("Cliente indicador não encontrado."); return; }
-    // Anti auto-indicação
-    if (novoIndicado.trim().toLowerCase() === c.nome.toLowerCase()) {
-      setErroNovo("Auto-indicação não é permitida."); return;
-    }
-    if (novoTel && novoTel === c.telefone) {
-      setErroNovo("O telefone do indicado é igual ao do indicador."); return;
-    }
-    // Anti duplicidade
-    const dup = compras.some((cc) => cc.indicadoNome.toLowerCase() === novoIndicado.trim().toLowerCase());
-    if (dup) { setErroNovo("Esse amigo já foi indicado anteriormente."); return; }
+  useEffect(() => {
+    if (!novaConversaoId) return;
+    const t = setTimeout(() => setNovaConversaoId(null), 4000);
+    return () => clearTimeout(t);
+  }, [novaConversaoId]);
 
-    setCompras((prev) => [
-      { id: `c${Date.now()}`, indicadorId: c.id, indicadoNome: novoIndicado.trim(), indicadoTelefone: novoTel || undefined, data: "agora", itens: [] },
-      ...prev,
-    ]);
-    setNovoCliente(""); setNovoIndicado(""); setNovoTel(""); setNovoModal(false);
+  const resetModal = () => {
+    setTelIndicador(""); setTelIndicado(""); setNomeIndicado("");
+    setValorPrimeiraCompra(0); setErroNovo(null); setNovoModal(false);
   };
+
+  const registrarIndicacao = () => {
+    setErroNovo(null);
+    const v = validateReferralPhone({
+      telefoneIndicador: telIndicador,
+      telefoneIndicado: telIndicado,
+      nomeIndicado,
+      comprasExistentes: compras,
+    });
+    if (!v.ok) { setErroNovo(v.message); return; }
+    if (!nomeIndicado.trim()) { setErroNovo("Informe o nome do indicado."); return; }
+
+    const id = `c${Date.now()}`;
+    const nova: CompraIndicado = {
+      id,
+      indicadorId: v.indicador.id,
+      indicadoNome: nomeIndicado.trim(),
+      indicadoTelefone: telIndicado || undefined,
+      data: "agora",
+      descontoAplicado: true,
+      primeiraCompra: true,
+      dataDesconto: new Date().toLocaleDateString("pt-BR"),
+      itens: valorPrimeiraCompra > 0
+        ? [{ produto: "1ª compra (indicação)", categoriaId: "rac", qtd: 1, preco: valorPrimeiraCompra }]
+        : [],
+    };
+    setCompras((prev) => [nova, ...prev]);
+    setNovaConversaoId(id);
+    toast.success(`🎁 10% OFF aplicado para ${nova.indicadoNome}`, {
+      description: `Indicado por ${v.indicador.nome} · pontos liberados em tempo real`,
+    });
+    resetModal();
+  };
+
 
   return (
     <div className="space-y-5">
@@ -275,11 +311,13 @@ export function Indicacoes() {
             <thead className="bg-secondary/50">
               <tr className="text-xs text-muted-foreground text-left">
                 <th className="font-medium px-5 py-3">Indicador</th>
-                <th className="font-medium px-5 py-3">Amigo</th>
+                <th className="font-medium px-5 py-3">Tel. indicador</th>
+                <th className="font-medium px-5 py-3">Indicado</th>
                 <th className="font-medium px-5 py-3">Categorias</th>
                 <th className="font-medium px-5 py-3">Quando</th>
                 <th className="font-medium px-5 py-3 text-right">Comprou</th>
                 <th className="font-medium px-5 py-3 text-right">Pontos</th>
+                <th className="font-medium px-5 py-3">Desconto</th>
                 <th className="font-medium px-5 py-3">Status</th>
               </tr>
             </thead>
@@ -289,13 +327,27 @@ export function Indicacoes() {
                 const tot = totalCompra(c);
                 const pts = pontosCompra(c, categorias);
                 const pendente = c.itens.length === 0;
+                const isNova = c.id === novaConversaoId;
                 const cats = Array.from(new Set(c.itens.map((i) => i.categoriaId)))
                   .map((id) => categorias.find((k) => k.id === id))
                   .filter(Boolean) as CategoriaRegra[];
                 return (
-                  <tr key={c.id} className="border-t border-border hover:bg-secondary/30 cursor-pointer" onClick={() => !pendente && setDetalheCompra(c)}>
-                    <td className="px-5 py-3 font-semibold">{cli?.nome || "—"}</td>
-                    <td className="px-5 py-3">{c.indicadoNome}</td>
+                  <tr
+                    key={c.id}
+                    className={`border-t border-border hover:bg-secondary/30 cursor-pointer transition ${isNova ? "bg-primary/10 ring-1 ring-primary/40 animate-pulse" : ""}`}
+                    onClick={() => !pendente && setDetalheCompra(c)}
+                  >
+                    <td className="px-5 py-3 font-semibold">
+                      <div className="inline-flex items-center gap-2">
+                        {cli?.nome || "—"}
+                        {isNova && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-primary/20 text-primary">NOVA</span>}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-xs text-muted-foreground tabular-nums">{cli ? formatPhone(cli.telefone) : "—"}</td>
+                    <td className="px-5 py-3">
+                      <div className="font-medium">{c.indicadoNome}</div>
+                      {c.indicadoTelefone && <div className="text-[10px] text-muted-foreground tabular-nums">{formatPhone(c.indicadoTelefone)}</div>}
+                    </td>
                     <td className="px-5 py-3">
                       <div className="flex flex-wrap gap-1">
                         {pendente
@@ -315,6 +367,15 @@ export function Indicacoes() {
                         : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
                     <td className="px-5 py-3">
+                      {c.descontoAplicado ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md bg-primary/15 text-primary" title={c.dataDesconto ? `Aplicado em ${c.dataDesconto}` : undefined}>
+                          🎁 10% OFF aplicado
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
                       <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md ${pendente ? "bg-warning/15 text-warning" : "bg-success/15 text-success"}`}>
                         {pendente ? "Aguardando 1ª compra" : <><Check className="size-3" /> Pontos liberados</>}
                       </span>
@@ -328,6 +389,7 @@ export function Indicacoes() {
       </section>
 
       {/* Modal detalhe da compra */}
+
       {detalheCompra && (
         <DetalheCompraModal
           compra={detalheCompra}
@@ -337,61 +399,90 @@ export function Indicacoes() {
         />
       )}
 
-      {/* Modal nova indicação */}
+      {/* Modal nova indicação — fluxo 100% por telefone */}
       {novoModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/40" onClick={() => setNovoModal(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/40" onClick={resetModal}>
           <div className="card-soft p-5 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
             <div>
-              <h3 className="font-semibold inline-flex items-center gap-2"><Plus className="size-4" /> Nova indicação</h3>
-              <p className="text-xs text-muted-foreground">Registre quem indicou e quem foi indicado</p>
+              <h3 className="font-semibold inline-flex items-center gap-2"><Phone className="size-4 text-primary" /> Indicação por telefone</h3>
+              <p className="text-xs text-muted-foreground">O cliente informa o telefone de quem indicou — o sistema valida automaticamente</p>
             </div>
+
             <div>
-              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Cliente que indicou</label>
+              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Telefone de quem indicou</label>
               <input
-                list="ind-clientes"
-                value={novoCliente}
-                onChange={(e) => setNovoCliente(e.target.value)}
-                placeholder="Buscar cliente…"
-                className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
-              />
-              <datalist id="ind-clientes">
-                {clientes.map((c) => <option key={c.id} value={c.nome} />)}
-              </datalist>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Nome do amigo</label>
-              <input
-                value={novoIndicado}
-                onChange={(e) => setNovoIndicado(e.target.value)}
-                placeholder="Ex: João Silva"
-                className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Telefone do amigo (opcional)</label>
-              <input
-                value={novoTel}
-                onChange={(e) => setNovoTel(e.target.value)}
+                value={telIndicador}
+                onChange={(e) => setTelIndicador(e.target.value)}
                 placeholder="(11) 9 0000-0000"
+                inputMode="tel"
                 className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
               />
+              {indicadorEncontrado ? (
+                <div className="mt-2 text-[11px] inline-flex items-center gap-2 px-2 py-1 rounded-md bg-success/15 text-success font-semibold">
+                  <BadgeCheck className="size-3.5" /> {indicadorEncontrado.nome} · {formatPhone(indicadorEncontrado.telefone)}
+                </div>
+              ) : normalizePhone(telIndicador).length >= 8 ? (
+                <div className="mt-2 text-[11px] inline-flex items-center gap-2 px-2 py-1 rounded-md bg-destructive/10 text-destructive font-semibold">
+                  <ShieldAlert className="size-3.5" /> Telefone não cadastrado
+                </div>
+              ) : null}
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Nome do indicado</label>
+                <input
+                  value={nomeIndicado}
+                  onChange={(e) => setNomeIndicado(e.target.value)}
+                  placeholder="Ex: João Silva"
+                  className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Tel. do indicado</label>
+                <input
+                  value={telIndicado}
+                  onChange={(e) => setTelIndicado(e.target.value)}
+                  placeholder="(11) 9 0000-0000"
+                  inputMode="tel"
+                  className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Valor da 1ª compra (R$)</label>
+              <input
+                type="number"
+                value={valorPrimeiraCompra || ""}
+                onChange={(e) => setValorPrimeiraCompra(Number(e.target.value) || 0)}
+                placeholder="0,00"
+                className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30 tabular-nums"
+              />
+              {valorPrimeiraCompra > 0 && (
+                <div className="mt-2 text-[11px] flex items-center justify-between px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+                  <span className="inline-flex items-center gap-1.5 text-primary font-semibold"><Gift className="size-3.5" /> Desconto 10% OFF</span>
+                  <span className="tabular-nums">−{brl(previewDesconto.desconto)} → <b>{brl(previewDesconto.total)}</b></span>
+                </div>
+              )}
+            </div>
+
             {erroNovo && (
               <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 inline-flex items-center gap-2">
                 <ShieldAlert className="size-3.5" /> {erroNovo}
               </div>
             )}
             <div className="text-[10px] text-muted-foreground inline-flex items-center gap-1.5">
-              <ShieldAlert className="size-3" /> Auto-indicação e indicações duplicadas são bloqueadas automaticamente.
+              <ShieldAlert className="size-3" /> Auto-indicação, telefones inválidos e clientes que já usaram o desconto são bloqueados automaticamente.
             </div>
             <div className="flex gap-2 pt-2">
-              <button onClick={() => setNovoModal(false)} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold hover:bg-secondary/70">Cancelar</button>
+              <button onClick={resetModal} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold hover:bg-secondary/70">Cancelar</button>
               <button
-                onClick={adicionarIndicacao}
-                disabled={!novoCliente || !novoIndicado}
-                className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40 hover:opacity-90"
+                onClick={registrarIndicacao}
+                disabled={!indicadorEncontrado || !nomeIndicado.trim()}
+                className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40 hover:opacity-90 inline-flex items-center justify-center gap-2"
               >
-                Registrar
+                <Sparkles className="size-4" /> Aplicar indicação
               </button>
             </div>
           </div>
