@@ -21,7 +21,7 @@ export function calculateLeadCost(lead: LeadCard): {
 }
 
 export function detectLeadSource(lead: LeadCard): string {
-  const parts = [lead.origem];
+  const parts: string[] = [lead.origem];
   if (lead.utmSource) parts.push(`utm:${lead.utmSource}`);
   if (lead.utmCampaign) parts.push(`camp:${lead.utmCampaign}`);
   if (lead.anuncio) parts.push(lead.anuncio);
