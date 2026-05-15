@@ -373,61 +373,90 @@ export function Indicacoes() {
         />
       )}
 
-      {/* Modal nova indicação */}
+      {/* Modal nova indicação — fluxo 100% por telefone */}
       {novoModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/40" onClick={() => setNovoModal(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/40" onClick={resetModal}>
           <div className="card-soft p-5 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
             <div>
-              <h3 className="font-semibold inline-flex items-center gap-2"><Plus className="size-4" /> Nova indicação</h3>
-              <p className="text-xs text-muted-foreground">Registre quem indicou e quem foi indicado</p>
+              <h3 className="font-semibold inline-flex items-center gap-2"><Phone className="size-4 text-primary" /> Indicação por telefone</h3>
+              <p className="text-xs text-muted-foreground">O cliente informa o telefone de quem indicou — o sistema valida automaticamente</p>
             </div>
+
             <div>
-              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Cliente que indicou</label>
+              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Telefone de quem indicou</label>
               <input
-                list="ind-clientes"
-                value={novoCliente}
-                onChange={(e) => setNovoCliente(e.target.value)}
-                placeholder="Buscar cliente…"
-                className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
-              />
-              <datalist id="ind-clientes">
-                {clientes.map((c) => <option key={c.id} value={c.nome} />)}
-              </datalist>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Nome do amigo</label>
-              <input
-                value={novoIndicado}
-                onChange={(e) => setNovoIndicado(e.target.value)}
-                placeholder="Ex: João Silva"
-                className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Telefone do amigo (opcional)</label>
-              <input
-                value={novoTel}
-                onChange={(e) => setNovoTel(e.target.value)}
+                value={telIndicador}
+                onChange={(e) => setTelIndicador(e.target.value)}
                 placeholder="(11) 9 0000-0000"
+                inputMode="tel"
                 className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
               />
+              {indicadorEncontrado ? (
+                <div className="mt-2 text-[11px] inline-flex items-center gap-2 px-2 py-1 rounded-md bg-success/15 text-success font-semibold">
+                  <BadgeCheck className="size-3.5" /> {indicadorEncontrado.nome} · {formatPhone(indicadorEncontrado.telefone)}
+                </div>
+              ) : normalizePhone(telIndicador).length >= 8 ? (
+                <div className="mt-2 text-[11px] inline-flex items-center gap-2 px-2 py-1 rounded-md bg-destructive/10 text-destructive font-semibold">
+                  <ShieldAlert className="size-3.5" /> Telefone não cadastrado
+                </div>
+              ) : null}
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Nome do indicado</label>
+                <input
+                  value={nomeIndicado}
+                  onChange={(e) => setNomeIndicado(e.target.value)}
+                  placeholder="Ex: João Silva"
+                  className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Tel. do indicado</label>
+                <input
+                  value={telIndicado}
+                  onChange={(e) => setTelIndicado(e.target.value)}
+                  placeholder="(11) 9 0000-0000"
+                  inputMode="tel"
+                  className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Valor da 1ª compra (R$)</label>
+              <input
+                type="number"
+                value={valorPrimeiraCompra || ""}
+                onChange={(e) => setValorPrimeiraCompra(Number(e.target.value) || 0)}
+                placeholder="0,00"
+                className="mt-1 w-full h-11 px-3 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30 tabular-nums"
+              />
+              {valorPrimeiraCompra > 0 && (
+                <div className="mt-2 text-[11px] flex items-center justify-between px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+                  <span className="inline-flex items-center gap-1.5 text-primary font-semibold"><Gift className="size-3.5" /> Desconto 10% OFF</span>
+                  <span className="tabular-nums">−{brl(previewDesconto.desconto)} → <b>{brl(previewDesconto.total)}</b></span>
+                </div>
+              )}
+            </div>
+
             {erroNovo && (
               <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 inline-flex items-center gap-2">
                 <ShieldAlert className="size-3.5" /> {erroNovo}
               </div>
             )}
             <div className="text-[10px] text-muted-foreground inline-flex items-center gap-1.5">
-              <ShieldAlert className="size-3" /> Auto-indicação e indicações duplicadas são bloqueadas automaticamente.
+              <ShieldAlert className="size-3" /> Auto-indicação, telefones inválidos e clientes que já usaram o desconto são bloqueados automaticamente.
             </div>
             <div className="flex gap-2 pt-2">
-              <button onClick={() => setNovoModal(false)} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold hover:bg-secondary/70">Cancelar</button>
+              <button onClick={resetModal} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold hover:bg-secondary/70">Cancelar</button>
               <button
-                onClick={adicionarIndicacao}
-                disabled={!novoCliente || !novoIndicado}
-                className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40 hover:opacity-90"
+                onClick={registrarIndicacao}
+                disabled={!indicadorEncontrado || !nomeIndicado.trim()}
+                className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40 hover:opacity-90 inline-flex items-center justify-center gap-2"
               >
-                Registrar
+                <Sparkles className="size-4" /> Aplicar indicação
               </button>
             </div>
           </div>
