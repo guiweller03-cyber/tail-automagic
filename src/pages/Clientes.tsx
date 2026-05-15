@@ -45,6 +45,7 @@ function todayStr() {
 }
 
 export function Clientes() {
+  const clientes = seedClientes;
   const [filter, setFilter] = useState("Todos");
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<Cliente | null>(null);
