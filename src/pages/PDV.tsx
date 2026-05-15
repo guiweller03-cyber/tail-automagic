@@ -100,26 +100,14 @@ export function PDV() {
       obs,
       whatsEnviado: whats,
     };
-    setVendas((vs) => [v, ...vs]);
+    addVenda(v);
     if (whats) enviarWhats(v);
     setCliente(""); setValor(""); setObs(""); setCarrinho([]); setDesconto(0); setFrete(0);
   };
 
   const confirmarCancelamento = () => {
     if (!cancelTarget || !cancelMotivo.trim()) return;
-    setVendas((vs) =>
-      vs.map((v) =>
-        v.id === cancelTarget.id
-          ? {
-              ...v,
-              status: "Cancelada",
-              motivoCancel: cancelMotivo,
-              canceladoPor: "Operador (você)",
-              canceladoEm: new Date().toLocaleString("pt-BR"),
-            }
-          : v,
-      ),
-    );
+    cancelarVenda(cancelTarget.id, cancelMotivo);
     setCancelTarget(null); setCancelMotivo("");
   };
 
