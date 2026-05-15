@@ -53,6 +53,8 @@ export const origemLeads = [
   { name: "Google", value: 5 },
 ];
 
+export type FormaPagamento = "Pix" | "Cartão débito" | "Cartão crédito" | "Dinheiro" | "Pendente";
+
 export type Pedido = {
   id: string;
   cliente: string;
@@ -61,16 +63,21 @@ export type Pedido = {
   status: "novo" | "pago" | "separando" | "em rota" | "entregue" | "cancelado";
   bairro: string;
   hora: string;
+  pagamento: FormaPagamento;
+  pago: boolean;
+  comprovante: boolean;
+  taxaMaquina: number;
+  notaFiscal: boolean;
 };
 
 export const pedidos: Pedido[] = [
-  { id: "#10238", cliente: "Marina Costa", pet: "Thor (Golden)", total: 189.9, status: "em rota", bairro: "Vila Mariana", hora: "14:20" },
-  { id: "#10237", cliente: "Pedro Alves", pet: "Mel (SRD)", total: 87.5, status: "separando", bairro: "Moema", hora: "14:05" },
-  { id: "#10236", cliente: "Júlia Ramos", pet: "Bento (Shih-tzu)", total: 264.0, status: "pago", bairro: "Pinheiros", hora: "13:48" },
-  { id: "#10235", cliente: "Carlos Mendes", pet: "Luna (Maine Coon)", total: 142.3, status: "entregue", bairro: "Itaim", hora: "13:12" },
-  { id: "#10234", cliente: "Ana Beatriz", pet: "Nina (Poodle)", total: 320.0, status: "novo", bairro: "Vila Olímpia", hora: "12:55" },
-  { id: "#10233", cliente: "Roberto Lima", pet: "Zeus (Rottweiler)", total: 540.7, status: "em rota", bairro: "Brooklin", hora: "12:30" },
-  { id: "#10232", cliente: "Fernanda Sá", pet: "Mia (Persa)", total: 95.0, status: "entregue", bairro: "Moema", hora: "11:50" },
+  { id: "#10238", cliente: "Marina Costa", pet: "Thor (Golden)", total: 189.9, status: "em rota", bairro: "Vila Mariana", hora: "14:20", pagamento: "Pix", pago: true, comprovante: true, taxaMaquina: 0, notaFiscal: false },
+  { id: "#10237", cliente: "Pedro Alves", pet: "Mel (SRD)", total: 87.5, status: "separando", bairro: "Moema", hora: "14:05", pagamento: "Dinheiro", pago: false, comprovante: false, taxaMaquina: 0, notaFiscal: false },
+  { id: "#10236", cliente: "Júlia Ramos", pet: "Bento (Shih-tzu)", total: 264.0, status: "pago", bairro: "Pinheiros", hora: "13:48", pagamento: "Cartão crédito", pago: true, comprovante: false, taxaMaquina: 2.5, notaFiscal: true },
+  { id: "#10235", cliente: "Carlos Mendes", pet: "Luna (Maine Coon)", total: 142.3, status: "entregue", bairro: "Itaim", hora: "13:12", pagamento: "Pix", pago: true, comprovante: true, taxaMaquina: 0, notaFiscal: false },
+  { id: "#10234", cliente: "Ana Beatriz", pet: "Nina (Poodle)", total: 320.0, status: "novo", bairro: "Vila Olímpia", hora: "12:55", pagamento: "Cartão débito", pago: false, comprovante: false, taxaMaquina: 1.5, notaFiscal: false },
+  { id: "#10233", cliente: "Roberto Lima", pet: "Zeus (Rottweiler)", total: 540.7, status: "em rota", bairro: "Brooklin", hora: "12:30", pagamento: "Pix", pago: true, comprovante: true, taxaMaquina: 0, notaFiscal: true },
+  { id: "#10232", cliente: "Fernanda Sá", pet: "Mia (Persa)", total: 95.0, status: "entregue", bairro: "Moema", hora: "11:50", pagamento: "Pix", pago: true, comprovante: true, taxaMaquina: 0, notaFiscal: false },
 ];
 
 export type Conversa = {
@@ -399,4 +406,35 @@ export const cupons: Cupom[] = [
   { id: "cp4", clienteId: "5", codigo: "PET-M2N3P4", desconto: 12, tipo: "percentual", status: "enviado",  criadoEm: "11/05", motivoEnvio: "Recompra prevista" },
   { id: "cp5", clienteId: "7", codigo: "PET-Q1R2S3", desconto: 25, tipo: "percentual", status: "expirado", criadoEm: "20/03", expiradoEm: "30/04", motivoEnvio: "Cliente em risco" },
   { id: "cp6", clienteId: "6", codigo: "PET-T7U8V9", desconto: 30, tipo: "fixo",       status: "usado",    criadoEm: "02/05", usadoEm: "08/05", motivoEnvio: "Indicação convertida" },
+];
+
+// ── Clientes inativos ──
+export type ClienteInativo = {
+  id: string; nome: string; telefone: string; bairro: string; pets: string[];
+  ultimoContato: string; diasSemCompra: number;
+  followUpFeito: boolean; respondeuFollowUp: boolean;
+  motivoPerdaProvavel: "preço" | "concorrência" | "momento ruim" | "sem resposta";
+  valorPotencial: number; ultimaMensagem: string; tentativas: number;
+};
+
+export const clientesInativos: ClienteInativo[] = [
+  { id: "i1", nome: "Lucas Ferreira", telefone: "47991234567", bairro: "Centro", pets: ["Max (Lab)"], ultimoContato: "há 18 dias", diasSemCompra: 75, followUpFeito: true, respondeuFollowUp: true, motivoPerdaProvavel: "preço", valorPotencial: 280, ultimaMensagem: "Vou ver se consigo o dinheiro", tentativas: 2 },
+  { id: "i2", nome: "Camila Duarte", telefone: "47987654321", bairro: "Tijucas Centro", pets: ["Bella (SRD)", "Mel (Persa)"], ultimoContato: "há 32 dias", diasSemCompra: 90, followUpFeito: true, respondeuFollowUp: false, motivoPerdaProvavel: "sem resposta", valorPotencial: 420, ultimaMensagem: "Lida — sem resposta", tentativas: 3 },
+  { id: "i3", nome: "Rafael Costa", telefone: "47999887766", bairro: "Porto Belo", pets: ["Thor (Bulldog)"], ultimoContato: "há 10 dias", diasSemCompra: 62, followUpFeito: true, respondeuFollowUp: true, motivoPerdaProvavel: "momento ruim", valorPotencial: 180, ultimaMensagem: "Tô viajando, volto semana que vem", tentativas: 1 },
+  { id: "i4", nome: "Priscila Nunes", telefone: "47988776655", bairro: "Bombinhas", pets: ["Luna (Siamês)"], ultimoContato: "há 25 dias", diasSemCompra: 80, followUpFeito: false, respondeuFollowUp: false, motivoPerdaProvavel: "concorrência", valorPotencial: 350, ultimaMensagem: "Vi num outro pet shop", tentativas: 1 },
+];
+
+// ── Clientes por bairro (mapa) ──
+export type ClientePorBairro = {
+  bairro: string; cidade: string; total: number; vip: number;
+  ticketMedio: number; receitaTotal: number; lat: number; lng: number;
+};
+
+export const clientesPorBairro: ClientePorBairro[] = [
+  { bairro: "Centro", cidade: "Tijucas", total: 12, vip: 3, ticketMedio: 195, receitaTotal: 18240, lat: 27.14, lng: -48.63 },
+  { bairro: "Rau", cidade: "Jaraguá do Sul", total: 8, vip: 1, ticketMedio: 178, receitaTotal: 11280, lat: 26.48, lng: -49.07 },
+  { bairro: "Vila Nova", cidade: "Jaraguá do Sul", total: 6, vip: 2, ticketMedio: 210, receitaTotal: 9870, lat: 26.49, lng: -49.06 },
+  { bairro: "Porto Belo", cidade: "Porto Belo", total: 5, vip: 0, ticketMedio: 142, receitaTotal: 5530, lat: 27.16, lng: -48.55 },
+  { bairro: "Bombinhas", cidade: "Bombinhas", total: 4, vip: 1, ticketMedio: 168, receitaTotal: 5240, lat: 27.14, lng: -48.51 },
+  { bairro: "Vila Mariana", cidade: "São Paulo", total: 3, vip: 2, ticketMedio: 240, receitaTotal: 5620, lat: 23.59, lng: -46.63 },
 ];

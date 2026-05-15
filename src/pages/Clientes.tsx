@@ -1,7 +1,8 @@
-import { clientes, cupons as cuponsSeed, type Cliente, type Cupom, type CupomTipo } from "@/lib/mock";
+import { clientes as seedClientes, cupons as cuponsSeed, type Cliente, type Cupom, type CupomTipo } from "@/lib/mock";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Search, Plus, MessageCircle, Phone, X, Pencil, History, ShoppingBag, MapPin, Tag, Ticket } from "lucide-react";
 import { useMemo, useState } from "react";
+
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -25,6 +26,7 @@ function todayStr() {
 }
 
 export function Clientes() {
+  const clientes = seedClientes;
   const [filter, setFilter] = useState("Todos");
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<Cliente | null>(null);
