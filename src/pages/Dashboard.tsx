@@ -88,7 +88,7 @@ export function Dashboard() {
       {/* LINHA 3 — Operação */}
       <Section title="Operação" subtitle="pedidos, recompra e risco">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<ShoppingBag />} label="Pedidos hoje" value={String(kpis.pedidosHoje)} delta="+6" tone="primary" />
+          <Kpi icon={<ShoppingBag />} label="Pedidos hoje" value={String(pedidosHoje)} delta="ao vivo" tone="primary" />
           <Kpi icon={<RefreshCw />} label="Recompra prevista" value={String(kpis.recompraPrevista)} delta="hoje" tone="success" />
           <Kpi icon={<AlertTriangle />} label="Clientes em risco" value={String(kpis.clientesRisco)} delta="-2" tone="destructive" />
           <Kpi icon={<Zap />} label="Taxa upsell" value={`${kpis.taxaUpsell}%`} delta="+4pp" tone="accent" />
