@@ -25,6 +25,9 @@ export type CompraIndicado = {
   indicadoTelefone?: string;
   data: string;            // "há 2 dias"
   itens: ItemCompra[];
+  descontoAplicado?: boolean;  // 10% OFF aplicado na 1ª compra
+  dataDesconto?: string;       // ISO ou data legível
+  primeiraCompra?: boolean;
 };
 
 export type CampanhaTemp = {
