@@ -407,3 +407,34 @@ export const cupons: Cupom[] = [
   { id: "cp5", clienteId: "7", codigo: "PET-Q1R2S3", desconto: 25, tipo: "percentual", status: "expirado", criadoEm: "20/03", expiradoEm: "30/04", motivoEnvio: "Cliente em risco" },
   { id: "cp6", clienteId: "6", codigo: "PET-T7U8V9", desconto: 30, tipo: "fixo",       status: "usado",    criadoEm: "02/05", usadoEm: "08/05", motivoEnvio: "Indicação convertida" },
 ];
+
+// ── Clientes inativos ──
+export type ClienteInativo = {
+  id: string; nome: string; telefone: string; bairro: string; pets: string[];
+  ultimoContato: string; diasSemCompra: number;
+  followUpFeito: boolean; respondeuFollowUp: boolean;
+  motivoPerdaProvavel: "preço" | "concorrência" | "momento ruim" | "sem resposta";
+  valorPotencial: number; ultimaMensagem: string; tentativas: number;
+};
+
+export const clientesInativos: ClienteInativo[] = [
+  { id: "i1", nome: "Lucas Ferreira", telefone: "47991234567", bairro: "Centro", pets: ["Max (Lab)"], ultimoContato: "há 18 dias", diasSemCompra: 75, followUpFeito: true, respondeuFollowUp: true, motivoPerdaProvavel: "preço", valorPotencial: 280, ultimaMensagem: "Vou ver se consigo o dinheiro", tentativas: 2 },
+  { id: "i2", nome: "Camila Duarte", telefone: "47987654321", bairro: "Tijucas Centro", pets: ["Bella (SRD)", "Mel (Persa)"], ultimoContato: "há 32 dias", diasSemCompra: 90, followUpFeito: true, respondeuFollowUp: false, motivoPerdaProvavel: "sem resposta", valorPotencial: 420, ultimaMensagem: "Lida — sem resposta", tentativas: 3 },
+  { id: "i3", nome: "Rafael Costa", telefone: "47999887766", bairro: "Porto Belo", pets: ["Thor (Bulldog)"], ultimoContato: "há 10 dias", diasSemCompra: 62, followUpFeito: true, respondeuFollowUp: true, motivoPerdaProvavel: "momento ruim", valorPotencial: 180, ultimaMensagem: "Tô viajando, volto semana que vem", tentativas: 1 },
+  { id: "i4", nome: "Priscila Nunes", telefone: "47988776655", bairro: "Bombinhas", pets: ["Luna (Siamês)"], ultimoContato: "há 25 dias", diasSemCompra: 80, followUpFeito: false, respondeuFollowUp: false, motivoPerdaProvavel: "concorrência", valorPotencial: 350, ultimaMensagem: "Vi num outro pet shop", tentativas: 1 },
+];
+
+// ── Clientes por bairro (mapa) ──
+export type ClientePorBairro = {
+  bairro: string; cidade: string; total: number; vip: number;
+  ticketMedio: number; receitaTotal: number; lat: number; lng: number;
+};
+
+export const clientesPorBairro: ClientePorBairro[] = [
+  { bairro: "Centro", cidade: "Tijucas", total: 12, vip: 3, ticketMedio: 195, receitaTotal: 18240, lat: 27.14, lng: -48.63 },
+  { bairro: "Rau", cidade: "Jaraguá do Sul", total: 8, vip: 1, ticketMedio: 178, receitaTotal: 11280, lat: 26.48, lng: -49.07 },
+  { bairro: "Vila Nova", cidade: "Jaraguá do Sul", total: 6, vip: 2, ticketMedio: 210, receitaTotal: 9870, lat: 26.49, lng: -49.06 },
+  { bairro: "Porto Belo", cidade: "Porto Belo", total: 5, vip: 0, ticketMedio: 142, receitaTotal: 5530, lat: 27.16, lng: -48.55 },
+  { bairro: "Bombinhas", cidade: "Bombinhas", total: 4, vip: 1, ticketMedio: 168, receitaTotal: 5240, lat: 27.14, lng: -48.51 },
+  { bairro: "Vila Mariana", cidade: "São Paulo", total: 3, vip: 2, ticketMedio: 240, receitaTotal: 5620, lat: 23.59, lng: -46.63 },
+];
