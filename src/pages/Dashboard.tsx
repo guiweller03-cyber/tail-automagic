@@ -227,6 +227,24 @@ export function Dashboard() {
           </ul>
         </div>
       </div>
+
+      {showRelatorio && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50" onClick={()=>!enviandoRel && setShowRelatorio(false)}>
+          <div className="card-soft p-5 w-full max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-start justify-between">
+              <h3 className="font-semibold inline-flex items-center gap-2"><Sparkles className="size-4 text-primary" /> Relatório IA</h3>
+              <button disabled={enviandoRel} onClick={()=>setShowRelatorio(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="size-4" /></button>
+            </div>
+            <p className="text-sm text-muted-foreground">Gerar relatório completo do dia e enviar no WhatsApp?</p>
+            <div className="flex gap-2">
+              <button disabled={enviandoRel} onClick={()=>setShowRelatorio(false)} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold disabled:opacity-40">Cancelar</button>
+              <button disabled={enviandoRel} onClick={enviarRelatorio} className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60">
+                {enviandoRel ? <><Loader2 className="size-4 animate-spin" /> Enviando…</> : "Enviar agora"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
