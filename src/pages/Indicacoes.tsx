@@ -2,14 +2,15 @@ import { clientes } from "@/lib/mock";
 import { useMemo, useState } from "react";
 import {
   Gift, Trophy, Users, Sparkles, Plus, Share2, Crown, Medal, Award,
-  PawPrint, Flame, Target, Check,
+  PawPrint, Flame, Target, Check, Percent, Settings2, Clock, Wallet,
 } from "lucide-react";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 type Recompensa = { id: string; nome: string; custo: number; tipo: "desconto" | "produto" | "brinde"; emoji: string };
-type Indicacao = { clienteId: string; indicado: string; status: "pendente" | "convertido"; data: string; pontos: number };
+type Indicacao = { clienteId: string; indicado: string; status: "pendente" | "convertido" | "pago"; data: string; pontos: number; valorComprado: number; valorGanho: number };
 type Campanha = { id: string; titulo: string; regra: string; bonus: number; ativo: boolean; participantes: number };
+type ConfigIndic = { porcentagem: number; limiteMax: number; validadeDias: number; compraMinima: number };
 
 const recompensasIniciais: Recompensa[] = [
   { id: "r1", nome: "10% OFF próxima compra", custo: 50, tipo: "desconto", emoji: "🏷️" },
@@ -41,12 +42,14 @@ export function Indicacoes() {
   const ranking = useMemo(calcularRanking, []);
   const [recompensas] = useState(recompensasIniciais);
   const [campanhas, setCampanhas] = useState(campanhasIniciais);
+  const [config, setConfig] = useState<ConfigIndic>({ porcentagem: 5, limiteMax: 100, validadeDias: 90, compraMinima: 50 });
+  const calc = (valor: number) => Math.min(config.limiteMax, valor >= config.compraMinima ? (valor * config.porcentagem) / 100 : 0);
   const [indicacoes, setIndicacoes] = useState<Indicacao[]>([
-    { clienteId: "1", indicado: "Letícia Prado", status: "convertido", data: "há 2 dias", pontos: 20 },
-    { clienteId: "4", indicado: "Bruno Tavares", status: "convertido", data: "há 5 dias", pontos: 20 },
-    { clienteId: "1", indicado: "Mateus Lima", status: "pendente", data: "há 1 dia", pontos: 0 },
-    { clienteId: "3", indicado: "Renata Souza", status: "convertido", data: "há 8 dias", pontos: 20 },
-    { clienteId: "5", indicado: "Diego Costa", status: "pendente", data: "há 3 dias", pontos: 0 },
+    { clienteId: "1", indicado: "Letícia Prado", status: "pago", data: "há 2 dias", pontos: 20, valorComprado: 240, valorGanho: 12 },
+    { clienteId: "4", indicado: "Bruno Tavares", status: "convertido", data: "há 5 dias", pontos: 20, valorComprado: 180, valorGanho: 9 },
+    { clienteId: "1", indicado: "Mateus Lima", status: "pendente", data: "há 1 dia", pontos: 0, valorComprado: 0, valorGanho: 0 },
+    { clienteId: "3", indicado: "Renata Souza", status: "pago", data: "há 8 dias", pontos: 20, valorComprado: 320, valorGanho: 16 },
+    { clienteId: "5", indicado: "Diego Costa", status: "pendente", data: "há 3 dias", pontos: 0, valorComprado: 0, valorGanho: 0 },
   ]);
   const [novoModal, setNovoModal] = useState(false);
   const [novoCliente, setNovoCliente] = useState("");
@@ -54,14 +57,16 @@ export function Indicacoes() {
 
   const totalPontos = ranking.reduce((s, c) => s + c.pontos, 0);
   const totalIndicacoes = indicacoes.length;
-  const convertidas = indicacoes.filter(i => i.status === "convertido").length;
+  const convertidas = indicacoes.filter(i => i.status !== "pendente").length;
   const taxaConv = totalIndicacoes ? (convertidas / totalIndicacoes) * 100 : 0;
+  const totalGanho = indicacoes.reduce((s, i) => s + i.valorGanho, 0);
+  const totalGeradoIndicados = indicacoes.reduce((s, i) => s + i.valorComprado, 0);
 
   const adicionarIndicacao = () => {
     if (!novoCliente || !novoIndicado) return;
     const c = clientes.find(c => c.nome === novoCliente);
     if (!c) return;
-    setIndicacoes(prev => [{ clienteId: c.id, indicado: novoIndicado, status: "pendente", data: "agora", pontos: 0 }, ...prev]);
+    setIndicacoes(prev => [{ clienteId: c.id, indicado: novoIndicado, status: "pendente", data: "agora", pontos: 0, valorComprado: 0, valorGanho: 0 }, ...prev]);
     setNovoCliente(""); setNovoIndicado(""); setNovoModal(false);
   };
 
@@ -89,9 +94,28 @@ export function Indicacoes() {
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi icon={<Users className="size-4" />} label="Indicações totais" value={String(totalIndicacoes)} sub={`${convertidas} convertidas`} tone="primary" />
         <Kpi icon={<Target className="size-4" />} label="Taxa de conversão" value={`${taxaConv.toFixed(0)}%`} sub="amigos que viram clientes" tone="success" />
-        <Kpi icon={<Sparkles className="size-4" />} label="Pontos circulando" value={totalPontos.toLocaleString("pt-BR")} sub={`${ranking.length} clientes ativos`} tone="accent" />
-        <Kpi icon={<Trophy className="size-4" />} label="Top divulgador" value={ranking[0]?.nome.split(" ")[0] || "—"} sub={`${ranking[0]?.pontos || 0} pts`} tone="warn" />
+        <Kpi icon={<Wallet className="size-4" />} label="Recompensas geradas" value={brl(totalGanho)} sub={`em ${brl(totalGeradoIndicados)} de vendas`} tone="accent" />
+        <Kpi icon={<Trophy className="size-4" />} label="Top divulgador" value={ranking[0]?.nome.split(" ")[0] || "—"} sub={`${ranking[0]?.pontos || 0} pts · ${totalPontos.toLocaleString("pt-BR")} circulando`} tone="warn" />
       </div>
+
+      {/* Configuração da recompensa por % */}
+      <section className="card-soft p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h2 className="font-semibold inline-flex items-center gap-2"><Settings2 className="size-4 text-primary" /> Recompensa por indicação (%)</h2>
+            <p className="text-xs text-muted-foreground">Quem indica ganha % da compra do amigo · simule e ajuste</p>
+          </div>
+          <div className="text-[11px] text-muted-foreground bg-secondary px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+            <Percent className="size-3" /> Ex: amigo compra <b className="text-foreground">{brl(100)}</b> → indicador ganha <b className="text-success">{brl(calc(100))}</b>
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <ConfigField icon={<Percent className="size-3.5" />} label="Porcentagem" suffix="%" value={config.porcentagem} onChange={(v) => setConfig({ ...config, porcentagem: v })} />
+          <ConfigField icon={<Wallet className="size-3.5" />} label="Limite máximo" prefix="R$" value={config.limiteMax} onChange={(v) => setConfig({ ...config, limiteMax: v })} />
+          <ConfigField icon={<Clock className="size-3.5" />} label="Validade" suffix="dias" value={config.validadeDias} onChange={(v) => setConfig({ ...config, validadeDias: v })} />
+          <ConfigField icon={<Target className="size-3.5" />} label="Compra mínima" prefix="R$" value={config.compraMinima} onChange={(v) => setConfig({ ...config, compraMinima: v })} />
+        </div>
+      </section>
 
       <div className="grid lg:grid-cols-[1.2fr_1fr] gap-4">
         {/* Ranking */}
@@ -198,28 +222,32 @@ export function Indicacoes() {
                 <th className="font-medium px-5 py-3">Indicador</th>
                 <th className="font-medium px-5 py-3">Amigo indicado</th>
                 <th className="font-medium px-5 py-3">Quando</th>
+                <th className="font-medium px-5 py-3 text-right">Comprou</th>
+                <th className="font-medium px-5 py-3 text-right">Recompensa</th>
                 <th className="font-medium px-5 py-3">Status</th>
-                <th className="font-medium px-5 py-3 text-right">Pontos</th>
               </tr>
             </thead>
             <tbody>
               {indicacoes.map((i, idx) => {
                 const c = clientes.find(c => c.id === i.clienteId);
+                const tone = i.status === "pago" ? "bg-success/15 text-success" : i.status === "convertido" ? "bg-primary/15 text-primary" : "bg-warning/15 text-warning";
+                const label = i.status === "pago" ? "Recompensa paga" : i.status === "convertido" ? "Convertido" : "Aguardando 1ª compra";
                 return (
                   <tr key={idx} className="border-t border-border hover:bg-secondary/30">
                     <td className="px-5 py-3 font-semibold">{c?.nome || "—"}</td>
                     <td className="px-5 py-3">{i.indicado}</td>
                     <td className="px-5 py-3 text-muted-foreground text-xs">{i.data}</td>
-                    <td className="px-5 py-3">
-                      {i.status === "convertido" ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md bg-success/15 text-success">
-                          <Check className="size-3" /> Convertido
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-warning/15 text-warning">Pendente</span>
-                      )}
+                    <td className="px-5 py-3 text-right tabular-nums text-xs">{i.valorComprado > 0 ? brl(i.valorComprado) : "—"}</td>
+                    <td className="px-5 py-3 text-right">
+                      {i.valorGanho > 0
+                        ? <span className="font-bold tabular-nums text-success">+{brl(i.valorGanho)}</span>
+                        : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
-                    <td className="px-5 py-3 text-right font-bold tabular-nums">{i.pontos > 0 ? `+${i.pontos}` : "—"}</td>
+                    <td className="px-5 py-3">
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md ${tone}`}>
+                        {i.status === "pago" && <Check className="size-3" />} {label}
+                      </span>
+                    </td>
                   </tr>
                 );
               })}
@@ -289,6 +317,24 @@ function Kpi({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: 
         <div className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">{label}</div>
         <div className="text-lg font-bold leading-tight truncate">{value}</div>
         <div className="text-[10px] text-muted-foreground truncate">{sub}</div>
+      </div>
+    </div>
+  );
+}
+
+function ConfigField({ icon, label, value, onChange, prefix, suffix }: { icon: React.ReactNode; label: string; value: number; onChange: (v: number) => void; prefix?: string; suffix?: string }) {
+  return (
+    <div className="rounded-xl bg-secondary/40 p-3">
+      <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground inline-flex items-center gap-1">{icon} {label}</div>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        {prefix && <span className="text-xs font-semibold text-muted-foreground">{prefix}</span>}
+        <input
+          type="number"
+          value={value || ""}
+          onChange={(e) => onChange(Number(e.target.value) || 0)}
+          className="w-full bg-transparent text-xl font-bold tabular-nums outline-none"
+        />
+        {suffix && <span className="text-xs font-semibold text-muted-foreground">{suffix}</span>}
       </div>
     </div>
   );
