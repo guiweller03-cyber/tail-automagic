@@ -67,7 +67,7 @@ export function Dashboard() {
       {/* LINHA 1 — Receita */}
       <Section title="Receita" subtitle="visão financeira do período">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<Wallet />} label="Faturamento hoje" value={brl(kpis.faturamentoHoje)} delta="+18%" tone="primary" />
+          <Kpi icon={<Wallet />} label="Faturamento hoje" value={brl(faturamentoHoje)} delta="ao vivo" tone="primary" />
           <Kpi icon={<TrendingUp />} label="Faturamento semana" value={brl(kpis.faturamentoSemana)} delta="+9%" tone="primary" />
           <Kpi icon={<TrendingUp />} label="Faturamento mês" value={brl(kpis.faturamentoMes)} delta="+12%" tone="primary" />
           <Kpi icon={<Crown />} label="Lucro líquido mês" value={brl(kpis.lucroMes)} delta="+14%" tone="success" />
