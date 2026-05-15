@@ -53,6 +53,8 @@ export const origemLeads = [
   { name: "Google", value: 5 },
 ];
 
+export type FormaPagamento = "Pix" | "Cartão débito" | "Cartão crédito" | "Dinheiro" | "Pendente";
+
 export type Pedido = {
   id: string;
   cliente: string;
@@ -61,16 +63,21 @@ export type Pedido = {
   status: "novo" | "pago" | "separando" | "em rota" | "entregue" | "cancelado";
   bairro: string;
   hora: string;
+  pagamento: FormaPagamento;
+  pago: boolean;
+  comprovante: boolean;
+  taxaMaquina: number;
+  notaFiscal: boolean;
 };
 
 export const pedidos: Pedido[] = [
-  { id: "#10238", cliente: "Marina Costa", pet: "Thor (Golden)", total: 189.9, status: "em rota", bairro: "Vila Mariana", hora: "14:20" },
-  { id: "#10237", cliente: "Pedro Alves", pet: "Mel (SRD)", total: 87.5, status: "separando", bairro: "Moema", hora: "14:05" },
-  { id: "#10236", cliente: "Júlia Ramos", pet: "Bento (Shih-tzu)", total: 264.0, status: "pago", bairro: "Pinheiros", hora: "13:48" },
-  { id: "#10235", cliente: "Carlos Mendes", pet: "Luna (Maine Coon)", total: 142.3, status: "entregue", bairro: "Itaim", hora: "13:12" },
-  { id: "#10234", cliente: "Ana Beatriz", pet: "Nina (Poodle)", total: 320.0, status: "novo", bairro: "Vila Olímpia", hora: "12:55" },
-  { id: "#10233", cliente: "Roberto Lima", pet: "Zeus (Rottweiler)", total: 540.7, status: "em rota", bairro: "Brooklin", hora: "12:30" },
-  { id: "#10232", cliente: "Fernanda Sá", pet: "Mia (Persa)", total: 95.0, status: "entregue", bairro: "Moema", hora: "11:50" },
+  { id: "#10238", cliente: "Marina Costa", pet: "Thor (Golden)", total: 189.9, status: "em rota", bairro: "Vila Mariana", hora: "14:20", pagamento: "Pix", pago: true, comprovante: true, taxaMaquina: 0, notaFiscal: false },
+  { id: "#10237", cliente: "Pedro Alves", pet: "Mel (SRD)", total: 87.5, status: "separando", bairro: "Moema", hora: "14:05", pagamento: "Dinheiro", pago: false, comprovante: false, taxaMaquina: 0, notaFiscal: false },
+  { id: "#10236", cliente: "Júlia Ramos", pet: "Bento (Shih-tzu)", total: 264.0, status: "pago", bairro: "Pinheiros", hora: "13:48", pagamento: "Cartão crédito", pago: true, comprovante: false, taxaMaquina: 2.5, notaFiscal: true },
+  { id: "#10235", cliente: "Carlos Mendes", pet: "Luna (Maine Coon)", total: 142.3, status: "entregue", bairro: "Itaim", hora: "13:12", pagamento: "Pix", pago: true, comprovante: true, taxaMaquina: 0, notaFiscal: false },
+  { id: "#10234", cliente: "Ana Beatriz", pet: "Nina (Poodle)", total: 320.0, status: "novo", bairro: "Vila Olímpia", hora: "12:55", pagamento: "Cartão débito", pago: false, comprovante: false, taxaMaquina: 1.5, notaFiscal: false },
+  { id: "#10233", cliente: "Roberto Lima", pet: "Zeus (Rottweiler)", total: 540.7, status: "em rota", bairro: "Brooklin", hora: "12:30", pagamento: "Pix", pago: true, comprovante: true, taxaMaquina: 0, notaFiscal: true },
+  { id: "#10232", cliente: "Fernanda Sá", pet: "Mia (Persa)", total: 95.0, status: "entregue", bairro: "Moema", hora: "11:50", pagamento: "Pix", pago: true, comprovante: true, taxaMaquina: 0, notaFiscal: false },
 ];
 
 export type Conversa = {
