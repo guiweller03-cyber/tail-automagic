@@ -5,31 +5,10 @@ import {
   Check, X, History, RotateCcw, Phone, MapPin, Send,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useVendas, type Pay, type StatusPag, type Item, type Venda } from "@/contexts/VendasContext";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-type Pay = "Pix" | "Cartão" | "Dinheiro";
-type StatusPag = "Pago" | "Pendente";
-type StatusVenda = "Concluída" | "Cancelada" | "Reembolsada";
-
-type Item = { sku: string; nome: string; preco: number; precoCompra: number; qtd: number };
-type Venda = {
-  id: string;
-  hora: string;
-  data: string;
-  cliente: string;
-  telefone: string;
-  itens: Item[];
-  total: number;
-  pay: Pay;
-  statusPag: StatusPag;
-  status: StatusVenda;
-  obs?: string;
-  motivoCancel?: string;
-  canceladoPor?: string;
-  canceladoEm?: string;
-  whatsEnviado?: boolean;
-};
 type MsgLog = { id: string; cliente: string; telefone: string; quando: string; preview: string; vendaId?: string };
 
 export function PDV() {
@@ -45,11 +24,7 @@ export function PDV() {
   const [desconto, setDesconto] = useState(0);
   const [frete, setFrete] = useState(0);
 
-  const [vendas, setVendas] = useState<Venda[]>([
-    { id: "V-1042", hora: "14:32", data: "hoje", cliente: "Marina Costa", telefone: "(11) 99812-3344", itens: [{ sku: "x", nome: "Golden Adultos 15kg", preco: 289.9, precoCompra: 200, qtd: 1 }], total: 289.9, pay: "Pix", statusPag: "Pago", status: "Concluída", whatsEnviado: true },
-    { id: "V-1041", hora: "13:48", data: "hoje", cliente: "Júlia Ramos", telefone: "(11) 98011-2231", itens: [{ sku: "y", nome: "Petisco Natural 90g", preco: 24, precoCompra: 12, qtd: 2 }, { sku: "z", nome: "Brinquedo corda", preco: 39.9, precoCompra: 18, qtd: 1 }], total: 87.9, pay: "Cartão", statusPag: "Pago", status: "Concluída" },
-    { id: "V-1040", hora: "12:10", data: "hoje", cliente: "Pedro Alves", telefone: "(11) 99423-7788", itens: [{ sku: "a", nome: "Areia Higiênica 4kg", preco: 35, precoCompra: 18, qtd: 1 }], total: 35, pay: "Dinheiro", statusPag: "Pendente", status: "Concluída" },
-  ]);
+  const { vendas, addVenda, cancelarVenda } = useVendas();
   const [msgLog, setMsgLog] = useState<MsgLog[]>([
     { id: "m1", cliente: "Marina Costa", telefone: "(11) 99812-3344", quando: "14:33", preview: "Olá Marina 😊 seu pedido foi separado…", vendaId: "V-1042" },
   ]);
