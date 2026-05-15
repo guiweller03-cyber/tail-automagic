@@ -384,8 +384,12 @@ export function Indicacoes() {
                 );
               })}
             </tbody>
+          </table>
+        </div>
+      </section>
 
       {/* Modal detalhe da compra */}
+
       {detalheCompra && (
         <DetalheCompraModal
           compra={detalheCompra}
