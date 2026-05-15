@@ -232,12 +232,22 @@ Qualquer dúvida estamos por aqui 🐾`;
                 <PayBtn icon={<Banknote className="size-4" />} label="Dinheiro" active={pay === "Dinheiro"} onClick={() => setPay("Dinheiro")} />
               </div>
 
-              <button
-                disabled={carrinho.length === 0}
-                className="w-full h-12 rounded-xl bg-success text-success-foreground font-bold text-base hover:opacity-90 disabled:opacity-40 transition"
-              >
-                Finalizar · {brl(totalFull)}
-              </button>
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <button
+                  disabled={carrinho.length === 0}
+                  className="h-12 rounded-xl bg-success text-success-foreground font-bold text-base hover:opacity-90 disabled:opacity-40 transition"
+                >
+                  Finalizar · {brl(totalFull)}
+                </button>
+                <button
+                  onClick={enviarWhats}
+                  disabled={carrinho.length === 0}
+                  title="Enviar resumo no WhatsApp"
+                  className="h-12 px-4 rounded-xl bg-[#25D366] text-white font-semibold hover:opacity-90 disabled:opacity-40 transition inline-flex items-center gap-1.5"
+                >
+                  <MessageCircle className="size-4" /> WhatsApp
+                </button>
+              </div>
             </div>
           </div>
         </div>
