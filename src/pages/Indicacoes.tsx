@@ -222,28 +222,32 @@ export function Indicacoes() {
                 <th className="font-medium px-5 py-3">Indicador</th>
                 <th className="font-medium px-5 py-3">Amigo indicado</th>
                 <th className="font-medium px-5 py-3">Quando</th>
+                <th className="font-medium px-5 py-3 text-right">Comprou</th>
+                <th className="font-medium px-5 py-3 text-right">Recompensa</th>
                 <th className="font-medium px-5 py-3">Status</th>
-                <th className="font-medium px-5 py-3 text-right">Pontos</th>
               </tr>
             </thead>
             <tbody>
               {indicacoes.map((i, idx) => {
                 const c = clientes.find(c => c.id === i.clienteId);
+                const tone = i.status === "pago" ? "bg-success/15 text-success" : i.status === "convertido" ? "bg-primary/15 text-primary" : "bg-warning/15 text-warning";
+                const label = i.status === "pago" ? "Recompensa paga" : i.status === "convertido" ? "Convertido" : "Aguardando 1ª compra";
                 return (
                   <tr key={idx} className="border-t border-border hover:bg-secondary/30">
                     <td className="px-5 py-3 font-semibold">{c?.nome || "—"}</td>
                     <td className="px-5 py-3">{i.indicado}</td>
                     <td className="px-5 py-3 text-muted-foreground text-xs">{i.data}</td>
-                    <td className="px-5 py-3">
-                      {i.status === "convertido" ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md bg-success/15 text-success">
-                          <Check className="size-3" /> Convertido
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-warning/15 text-warning">Pendente</span>
-                      )}
+                    <td className="px-5 py-3 text-right tabular-nums text-xs">{i.valorComprado > 0 ? brl(i.valorComprado) : "—"}</td>
+                    <td className="px-5 py-3 text-right">
+                      {i.valorGanho > 0
+                        ? <span className="font-bold tabular-nums text-success">+{brl(i.valorGanho)}</span>
+                        : <span className="text-muted-foreground text-xs">—</span>}
                     </td>
-                    <td className="px-5 py-3 text-right font-bold tabular-nums">{i.pontos > 0 ? `+${i.pontos}` : "—"}</td>
+                    <td className="px-5 py-3">
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md ${tone}`}>
+                        {i.status === "pago" && <Check className="size-3" />} {label}
+                      </span>
+                    </td>
                   </tr>
                 );
               })}
