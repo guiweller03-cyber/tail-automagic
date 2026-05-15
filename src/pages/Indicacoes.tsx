@@ -98,7 +98,7 @@ export function Indicacoes() {
         <section className="card-soft p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="font-semibold inline-flex items-center gap-2"><Crown className="size-4 text-warn" /> Ranking de fidelidade</h2>
+              <h2 className="font-semibold inline-flex items-center gap-2"><Crown className="size-4 text-warning" /> Ranking de fidelidade</h2>
               <p className="text-xs text-muted-foreground">Top clientes por pontos · compras + indicações</p>
             </div>
             <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground bg-secondary px-2 py-1 rounded-md">Mês atual</span>
@@ -107,7 +107,7 @@ export function Indicacoes() {
             {ranking.slice(0, 7).map((c, i) => (
               <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40 hover:bg-secondary transition">
                 <div className={`size-9 rounded-xl grid place-items-center font-bold text-sm shrink-0 ${
-                  i === 0 ? "bg-warn/20 text-warn" : i === 1 ? "bg-muted text-foreground" : i === 2 ? "bg-accent/20 text-accent" : "bg-card border border-border text-muted-foreground"
+                  i === 0 ? "bg-warning/20 text-warning" : i === 1 ? "bg-muted text-foreground" : i === 2 ? "bg-accent/20 text-accent" : "bg-card border border-border text-muted-foreground"
                 }`}>
                   {i < 3 ? (i === 0 ? <Crown className="size-4" /> : i === 1 ? <Medal className="size-4" /> : <Award className="size-4" />) : i + 1}
                 </div>
@@ -216,7 +216,7 @@ export function Indicacoes() {
                           <Check className="size-3" /> Convertido
                         </span>
                       ) : (
-                        <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-warn/15 text-warn">Pendente</span>
+                        <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-warning/15 text-warning">Pendente</span>
                       )}
                     </td>
                     <td className="px-5 py-3 text-right font-bold tabular-nums">{i.pontos > 0 ? `+${i.pontos}` : "—"}</td>
@@ -280,7 +280,7 @@ function Kpi({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: 
     primary: "bg-primary/15 text-primary",
     success: "bg-success/15 text-success",
     accent: "bg-accent/15 text-accent",
-    warn: "bg-warn/15 text-warn",
+    warn: "bg-warning/15 text-warning",
   }[tone];
   return (
     <div className="card-soft p-4 flex items-center gap-3">
