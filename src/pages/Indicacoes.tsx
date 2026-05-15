@@ -94,9 +94,28 @@ export function Indicacoes() {
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi icon={<Users className="size-4" />} label="Indicações totais" value={String(totalIndicacoes)} sub={`${convertidas} convertidas`} tone="primary" />
         <Kpi icon={<Target className="size-4" />} label="Taxa de conversão" value={`${taxaConv.toFixed(0)}%`} sub="amigos que viram clientes" tone="success" />
-        <Kpi icon={<Sparkles className="size-4" />} label="Pontos circulando" value={totalPontos.toLocaleString("pt-BR")} sub={`${ranking.length} clientes ativos`} tone="accent" />
-        <Kpi icon={<Trophy className="size-4" />} label="Top divulgador" value={ranking[0]?.nome.split(" ")[0] || "—"} sub={`${ranking[0]?.pontos || 0} pts`} tone="warn" />
+        <Kpi icon={<Wallet className="size-4" />} label="Recompensas geradas" value={brl(totalGanho)} sub={`em ${brl(totalGeradoIndicados)} de vendas`} tone="accent" />
+        <Kpi icon={<Trophy className="size-4" />} label="Top divulgador" value={ranking[0]?.nome.split(" ")[0] || "—"} sub={`${ranking[0]?.pontos || 0} pts · ${totalPontos.toLocaleString("pt-BR")} circulando`} tone="warn" />
       </div>
+
+      {/* Configuração da recompensa por % */}
+      <section className="card-soft p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h2 className="font-semibold inline-flex items-center gap-2"><Settings2 className="size-4 text-primary" /> Recompensa por indicação (%)</h2>
+            <p className="text-xs text-muted-foreground">Quem indica ganha % da compra do amigo · simule e ajuste</p>
+          </div>
+          <div className="text-[11px] text-muted-foreground bg-secondary px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+            <Percent className="size-3" /> Ex: amigo compra <b className="text-foreground">{brl(100)}</b> → indicador ganha <b className="text-success">{brl(calc(100))}</b>
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <ConfigField icon={<Percent className="size-3.5" />} label="Porcentagem" suffix="%" value={config.porcentagem} onChange={(v) => setConfig({ ...config, porcentagem: v })} />
+          <ConfigField icon={<Wallet className="size-3.5" />} label="Limite máximo" prefix="R$" value={config.limiteMax} onChange={(v) => setConfig({ ...config, limiteMax: v })} />
+          <ConfigField icon={<Clock className="size-3.5" />} label="Validade" suffix="dias" value={config.validadeDias} onChange={(v) => setConfig({ ...config, validadeDias: v })} />
+          <ConfigField icon={<Target className="size-3.5" />} label="Compra mínima" prefix="R$" value={config.compraMinima} onChange={(v) => setConfig({ ...config, compraMinima: v })} />
+        </div>
+      </section>
 
       <div className="grid lg:grid-cols-[1.2fr_1fr] gap-4">
         {/* Ranking */}
