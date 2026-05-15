@@ -1,7 +1,27 @@
-import { clientes, cupons as cuponsSeed, type Cliente, type Cupom, type CupomTipo } from "@/lib/mock";
+import { clientes as seedClientes, cupons as cuponsSeed, clientesInativos, type Cliente, type ClienteInativo, type Cupom, type CupomTipo } from "@/lib/mock";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Search, Plus, MessageCircle, Phone, X, Pencil, History, ShoppingBag, MapPin, Tag, Ticket } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Search, Plus, MessageCircle, Phone, X, Pencil, History, ShoppingBag, MapPin, Tag, Ticket, UserX, AlertCircle, RotateCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+
+function formatPhone(raw: string) {
+  const d = raw.replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 3) return `(${d.slice(0,2)}) ${d.slice(2)}`;
+  if (d.length <= 7) return `(${d.slice(0,2)}) ${d.slice(2,3)} ${d.slice(3)}`;
+  return `(${d.slice(0,2)}) ${d.slice(2,3)} ${d.slice(3,7)}-${d.slice(7)}`;
+}
+
+function msgInativo(c: ClienteInativo): string {
+  const nome = c.nome.split(" ")[0];
+  const pet = c.pets[0]?.split(" ")[0] || "seu pet";
+  switch (c.motivoPerdaProvavel) {
+    case "preço": return `Olá ${nome}! 😊 Temos uma condição especial pra você essa semana. Posso te mandar?`;
+    case "concorrência": return `Olá ${nome}! Vi que você tava avaliando opções. Temos ração Golden 15kg por R$ 269 com entrega grátis 🐾`;
+    case "momento ruim": return `Olá ${nome}! Tudo bem? Quando quiser, a gente tá aqui 🐾`;
+    default: return `Olá ${nome}! Tudo certo? Quero te ajudar com o que precisar pra ${pet} 🐾`;
+  }
+}
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
