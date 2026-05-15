@@ -13,6 +13,7 @@ import { Route as RecompraPrevistaRouteImport } from './routes/recompra-prevista
 import { Route as ProdutosProcuradosRouteImport } from './routes/produtos-procurados'
 import { Route as PedidosRouteImport } from './routes/pedidos'
 import { Route as PdvRouteImport } from './routes/pdv'
+import { Route as IndicacoesRouteImport } from './routes/indicacoes'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
 import { Route as EstoqueRouteImport } from './routes/estoque'
 import { Route as EntregasRouteImport } from './routes/entregas'
@@ -41,6 +42,11 @@ const PedidosRoute = PedidosRouteImport.update({
 const PdvRoute = PdvRouteImport.update({
   id: '/pdv',
   path: '/pdv',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndicacoesRoute = IndicacoesRouteImport.update({
+  id: '/indicacoes',
+  path: '/indicacoes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FinanceiroRoute = FinanceiroRouteImport.update({
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
+  '/indicacoes': typeof IndicacoesRoute
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByTo {
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
+  '/indicacoes': typeof IndicacoesRoute
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
@@ -130,6 +138,7 @@ export interface FileRoutesById {
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
+  '/indicacoes': typeof IndicacoesRoute
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/entregas'
     | '/estoque'
     | '/financeiro'
+    | '/indicacoes'
     | '/pdv'
     | '/pedidos'
     | '/produtos-procurados'
@@ -162,6 +172,7 @@ export interface FileRouteTypes {
     | '/entregas'
     | '/estoque'
     | '/financeiro'
+    | '/indicacoes'
     | '/pdv'
     | '/pedidos'
     | '/produtos-procurados'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/entregas'
     | '/estoque'
     | '/financeiro'
+    | '/indicacoes'
     | '/pdv'
     | '/pedidos'
     | '/produtos-procurados'
@@ -193,6 +205,7 @@ export interface RootRouteChildren {
   EntregasRoute: typeof EntregasRoute
   EstoqueRoute: typeof EstoqueRoute
   FinanceiroRoute: typeof FinanceiroRoute
+  IndicacoesRoute: typeof IndicacoesRoute
   PdvRoute: typeof PdvRoute
   PedidosRoute: typeof PedidosRoute
   ProdutosProcuradosRoute: typeof ProdutosProcuradosRoute
@@ -227,6 +240,13 @@ declare module '@tanstack/react-router' {
       path: '/pdv'
       fullPath: '/pdv'
       preLoaderRoute: typeof PdvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/indicacoes': {
+      id: '/indicacoes'
+      path: '/indicacoes'
+      fullPath: '/indicacoes'
+      preLoaderRoute: typeof IndicacoesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/financeiro': {
@@ -305,6 +325,7 @@ const rootRouteChildren: RootRouteChildren = {
   EntregasRoute: EntregasRoute,
   EstoqueRoute: EstoqueRoute,
   FinanceiroRoute: FinanceiroRoute,
+  IndicacoesRoute: IndicacoesRoute,
   PdvRoute: PdvRoute,
   PedidosRoute: PedidosRoute,
   ProdutosProcuradosRoute: ProdutosProcuradosRoute,
