@@ -375,3 +375,28 @@ export const demandaBairros: DemandaBairro[] = [
   { bairro: "Brooklin",     cidade: "São Paulo",      entregasPrevistas: 9,  ticketMedio: 312, semanas: [3, 2, 2, 2] },
 ];
 
+
+// ── Cupons (ciclo de vida) ──
+export type CupomStatus = "gerado" | "enviado" | "usado" | "expirado";
+export type CupomTipo = "percentual" | "fixo";
+export type Cupom = {
+  id: string;
+  clienteId: string;
+  codigo: string;
+  desconto: number;
+  tipo: CupomTipo;
+  status: CupomStatus;
+  criadoEm: string;
+  usadoEm?: string;
+  expiradoEm?: string;
+  motivoEnvio?: string;
+};
+
+export const cupons: Cupom[] = [
+  { id: "cp1", clienteId: "1", codigo: "PET-A1B2C3", desconto: 10, tipo: "percentual", status: "usado",    criadoEm: "01/04", usadoEm: "12/04", motivoEnvio: "Aniversário do Thor" },
+  { id: "cp2", clienteId: "1", codigo: "PET-X9Y8Z7", desconto: 15, tipo: "percentual", status: "enviado",  criadoEm: "10/05", motivoEnvio: "Reativação VIP" },
+  { id: "cp3", clienteId: "3", codigo: "PET-J5K6L7", desconto: 20, tipo: "fixo",       status: "gerado",   criadoEm: "13/05" },
+  { id: "cp4", clienteId: "5", codigo: "PET-M2N3P4", desconto: 12, tipo: "percentual", status: "enviado",  criadoEm: "11/05", motivoEnvio: "Recompra prevista" },
+  { id: "cp5", clienteId: "7", codigo: "PET-Q1R2S3", desconto: 25, tipo: "percentual", status: "expirado", criadoEm: "20/03", expiradoEm: "30/04", motivoEnvio: "Cliente em risco" },
+  { id: "cp6", clienteId: "6", codigo: "PET-T7U8V9", desconto: 30, tipo: "fixo",       status: "usado",    criadoEm: "02/05", usadoEm: "08/05", motivoEnvio: "Indicação convertida" },
+];

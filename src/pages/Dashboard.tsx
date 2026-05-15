@@ -2,16 +2,49 @@ import { kpis, vendasSemana, funilDados, crescimentoMensal, conversas } from "@/
 import {
   TrendingUp, ShoppingBag, Wallet, RefreshCw, Crown, AlertTriangle,
   ArrowUpRight, Sparkles, Target, Users, Zap, AlertCircle, TrendingDown,
-  Lightbulb, Package2,
+  Lightbulb, Loader2, X,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   LineChart, Line,
 } from "recharts";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import { useVendas } from "@/contexts/VendasContext";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+const WEBHOOK_RELATORIO = "https://webhook.n8n.clinizap.com.br/webhook/relatorio-diario";
+const WEBHOOK_ALERTA = "https://webhook.n8n.clinizap.com.br/webhook/alerta-acao";
+
 export function Dashboard() {
+  const { vendas } = useVendas();
+  const [showRelatorio, setShowRelatorio] = useState(false);
+  const [enviandoRel, setEnviandoRel] = useState(false);
+
+  const { pedidosHoje, faturamentoHoje } = useMemo(() => {
+    const hoje = vendas.filter(v => v.data === "hoje" && v.status === "Concluída");
+    return { pedidosHoje: hoje.length, faturamentoHoje: hoje.reduce((s, v) => s + v.total, 0) };
+  }, [vendas]);
+
+  async function enviarRelatorio() {
+    setEnviandoRel(true);
+    try {
+      const r = await fetch(WEBHOOK_RELATORIO, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trigger: "manual", timestamp: new Date().toISOString(), origem: "dashboard" }),
+      });
+      if (!r.ok) throw new Error();
+      toast.success("Relatório enviado no WhatsApp ✅");
+      setShowRelatorio(false);
+    } catch {
+      toast.error("Erro ao enviar. Verifique o n8n ❌");
+    } finally {
+      setEnviandoRel(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -25,7 +58,7 @@ export function Dashboard() {
           <button className="h-10 px-4 rounded-xl border border-border bg-card text-sm font-medium hover:bg-secondary transition">
             Hoje
           </button>
-          <button className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
+          <button onClick={()=>setShowRelatorio(true)} className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
             <Sparkles className="size-4" /> Relatório IA
           </button>
         </div>
@@ -34,7 +67,7 @@ export function Dashboard() {
       {/* LINHA 1 — Receita */}
       <Section title="Receita" subtitle="visão financeira do período">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<Wallet />} label="Faturamento hoje" value={brl(kpis.faturamentoHoje)} delta="+18%" tone="primary" />
+          <Kpi icon={<Wallet />} label="Faturamento hoje" value={brl(faturamentoHoje)} delta="ao vivo" tone="primary" />
           <Kpi icon={<TrendingUp />} label="Faturamento semana" value={brl(kpis.faturamentoSemana)} delta="+9%" tone="primary" />
           <Kpi icon={<TrendingUp />} label="Faturamento mês" value={brl(kpis.faturamentoMes)} delta="+12%" tone="primary" />
           <Kpi icon={<Crown />} label="Lucro líquido mês" value={brl(kpis.lucroMes)} delta="+14%" tone="success" />
@@ -55,7 +88,7 @@ export function Dashboard() {
       {/* LINHA 3 — Operação */}
       <Section title="Operação" subtitle="pedidos, recompra e risco">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<ShoppingBag />} label="Pedidos hoje" value={String(kpis.pedidosHoje)} delta="+6" tone="primary" />
+          <Kpi icon={<ShoppingBag />} label="Pedidos hoje" value={String(pedidosHoje)} delta="ao vivo" tone="primary" />
           <Kpi icon={<RefreshCw />} label="Recompra prevista" value={String(kpis.recompraPrevista)} delta="hoje" tone="success" />
           <Kpi icon={<AlertTriangle />} label="Clientes em risco" value={String(kpis.clientesRisco)} delta="-2" tone="destructive" />
           <Kpi icon={<Zap />} label="Taxa upsell" value={`${kpis.taxaUpsell}%`} delta="+4pp" tone="accent" />
@@ -194,6 +227,24 @@ export function Dashboard() {
           </ul>
         </div>
       </div>
+
+      {showRelatorio && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50" onClick={()=>!enviandoRel && setShowRelatorio(false)}>
+          <div className="card-soft p-5 w-full max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-start justify-between">
+              <h3 className="font-semibold inline-flex items-center gap-2"><Sparkles className="size-4 text-primary" /> Relatório IA</h3>
+              <button disabled={enviandoRel} onClick={()=>setShowRelatorio(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="size-4" /></button>
+            </div>
+            <p className="text-sm text-muted-foreground">Gerar relatório completo do dia e enviar no WhatsApp?</p>
+            <div className="flex gap-2">
+              <button disabled={enviandoRel} onClick={()=>setShowRelatorio(false)} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold disabled:opacity-40">Cancelar</button>
+              <button disabled={enviandoRel} onClick={enviarRelatorio} className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60">
+                {enviandoRel ? <><Loader2 className="size-4 animate-spin" /> Enviando…</> : "Enviar agora"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -238,19 +289,39 @@ function Kpi({ icon, label, value, delta, tone }: {
 function IaAlert({ tone, icon, title, desc }: {
   tone: "destructive" | "warning" | "success" | "primary"; icon: React.ReactNode; title: string; desc: string;
 }) {
+  const [loading, setLoading] = useState(false);
   const tones = {
     destructive: "bg-destructive/10 text-destructive",
     warning: "bg-accent/15 text-accent",
     success: "bg-success/10 text-success",
     primary: "bg-primary/10 text-primary",
   }[tone];
+  async function agir() {
+    setLoading(true);
+    try {
+      const r = await fetch(WEBHOOK_ALERTA, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alerta: title, descricao: desc, timestamp: new Date().toISOString() }),
+      });
+      if (!r.ok) throw new Error();
+      toast.success("Ação enviada ✅");
+    } catch {
+      toast.error("Erro ao enviar. Verifique o n8n ❌");
+    } finally {
+      setLoading(false);
+    }
+  }
   return (
     <li className="flex gap-3 p-2.5 rounded-xl border border-border hover:bg-secondary/40 transition">
       <div className={`size-8 rounded-lg grid place-items-center shrink-0 ${tones} [&_svg]:size-4`}>{icon}</div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold leading-tight">{title}</p>
         <p className="text-[11px] text-muted-foreground mt-0.5">{desc}</p>
       </div>
+      <button onClick={agir} disabled={loading} className="self-center h-7 px-2.5 rounded-lg bg-foreground text-background text-[10px] font-bold inline-flex items-center gap-1 disabled:opacity-60">
+        {loading ? <Loader2 className="size-3 animate-spin" /> : "Agir"}
+      </button>
     </li>
   );
 }

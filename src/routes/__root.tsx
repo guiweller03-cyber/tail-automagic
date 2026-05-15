@@ -10,6 +10,8 @@ import {
 
 import appCss from "../styles.css?url";
 import { AppShell } from "@/components/AppShell";
+import { VendasProvider } from "@/contexts/VendasContext";
+import { Toaster } from "sonner";
 
 function NotFoundComponent() {
   return (
@@ -114,7 +116,10 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AppShell />
+      <VendasProvider>
+        <AppShell />
+        <Toaster richColors position="top-right" />
+      </VendasProvider>
     </QueryClientProvider>
   );
 }
