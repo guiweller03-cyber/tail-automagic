@@ -2,7 +2,7 @@ import { clientes } from "@/lib/mock";
 import { useMemo, useState } from "react";
 import {
   Gift, Trophy, Users, Sparkles, Plus, Share2, Crown, Medal, Award,
-  PawPrint, Flame, Target, Check,
+  PawPrint, Flame, Target, Check, Percent, Settings2, Clock, Wallet,
 } from "lucide-react";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
