@@ -30,6 +30,32 @@ export function PDV() {
   const totalRapido = Number(valor.replace(",", ".")) || 0;
   const total = expandido ? totalFull : totalRapido;
 
+  const enviarWhats = () => {
+    const c = clientes.find((x) => x.nome.toLowerCase() === cliente.toLowerCase());
+    if (!c && !cliente) return;
+    const fone = (c?.telefone || "").replace(/\D/g, "");
+    const nomeCli = c?.nome || cliente;
+    const itens = expandido && carrinho.length
+      ? carrinho.map((i) => `• ${i.qtd}× ${i.nome} — ${brl(i.preco * i.qtd)}`).join("\n")
+      : "• Pedido avulso";
+    const endereco = c?.endereco ? `\n📍 ${c.endereco}${c.bairro ? `, ${c.bairro}` : ""}` : "";
+    const obsLinha = obs ? `\n📝 ${obs}` : "";
+    const msg =
+`Olá ${nomeCli.split(" ")[0]} 😊 seu pedido foi separado!
+
+${itens}
+
+💰 Total: ${brl(total)}
+💳 Pagamento: ${pay}${endereco}${obsLinha}
+
+Qualquer dúvida estamos por aqui 🐾`;
+    const url = fone
+      ? `https://wa.me/55${fone}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank");
+  };
+
+
   const add = (p: typeof produtos[number]) =>
     setCarrinho((c) => {
       const ex = c.find((i) => i.sku === p.sku);
