@@ -4,7 +4,7 @@ import {
   TrendingUp, Gift, Megaphone, Clock, AlertTriangle,
 } from "lucide-react";
 import type { LeadCard } from "../types";
-import { calculateLeadCost, detectLeadSource } from "../services";
+import { detectLeadSource } from "../services";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
