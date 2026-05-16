@@ -76,19 +76,53 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
   );
 }
 
-/** Mostra apenas o custo individual — nunca o total da campanha. */
-function CostBlock({ lead }: { lead: LeadCard }) {
-  const cost = calculateLeadCost(lead);
+/** Aquisição: CAC individual, ROI individual, LTV, ticket, nº compras. Nunca mostra total da campanha. */
+function AquisicaoBlock({ lead }: { lead: LeadCard }) {
+  const cac = lead.custoLead;
+  const receita = lead.ticketMedio * lead.comprasRealizadas;
+  const lucro = receita - cac;
+  const roi = cac > 0 ? (lucro / cac) * 100 : null; // % — null se orgânico
+  const ltv = receita + lead.ticketMedio * 6; // projeção simples: +6 compras futuras
+  const campanha = lead.utmCampaign ?? lead.anuncio ?? lead.influenciador ?? lead.origemDetalhe ?? "—";
+
   return (
-    <Section icon={<DollarSign className="size-3" />} title="Custo deste lead">
-      <div className="rounded-xl border border-border p-3 bg-gradient-to-br from-primary/5 to-transparent">
-        <div className="text-[10px] uppercase tracking-wide text-primary font-bold">CAC individual</div>
-        <div className="text-2xl font-bold text-primary mt-0.5">
-          {lead.custoLead > 0 ? brl(lead.custoLead) : "Orgânico"}
+    <Section icon={<DollarSign className="size-3" />} title="Aquisição deste lead">
+      <div className="rounded-xl border border-border p-3 bg-gradient-to-br from-primary/5 to-transparent space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-primary font-bold">CAC individual</div>
+            <div className="text-2xl font-bold text-primary mt-0.5">
+              {cac > 0 ? brl(cac) : "Orgânico"}
+            </div>
+            <div className="text-[10px] text-muted-foreground">Custo só deste lead</div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">ROI individual</div>
+            <div className={`text-2xl font-bold mt-0.5 ${roi === null ? "text-success" : roi >= 0 ? "text-success" : "text-destructive"}`}>
+              {roi === null ? "∞" : `${roi >= 0 ? "+" : ""}${roi.toFixed(0)}%`}
+            </div>
+            <div className="text-[10px] text-muted-foreground">Lucro / CAC</div>
+          </div>
         </div>
-        <div className="text-[11px] text-muted-foreground mt-1">{cost.pretty}</div>
+        <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-border">
+          <MiniStat label="Compras" value={String(lead.comprasRealizadas)} />
+          <MiniStat label="Ticket médio" value={brl(lead.ticketMedio)} />
+          <MiniStat label="LTV projetado" value={brl(ltv)} />
+        </div>
+        <div className="text-[10px] text-muted-foreground pt-2 border-t border-border">
+          Origem: <b className="text-foreground">{lead.origem}</b> · Campanha: <b className="text-foreground">{campanha}</b>
+        </div>
       </div>
     </Section>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-secondary/60 p-1.5 text-center">
+      <div className="text-[9px] text-muted-foreground uppercase tracking-wide truncate">{label}</div>
+      <div className="font-bold text-[11px] mt-0.5 truncate">{value}</div>
+    </div>
   );
 }
 
