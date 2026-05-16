@@ -25,7 +25,7 @@ export function LeadDetailPanel({ lead, onClose }: { lead: LeadCard | null; onCl
           >
             <Header lead={lead} onClose={onClose} />
             <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
-              <CostBlock lead={lead} />
+              <AquisicaoBlock lead={lead} />
               <OriginBlock lead={lead} />
               <FinanceBlock lead={lead} />
               <RelationshipBlock lead={lead} />
