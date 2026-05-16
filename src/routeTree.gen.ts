@@ -17,6 +17,7 @@ import { Route as IndicacoesRouteImport } from './routes/indicacoes'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
 import { Route as EstoqueRouteImport } from './routes/estoque'
 import { Route as EntregasRouteImport } from './routes/entregas'
+import { Route as CuponsRouteImport } from './routes/cupons'
 import { Route as ConversasRouteImport } from './routes/conversas'
 import { Route as ClientesRouteImport } from './routes/clientes'
 import { Route as CampanhasRouteImport } from './routes/campanhas'
@@ -64,6 +65,11 @@ const EntregasRoute = EntregasRouteImport.update({
   path: '/entregas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CuponsRoute = CuponsRouteImport.update({
+  id: '/cupons',
+  path: '/cupons',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ConversasRoute = ConversasRouteImport.update({
   id: '/conversas',
   path: '/conversas',
@@ -102,6 +108,7 @@ export interface FileRoutesByFullPath {
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
+  '/cupons': typeof CuponsRoute
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
+  '/cupons': typeof CuponsRoute
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
@@ -135,6 +143,7 @@ export interface FileRoutesById {
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
+  '/cupons': typeof CuponsRoute
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
@@ -153,6 +162,7 @@ export interface FileRouteTypes {
     | '/campanhas'
     | '/clientes'
     | '/conversas'
+    | '/cupons'
     | '/entregas'
     | '/estoque'
     | '/financeiro'
@@ -169,6 +179,7 @@ export interface FileRouteTypes {
     | '/campanhas'
     | '/clientes'
     | '/conversas'
+    | '/cupons'
     | '/entregas'
     | '/estoque'
     | '/financeiro'
@@ -185,6 +196,7 @@ export interface FileRouteTypes {
     | '/campanhas'
     | '/clientes'
     | '/conversas'
+    | '/cupons'
     | '/entregas'
     | '/estoque'
     | '/financeiro'
@@ -202,6 +214,7 @@ export interface RootRouteChildren {
   CampanhasRoute: typeof CampanhasRoute
   ClientesRoute: typeof ClientesRoute
   ConversasRoute: typeof ConversasRoute
+  CuponsRoute: typeof CuponsRoute
   EntregasRoute: typeof EntregasRoute
   EstoqueRoute: typeof EstoqueRoute
   FinanceiroRoute: typeof FinanceiroRoute
@@ -270,6 +283,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EntregasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cupons': {
+      id: '/cupons'
+      path: '/cupons'
+      fullPath: '/cupons'
+      preLoaderRoute: typeof CuponsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/conversas': {
       id: '/conversas'
       path: '/conversas'
@@ -322,6 +342,7 @@ const rootRouteChildren: RootRouteChildren = {
   CampanhasRoute: CampanhasRoute,
   ClientesRoute: ClientesRoute,
   ConversasRoute: ConversasRoute,
+  CuponsRoute: CuponsRoute,
   EntregasRoute: EntregasRoute,
   EstoqueRoute: EstoqueRoute,
   FinanceiroRoute: FinanceiroRoute,

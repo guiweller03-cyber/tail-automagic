@@ -2,7 +2,7 @@ import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import {
   LayoutDashboard, MessageCircle, Users, ShoppingBag, Store, Truck,
   Boxes, Wallet, Megaphone, Zap, PawPrint, Search, Bell, Menu, X,
-  Sparkles, PackageSearch, ArrowRightLeft, Gift
+  Sparkles, PackageSearch, ArrowRightLeft, Gift, Ticket
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -21,6 +21,7 @@ const nav = [
   { to: "/produtos-procurados", label: "Procurados", icon: PackageSearch, badge: 6 },
   { to: "/financeiro", label: "Financeiro", icon: Wallet },
   { to: "/campanhas", label: "Campanhas", icon: Megaphone },
+  { to: "/cupons", label: "Cupons", icon: Ticket },
   { to: "/automacoes", label: "Automações", icon: Zap },
 ] as const;
 

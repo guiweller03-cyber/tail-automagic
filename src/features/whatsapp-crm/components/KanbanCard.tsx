@@ -58,12 +58,17 @@ export function KanbanCardItem({
         {lead.intent.toUpperCase()}
       </div>
 
-      <div className="mt-2 flex items-center justify-between">
-        <div className="text-[10px] text-muted-foreground">
-          <span className="block">{cost.pretty}</span>
-          <span className="opacity-70">{lead.origem}{lead.cupom ? ` · ${lead.cupom}` : ""}</span>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="text-[10px] text-muted-foreground min-w-0">
+          <span className="block font-semibold text-foreground">
+            CAC {lead.custoLead > 0 ? cost.cac.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "orgânico"}
+          </span>
+          <span className="opacity-70 truncate block">{lead.origem}{lead.cupom ? ` · ${lead.cupom}` : ""}</span>
         </div>
-        <div className="text-[11px] font-bold text-success">{brl(lead.valorPotencial)}</div>
+        <div className="text-right shrink-0">
+          <div className="text-[9px] text-muted-foreground uppercase">LTV</div>
+          <div className="text-[11px] font-bold text-success">{brl(lead.ticketMedio * lead.comprasRealizadas)}</div>
+        </div>
       </div>
 
       {aiEnabled && (
