@@ -109,7 +109,7 @@ export function VelocidadeOperacional() {
     const orc = Math.round(base * 0.92);
     const aguard = Math.round(base * 0.78);
     const pago = Math.round(base * 0.61);
-    void Math.round(base * 0.58); // sep (não exibido)
+    
     const saiu = Math.round(base * 0.55);
     const entregue = Math.round(base * 0.52);
     return [
