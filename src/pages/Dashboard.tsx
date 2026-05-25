@@ -11,6 +11,7 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useVendas } from "@/contexts/VendasContext";
+import { VelocidadeOperacional } from "@/features/velocidade/VelocidadeOperacional";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
