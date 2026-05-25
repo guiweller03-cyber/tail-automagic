@@ -239,7 +239,11 @@ export function RecompraPrevista() {
       {/* LOGÍSTICA + COMPRAS */}
       <PrevisaoLogistica semana={semana} />
 
+      {/* AUTOMAÇÕES POR CATEGORIA DE PRODUTO */}
+      <AutomacoesCategoria />
+
       {/* FILTROS */}
+
       <section className="space-y-3">
         <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
           <Users className="size-4 text-primary" /> Clientes em recompra
