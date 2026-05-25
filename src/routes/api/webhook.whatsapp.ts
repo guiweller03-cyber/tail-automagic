@@ -468,7 +468,7 @@ async function registrarPedidoPixPorHistorico({
   return pedido;
 }
 
-async function processarWebhook(event: UazapiWebhook): Promise<Response> {
+export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Response> {
   const message = event.body?.message ?? event.message;
   if (!mensagemValida(message)) {
     return json({ received: true, ignored: true });
@@ -697,7 +697,7 @@ export const Route = createFileRoute("/api/webhook/whatsapp")({
         }),
       POST: async ({ request }) => {
         try {
-          return await processarWebhook((await request.json()) as UazapiWebhook);
+          return await processarWebhookWhatsapp((await request.json()) as UazapiWebhook);
         } catch (error) {
           const message = error instanceof Error ? error.message : "Erro desconhecido";
           logPix("whatsapp", "falha_webhook", { erro: erroLog(error) }, "error");

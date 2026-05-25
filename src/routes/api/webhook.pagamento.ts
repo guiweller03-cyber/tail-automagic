@@ -15,7 +15,7 @@ function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
 }
 
-async function processarWebhookMercadoPago(event: MercadoPagoWebhook): Promise<Response> {
+export async function processarWebhookMercadoPago(event: MercadoPagoWebhook): Promise<Response> {
   if (event.type !== "payment" || !event.data?.id) {
     return json({ received: true, ignored: true });
   }
