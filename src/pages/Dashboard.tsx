@@ -96,6 +96,9 @@ export function Dashboard() {
         </div>
       </Section>
 
+      {/* VELOCIDADE OPERACIONAL */}
+      <VelocidadeOperacional />
+
       {/* GRÁFICOS */}
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="card-soft p-5 lg:col-span-2">
