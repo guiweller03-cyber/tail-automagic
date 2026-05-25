@@ -1,30 +1,90 @@
-import { recomprasPrevistas, produtosPrevistos, demandaBairros, iaRecompraAlertas, type RecompraPrevista, type RecompraStatus, type ComportamentoIA, type TendenciaIA } from "@/lib/mock";
+import {
+  recomprasPrevistas,
+  produtosPrevistos,
+  demandaBairros,
+  iaRecompraAlertas,
+  type RecompraPrevista,
+  type RecompraStatus,
+  type ComportamentoIA,
+  type TendenciaIA,
+} from "@/lib/mock";
 import { useMemo, useState } from "react";
 import {
-  MessageCircle, ShoppingBag, Bell, CheckCheck, ArrowRightLeft,
-  AlertTriangle, TrendingUp, Search, MapPin, Sparkles,
-  Package, BarChart3, Boxes, Target, Users, Flame,
-  Brain, Activity, Lock, LockOpen, X, TrendingDown, Minus, Settings2,
-  Truck, Map as MapIcon, ShoppingCart,
+  MessageCircle,
+  ShoppingBag,
+  Bell,
+  CheckCheck,
+  ArrowRightLeft,
+  AlertTriangle,
+  TrendingUp,
+  Search,
+  MapPin,
+  Sparkles,
+  Package,
+  BarChart3,
+  Boxes,
+  Target,
+  Users,
+  Flame,
+  Brain,
+  Activity,
+  Lock,
+  LockOpen,
+  X,
+  TrendingDown,
+  Minus,
+  Settings2,
+  Truck,
+  Map as MapIcon,
+  ShoppingCart,
 } from "lucide-react";
 
-const brl = (n: number) =>
-  n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const statusMap: Record<RecompraStatus, { label: string; cls: string; dot: string }> = {
-  ok:        { label: "OK",       cls: "bg-success/10 text-success border-success/30",         dot: "bg-success" },
-  semana:    { label: "Semana",   cls: "bg-amber-500/10 text-amber-600 border-amber-500/30",   dot: "bg-amber-500" },
-  urgente:   { label: "Urgente",  cls: "bg-destructive/10 text-destructive border-destructive/30", dot: "bg-destructive" },
-  atrasado:  { label: "Atrasado", cls: "bg-destructive/15 text-destructive border-destructive/40", dot: "bg-destructive" },
+  ok: { label: "OK", cls: "bg-success/10 text-success border-success/30", dot: "bg-success" },
+  semana: {
+    label: "Semana",
+    cls: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+    dot: "bg-amber-500",
+  },
+  urgente: {
+    label: "Urgente",
+    cls: "bg-destructive/10 text-destructive border-destructive/30",
+    dot: "bg-destructive",
+  },
+  atrasado: {
+    label: "Atrasado",
+    cls: "bg-destructive/15 text-destructive border-destructive/40",
+    dot: "bg-destructive",
+  },
 };
 
 type Filtro =
-  | "Todos" | "Hoje" | "3 dias" | "7 dias" | "15 dias" | "Atrasados"
-  | "VIP" | "Premium" | "Econômico" | "Cachorro" | "Gato";
+  | "Todos"
+  | "Hoje"
+  | "3 dias"
+  | "7 dias"
+  | "15 dias"
+  | "Atrasados"
+  | "VIP"
+  | "Premium"
+  | "Econômico"
+  | "Cachorro"
+  | "Gato";
 
 const filtros: Filtro[] = [
-  "Todos", "Hoje", "3 dias", "7 dias", "15 dias", "Atrasados",
-  "VIP", "Premium", "Econômico", "Cachorro", "Gato",
+  "Todos",
+  "Hoje",
+  "3 dias",
+  "7 dias",
+  "15 dias",
+  "Atrasados",
+  "VIP",
+  "Premium",
+  "Econômico",
+  "Cachorro",
+  "Gato",
 ];
 
 export function RecompraPrevista() {
@@ -43,42 +103,63 @@ export function RecompraPrevista() {
     ajusteAuto: true,
   });
 
-  const cidades = useMemo(() => ["Todas", ...Array.from(new Set(items.map((r) => r.cidade)))], [items]);
-  const bairros = useMemo(() => ["Todos", ...Array.from(new Set(items.map((r) => r.bairro)))], [items]);
+  const cidades = useMemo(
+    () => ["Todas", ...Array.from(new Set(items.map((r) => r.cidade)))],
+    [items],
+  );
+  const bairros = useMemo(
+    () => ["Todos", ...Array.from(new Set(items.map((r) => r.bairro)))],
+    [items],
+  );
 
   const filtrados = useMemo(() => {
     return items.filter((r) => {
-      if (busca && !`${r.cliente} ${r.pet} ${r.racao}`.toLowerCase().includes(busca.toLowerCase())) return false;
+      if (busca && !`${r.cliente} ${r.pet} ${r.racao}`.toLowerCase().includes(busca.toLowerCase()))
+        return false;
       if (cidade !== "Todas" && r.cidade !== cidade) return false;
       if (bairro !== "Todos" && r.bairro !== bairro) return false;
       switch (filtro) {
-        case "Hoje":      return r.diasRestantes <= 0 && r.diasRestantes >= -1;
-        case "3 dias":    return r.diasRestantes >= 0 && r.diasRestantes <= 3;
-        case "7 dias":    return r.diasRestantes >= 0 && r.diasRestantes <= 7;
-        case "15 dias":   return r.diasRestantes >= 0 && r.diasRestantes <= 15;
-        case "Atrasados": return r.diasRestantes < 0;
-        case "VIP":       return r.perfil === "VIP";
-        case "Premium":   return r.perfil === "Premium";
-        case "Econômico": return r.perfil === "Econômico";
-        case "Cachorro":  return r.especie === "cachorro";
-        case "Gato":      return r.especie === "gato";
-        default:          return true;
+        case "Hoje":
+          return r.diasRestantes <= 0 && r.diasRestantes >= -1;
+        case "3 dias":
+          return r.diasRestantes >= 0 && r.diasRestantes <= 3;
+        case "7 dias":
+          return r.diasRestantes >= 0 && r.diasRestantes <= 7;
+        case "15 dias":
+          return r.diasRestantes >= 0 && r.diasRestantes <= 15;
+        case "Atrasados":
+          return r.diasRestantes < 0;
+        case "VIP":
+          return r.perfil === "VIP";
+        case "Premium":
+          return r.perfil === "Premium";
+        case "Econômico":
+          return r.perfil === "Econômico";
+        case "Cachorro":
+          return r.especie === "cachorro";
+        case "Gato":
+          return r.especie === "gato";
+        default:
+          return true;
       }
     });
   }, [items, filtro, busca, cidade, bairro]);
 
   // KPIs do topo
   const valorPrevistoProdutos = produtosPrevistos.reduce(
-    (s, p) => s + p.unidadesPrevistas * p.precoUnit * (p.taxaRecompra / 100), 0
+    (s, p) => s + p.unidadesPrevistas * p.precoUnit * (p.taxaRecompra / 100),
+    0,
   );
   const clientesEmRecompra = items.length;
-  const taxaPrevista = Math.round(
-    produtosPrevistos.reduce((s, p) => s + p.taxaRecompra, 0) / produtosPrevistos.length
-  );
+  const taxaPrevista = produtosPrevistos.length
+    ? Math.round(
+        produtosPrevistos.reduce((s, p) => s + p.taxaRecompra, 0) / produtosPrevistos.length,
+      )
+    : 0;
   const atrasados = items.filter((r) => r.diasRestantes < 0).length;
   const urgentes = items.filter((r) => r.diasRestantes >= 0 && r.diasRestantes <= 3).length;
 
-  const maxUnidades = Math.max(...produtosPrevistos.map((p) => p.unidadesPrevistas));
+  const maxUnidades = Math.max(...produtosPrevistos.map((p) => p.unidadesPrevistas), 1);
 
   function marcarContatado(id: string) {
     setItems((arr) => arr.map((r) => (r.id === id ? { ...r, contatado: !r.contatado } : r)));
@@ -89,13 +170,14 @@ export function RecompraPrevista() {
 
   // ── IA stats ──
   const antecipando = items.filter((r) => r.comportamento === "antecipado").length;
-  const atrasando   = items.filter((r) => r.comportamento === "atrasado").length;
-  const instaveis   = items.filter((r) => r.comportamento === "instavel").length;
+  const atrasando = items.filter((r) => r.comportamento === "atrasado").length;
+  const instaveis = items.filter((r) => r.comportamento === "instavel").length;
   const previsiveis = items.filter((r) => r.precisaoIA >= 85).length;
-  const precisaoMedia = Math.round(items.reduce((s, r) => s + r.precisaoIA, 0) / items.length);
+  const precisaoMedia = items.length
+    ? Math.round(items.reduce((s, r) => s + r.precisaoIA, 0) / items.length)
+    : 0;
 
   const drawerItem = items.find((i) => i.id === drawerId) || null;
-
 
   return (
     <div className="space-y-6">
@@ -172,11 +254,41 @@ export function RecompraPrevista() {
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <Kpi icon={<TrendingUp className="size-4" />} label="Antecipando"      value={String(antecipando)} sub="recompra mais cedo" tone="success" />
-          <Kpi icon={<TrendingDown className="size-4" />} label="Atrasando"       value={String(atrasando)}   sub="ciclo aumentando"   tone="destructive" />
-          <Kpi icon={<Activity className="size-4" />} label="Instáveis"           value={String(instaveis)}   sub="padrão irregular"   tone="amber" />
-          <Kpi icon={<Target className="size-4" />} label="Altamente previsíveis" value={String(previsiveis)} sub="precisão ≥ 85%"     tone="primary" />
-          <Kpi icon={<Brain className="size-4" />} label="Precisão IA média"      value={`${precisaoMedia}%`} sub="todos os clientes"  tone="primary" />
+          <Kpi
+            icon={<TrendingUp className="size-4" />}
+            label="Antecipando"
+            value={String(antecipando)}
+            sub="recompra mais cedo"
+            tone="success"
+          />
+          <Kpi
+            icon={<TrendingDown className="size-4" />}
+            label="Atrasando"
+            value={String(atrasando)}
+            sub="ciclo aumentando"
+            tone="destructive"
+          />
+          <Kpi
+            icon={<Activity className="size-4" />}
+            label="Instáveis"
+            value={String(instaveis)}
+            sub="padrão irregular"
+            tone="amber"
+          />
+          <Kpi
+            icon={<Target className="size-4" />}
+            label="Altamente previsíveis"
+            value={String(previsiveis)}
+            sub="precisão ≥ 85%"
+            tone="primary"
+          />
+          <Kpi
+            icon={<Brain className="size-4" />}
+            label="Precisão IA média"
+            value={`${precisaoMedia}%`}
+            sub="todos os clientes"
+            tone="primary"
+          />
         </div>
 
         {/* Alertas IA */}
@@ -187,12 +299,18 @@ export function RecompraPrevista() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
             {iaRecompraAlertas.map((a, i) => {
               const tone =
-                a.tipo === "antecipou"  ? "border-success/30 bg-success/5 text-success" :
-                a.tipo === "atrasou"    ? "border-destructive/30 bg-destructive/5 text-destructive" :
-                a.tipo === "instavel"   ? "border-amber-500/30 bg-amber-500/5 text-amber-600" :
-                                          "border-primary/30 bg-primary/5 text-primary";
+                a.tipo === "antecipou"
+                  ? "border-success/30 bg-success/5 text-success"
+                  : a.tipo === "atrasou"
+                    ? "border-destructive/30 bg-destructive/5 text-destructive"
+                    : a.tipo === "instavel"
+                      ? "border-amber-500/30 bg-amber-500/5 text-amber-600"
+                      : "border-primary/30 bg-primary/5 text-primary";
               return (
-                <div key={i} className={`rounded-lg border px-3 py-2 text-[11px] flex items-start gap-2 ${tone}`}>
+                <div
+                  key={i}
+                  className={`rounded-lg border px-3 py-2 text-[11px] flex items-start gap-2 ${tone}`}
+                >
                   <Sparkles className="size-3.5 shrink-0 mt-0.5" />
                   <div className="text-foreground/90">
                     <b>{a.cliente}</b> <span className="opacity-80">{a.msg}</span>
@@ -209,16 +327,37 @@ export function RecompraPrevista() {
               <div className="text-sm font-bold flex items-center gap-2">
                 <Settings2 className="size-4 text-accent" /> Configurações da IA de recompra
               </div>
-              <button onClick={() => setShowConfig(false)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
+              <button
+                onClick={() => setShowConfig(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <ConfigSlider label="Sensibilidade do aprendizado" value={iaConfig.sensibilidade} onChange={(v) => setIaConfig({ ...iaConfig, sensibilidade: v })} hint="quão rápido a IA muda a previsão" />
-              <ConfigSlider label="Peso do histórico recente"    value={iaConfig.pesoRecente}    onChange={(v) => setIaConfig({ ...iaConfig, pesoRecente: v })}    hint="prioriza últimas compras vs média geral" />
-              <ConfigNumber label="Mínimo de compras p/ aprender" value={iaConfig.minCompras} onChange={(v) => setIaConfig({ ...iaConfig, minCompras: v })} />
+              <ConfigSlider
+                label="Sensibilidade do aprendizado"
+                value={iaConfig.sensibilidade}
+                onChange={(v) => setIaConfig({ ...iaConfig, sensibilidade: v })}
+                hint="quão rápido a IA muda a previsão"
+              />
+              <ConfigSlider
+                label="Peso do histórico recente"
+                value={iaConfig.pesoRecente}
+                onChange={(v) => setIaConfig({ ...iaConfig, pesoRecente: v })}
+                hint="prioriza últimas compras vs média geral"
+              />
+              <ConfigNumber
+                label="Mínimo de compras p/ aprender"
+                value={iaConfig.minCompras}
+                onChange={(v) => setIaConfig({ ...iaConfig, minCompras: v })}
+              />
               <label className="flex items-center justify-between rounded-lg bg-secondary/60 px-3 py-2.5">
                 <div>
                   <div className="text-xs font-semibold">Ajuste automático</div>
-                  <div className="text-[10px] text-muted-foreground">aplicar correção sem confirmação</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    aplicar correção sem confirmação
+                  </div>
                 </div>
                 <input
                   type="checkbox"
@@ -231,7 +370,6 @@ export function RecompraPrevista() {
           </div>
         )}
       </section>
-
 
       {/* PRODUTOS PREVISTOS — PAINEL OPERACIONAL */}
       <PrevisaoProdutos semana={semana} setSemana={setSemana} />
@@ -255,13 +393,23 @@ export function RecompraPrevista() {
               className="w-full h-9 pl-9 pr-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
             />
           </div>
-          <select value={cidade} onChange={(e) => setCidade(e.target.value)}
-            className="h-9 px-3 rounded-lg bg-secondary text-xs font-semibold outline-none">
-            {cidades.map((c) => <option key={c}>{c}</option>)}
+          <select
+            value={cidade}
+            onChange={(e) => setCidade(e.target.value)}
+            className="h-9 px-3 rounded-lg bg-secondary text-xs font-semibold outline-none"
+          >
+            {cidades.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
           </select>
-          <select value={bairro} onChange={(e) => setBairro(e.target.value)}
-            className="h-9 px-3 rounded-lg bg-secondary text-xs font-semibold outline-none">
-            {bairros.map((b) => <option key={b}>{b}</option>)}
+          <select
+            value={bairro}
+            onChange={(e) => setBairro(e.target.value)}
+            className="h-9 px-3 rounded-lg bg-secondary text-xs font-semibold outline-none"
+          >
+            {bairros.map((b) => (
+              <option key={b}>{b}</option>
+            ))}
           </select>
           <div className="flex items-center gap-1.5 flex-wrap">
             {filtros.map((f) => {
@@ -271,8 +419,9 @@ export function RecompraPrevista() {
                   key={f}
                   onClick={() => setFiltro(f)}
                   className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
-                    on ? "bg-foreground text-background border-foreground"
-                       : "bg-card border-border hover:border-foreground/30"
+                    on
+                      ? "bg-foreground text-background border-foreground"
+                      : "bg-card border-border hover:border-foreground/30"
                   }`}
                 >
                   {f}
@@ -291,7 +440,12 @@ export function RecompraPrevista() {
                   <th className="text-left font-semibold px-3 py-2.5">Cliente</th>
                   <th className="text-left font-semibold px-3 py-2.5">Pet</th>
                   <th className="text-left font-semibold px-3 py-2.5">Ração atual</th>
-                  <th className="text-center font-semibold px-3 py-2.5" title="Média real do cliente">Média IA</th>
+                  <th
+                    className="text-center font-semibold px-3 py-2.5"
+                    title="Média real do cliente"
+                  >
+                    Média IA
+                  </th>
                   <th className="text-left font-semibold px-3 py-2.5">Comportamento</th>
                   <th className="text-center font-semibold px-3 py-2.5">Precisão</th>
                   <th className="text-left font-semibold px-3 py-2.5">Tendência</th>
@@ -306,7 +460,7 @@ export function RecompraPrevista() {
                 {filtrados.map((r) => {
                   const st = statusMap[r.status];
                   const wpp = `https://wa.me/55${r.telefone.replace(/\D/g, "")}?text=${encodeURIComponent(
-                    `Oi ${r.cliente.split(" ")[0]}! 🐾 A ${r.racao} do ${r.pet} deve estar acabando essa semana. Posso já separar?`
+                    `Oi ${r.cliente.split(" ")[0]}! 🐾 A ${r.racao} do ${r.pet} deve estar acabando essa semana. Posso já separar?`,
                   )}`;
                   return (
                     <tr
@@ -336,20 +490,34 @@ export function RecompraPrevista() {
                       </td>
                       <td className="px-3 py-3 text-center">
                         <div className="font-bold text-sm tabular-nums">{r.mediaRecompra}d</div>
-                        <div className="text-[10px] text-muted-foreground">base {r.previsaoBase}d</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          base {r.previsaoBase}d
+                        </div>
                       </td>
-                      <td className="px-3 py-3"><ComportamentoPill c={r.comportamento} /></td>
+                      <td className="px-3 py-3">
+                        <ComportamentoPill c={r.comportamento} />
+                      </td>
                       <td className="px-3 py-3">
                         <PrecisaoBar v={r.precisaoIA} />
                       </td>
-                      <td className="px-3 py-3"><TendenciaPill t={r.tendencia} /></td>
+                      <td className="px-3 py-3">
+                        <TendenciaPill t={r.tendencia} />
+                      </td>
                       <td className="px-3 py-3 text-center">
-                        <span className={`font-bold text-sm ${
-                          r.diasRestantes < 0 ? "text-destructive" :
-                          r.diasRestantes <= 3 ? "text-destructive" :
-                          r.diasRestantes <= 7 ? "text-amber-600" : "text-foreground"
-                        }`}>
-                          {r.diasRestantes < 0 ? `${Math.abs(r.diasRestantes)}d atraso` : `${r.diasRestantes}d`}
+                        <span
+                          className={`font-bold text-sm ${
+                            r.diasRestantes < 0
+                              ? "text-destructive"
+                              : r.diasRestantes <= 3
+                                ? "text-destructive"
+                                : r.diasRestantes <= 7
+                                  ? "text-amber-600"
+                                  : "text-foreground"
+                          }`}
+                        >
+                          {r.diasRestantes < 0
+                            ? `${Math.abs(r.diasRestantes)}d atraso`
+                            : `${r.diasRestantes}d`}
                         </span>
                       </td>
                       <td className="px-3 py-3 text-xs">
@@ -358,9 +526,13 @@ export function RecompraPrevista() {
                           {r.travado && <Lock className="size-3 text-accent" />}
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-right font-bold text-xs">{brl(r.valorEstimado)}</td>
+                      <td className="px-3 py-3 text-right font-bold text-xs">
+                        {brl(r.valorEstimado)}
+                      </td>
                       <td className="px-3 py-3 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold border ${st.cls}`}>
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold border ${st.cls}`}
+                        >
                           <span className={`size-1.5 rounded-full ${st.dot}`} />
                           {st.label}
                         </span>
@@ -368,29 +540,46 @@ export function RecompraPrevista() {
                       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           <a
-                            href={wpp} target="_blank" rel="noreferrer"
+                            href={wpp}
+                            target="_blank"
+                            rel="noreferrer"
                             title="Abrir WhatsApp"
                             className="size-8 grid place-items-center rounded-lg bg-success/15 text-success hover:bg-success/25 transition"
                           >
                             <MessageCircle className="size-4" />
                           </a>
-                          <button title="Gerar pedido" className="size-8 grid place-items-center rounded-lg bg-primary/15 text-primary hover:bg-primary/25 transition">
+                          <button
+                            title="Gerar pedido"
+                            className="size-8 grid place-items-center rounded-lg bg-primary/15 text-primary hover:bg-primary/25 transition"
+                          >
                             <ShoppingBag className="size-4" />
                           </button>
-                          <button title="Lembrete IA" className="size-8 grid place-items-center rounded-lg bg-accent/15 text-accent hover:bg-accent/25 transition">
+                          <button
+                            title="Lembrete IA"
+                            className="size-8 grid place-items-center rounded-lg bg-accent/15 text-accent hover:bg-accent/25 transition"
+                          >
                             <Sparkles className="size-4" />
                           </button>
-                          <button title="Follow-up" className="size-8 grid place-items-center rounded-lg bg-secondary hover:bg-secondary/70 transition">
+                          <button
+                            title="Follow-up"
+                            className="size-8 grid place-items-center rounded-lg bg-secondary hover:bg-secondary/70 transition"
+                          >
                             <Bell className="size-4" />
                           </button>
                           <button
                             title={r.travado ? "Destravar previsão" : "Travar previsão"}
                             onClick={() => toggleTravado(r.id)}
                             className={`size-8 grid place-items-center rounded-lg transition ${
-                              r.travado ? "bg-accent text-accent-foreground" : "bg-secondary hover:bg-secondary/70"
+                              r.travado
+                                ? "bg-accent text-accent-foreground"
+                                : "bg-secondary hover:bg-secondary/70"
                             }`}
                           >
-                            {r.travado ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
+                            {r.travado ? (
+                              <Lock className="size-4" />
+                            ) : (
+                              <LockOpen className="size-4" />
+                            )}
                           </button>
                           <button
                             title="Marcar contatado"
@@ -409,9 +598,14 @@ export function RecompraPrevista() {
                   );
                 })}
                 {filtrados.length === 0 && (
-                  <tr><td colSpan={12} className="px-4 py-10 text-center text-xs text-muted-foreground">
-                    Nenhum cliente neste filtro.
-                  </td></tr>
+                  <tr>
+                    <td
+                      colSpan={12}
+                      className="px-4 py-10 text-center text-xs text-muted-foreground"
+                    >
+                      Nenhum cliente neste filtro.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -424,15 +618,29 @@ export function RecompraPrevista() {
   );
 }
 
-function Kpi({ icon, label, value, sub, tone }: {
-  icon: React.ReactNode; label: string; value: string; sub?: string;
+function Kpi({
+  icon,
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
   tone?: "primary" | "success" | "destructive" | "amber";
 }) {
   const toneCls =
-    tone === "primary" ? "text-primary" :
-    tone === "success" ? "text-success" :
-    tone === "destructive" ? "text-destructive" :
-    tone === "amber" ? "text-amber-600" : "text-foreground";
+    tone === "primary"
+      ? "text-primary"
+      : tone === "success"
+        ? "text-success"
+        : tone === "destructive"
+          ? "text-destructive"
+          : tone === "amber"
+            ? "text-amber-600"
+            : "text-foreground";
   return (
     <div className="card-soft p-4">
       <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
@@ -444,70 +652,143 @@ function Kpi({ icon, label, value, sub, tone }: {
   );
 }
 
-function Mini({ label, value, accent }: { label: string; value: string; accent?: "success" | "danger" }) {
+function Mini({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: "success" | "danger";
+}) {
   return (
     <div className="rounded-lg bg-secondary/60 p-2">
       <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</div>
-      <div className={`font-bold text-xs mt-0.5 ${
-        accent === "success" ? "text-success" : accent === "danger" ? "text-destructive" : ""
-      }`}>{value}</div>
+      <div
+        className={`font-bold text-xs mt-0.5 ${
+          accent === "success" ? "text-success" : accent === "danger" ? "text-destructive" : ""
+        }`}
+      >
+        {value}
+      </div>
     </div>
   );
 }
 
-function ConfigSlider({ label, value, onChange, hint }: { label: string; value: number; onChange: (v: number) => void; hint?: string }) {
+function ConfigSlider({
+  label,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  hint?: string;
+}) {
   return (
     <div className="rounded-lg bg-secondary/60 px-3 py-2.5">
       <div className="flex items-center justify-between text-xs font-semibold">
-        <span>{label}</span><span className="tabular-nums text-accent">{value}%</span>
+        <span>{label}</span>
+        <span className="tabular-nums text-accent">{value}%</span>
       </div>
       {hint && <div className="text-[10px] text-muted-foreground mb-1.5">{hint}</div>}
-      <input type="range" min={0} max={100} value={value} onChange={(e) => onChange(+e.target.value)} className="w-full accent-accent" />
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={value}
+        onChange={(e) => onChange(+e.target.value)}
+        className="w-full accent-accent"
+      />
     </div>
   );
 }
 
-function ConfigNumber({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function ConfigNumber({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
   return (
     <label className="flex items-center justify-between rounded-lg bg-secondary/60 px-3 py-2.5">
       <div className="text-xs font-semibold">{label}</div>
-      <input type="number" min={1} max={20} value={value} onChange={(e) => onChange(+e.target.value)}
-        className="w-16 h-7 px-2 rounded-md bg-background text-xs font-bold text-right outline-none ring-1 ring-border focus:ring-accent" />
+      <input
+        type="number"
+        min={1}
+        max={20}
+        value={value}
+        onChange={(e) => onChange(+e.target.value)}
+        className="w-16 h-7 px-2 rounded-md bg-background text-xs font-bold text-right outline-none ring-1 ring-border focus:ring-accent"
+      />
     </label>
   );
 }
 
 function ComportamentoPill({ c }: { c: ComportamentoIA }) {
   const map: Record<ComportamentoIA, { label: string; cls: string; icon: React.ReactNode }> = {
-    antecipado: { label: "Antecipado", cls: "bg-success/15 text-success border-success/30",       icon: <TrendingUp className="size-3" /> },
-    pontual:    { label: "Pontual",    cls: "bg-primary/15 text-primary border-primary/30",       icon: <Target className="size-3" /> },
-    atrasado:   { label: "Atrasado",   cls: "bg-destructive/15 text-destructive border-destructive/30", icon: <TrendingDown className="size-3" /> },
-    instavel:   { label: "Instável",   cls: "bg-amber-500/15 text-amber-600 border-amber-500/30", icon: <Activity className="size-3" /> },
+    antecipado: {
+      label: "Antecipado",
+      cls: "bg-success/15 text-success border-success/30",
+      icon: <TrendingUp className="size-3" />,
+    },
+    pontual: {
+      label: "Pontual",
+      cls: "bg-primary/15 text-primary border-primary/30",
+      icon: <Target className="size-3" />,
+    },
+    atrasado: {
+      label: "Atrasado",
+      cls: "bg-destructive/15 text-destructive border-destructive/30",
+      icon: <TrendingDown className="size-3" />,
+    },
+    instavel: {
+      label: "Instável",
+      cls: "bg-amber-500/15 text-amber-600 border-amber-500/30",
+      icon: <Activity className="size-3" />,
+    },
   };
   const x = map[c];
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${x.cls}`}>
-      {x.icon}{x.label}
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${x.cls}`}
+    >
+      {x.icon}
+      {x.label}
     </span>
   );
 }
 
 function TendenciaPill({ t }: { t: TendenciaIA }) {
   const map: Record<TendenciaIA, { label: string; cls: string; icon: React.ReactNode }> = {
-    acelerando:    { label: "Comprando antes",   cls: "text-success",      icon: <TrendingUp className="size-3" /> },
-    estavel:       { label: "Estável",            cls: "text-muted-foreground", icon: <Minus className="size-3" /> },
-    desacelerando: { label: "Comprando depois",  cls: "text-destructive",  icon: <TrendingDown className="size-3" /> },
+    acelerando: {
+      label: "Comprando antes",
+      cls: "text-success",
+      icon: <TrendingUp className="size-3" />,
+    },
+    estavel: { label: "Estável", cls: "text-muted-foreground", icon: <Minus className="size-3" /> },
+    desacelerando: {
+      label: "Comprando depois",
+      cls: "text-destructive",
+      icon: <TrendingDown className="size-3" />,
+    },
   };
   const x = map[t];
   return (
     <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${x.cls}`}>
-      {x.icon}{x.label}
+      {x.icon}
+      {x.label}
     </span>
   );
 }
 
 function PrecisaoBar({ v }: { v: number }) {
-  const tone = v >= 85 ? "bg-success" : v >= 70 ? "bg-primary" : v >= 60 ? "bg-amber-500" : "bg-destructive";
+  const tone =
+    v >= 85 ? "bg-success" : v >= 70 ? "bg-primary" : v >= 60 ? "bg-amber-500" : "bg-destructive";
   return (
     <div className="flex items-center gap-1.5 min-w-[70px]">
       <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
@@ -524,9 +805,11 @@ function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () 
   const min = Math.min(...hist);
   const delta = hist.length > 1 ? hist[hist.length - 1] - hist[0] : 0;
   const insight =
-    delta < -1 ? "Consumo aumentando · ciclo encurtando" :
-    delta > 1  ? "Consumo diminuindo · ciclo aumentando" :
-                 "Padrão estável · alta previsibilidade";
+    delta < -1
+      ? "Consumo aumentando · ciclo encurtando"
+      : delta > 1
+        ? "Consumo diminuindo · ciclo aumentando"
+        : "Padrão estável · alta previsibilidade";
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -541,7 +824,10 @@ function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () 
               <MapPin className="size-3" /> {item.cidade} · {item.bairro}
             </div>
           </div>
-          <button onClick={onClose} className="size-8 grid place-items-center rounded-lg bg-secondary hover:bg-secondary/70">
+          <button
+            onClick={onClose}
+            className="size-8 grid place-items-center rounded-lg bg-secondary hover:bg-secondary/70"
+          >
             <X className="size-4" />
           </button>
         </div>
@@ -549,7 +835,11 @@ function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () 
         <div className="grid grid-cols-2 gap-2">
           <Mini label="Média real" value={`${item.mediaRecompra}d`} accent="success" />
           <Mini label="Previsão base" value={`${item.previsaoBase}d`} />
-          <Mini label="Precisão IA" value={`${item.precisaoIA}%`} accent={item.precisaoIA >= 85 ? "success" : undefined} />
+          <Mini
+            label="Precisão IA"
+            value={`${item.precisaoIA}%`}
+            accent={item.precisaoIA >= 85 ? "success" : undefined}
+          />
           <Mini label="Compras analisadas" value={`${item.historicoDias.length}`} />
         </div>
 
@@ -565,11 +855,15 @@ function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () 
 
         <div className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2.5 text-[11px] flex items-start gap-2">
           <Sparkles className="size-3.5 text-accent shrink-0 mt-0.5" />
-          <div><b className="text-accent">IA:</b> {insight}</div>
+          <div>
+            <b className="text-accent">IA:</b> {insight}
+          </div>
         </div>
 
         <div>
-          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2">Histórico de ciclos</div>
+          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2">
+            Histórico de ciclos
+          </div>
           <div className="space-y-1.5">
             {hist.map((d, i) => {
               const w = ((d - min) / Math.max(1, max - min)) * 100;
@@ -578,7 +872,10 @@ function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () 
                 <div key={i} className="grid grid-cols-[60px_1fr_40px] items-center gap-2">
                   <div className="text-[11px] text-muted-foreground">Compra {i + 1}</div>
                   <div className="h-5 rounded-md bg-secondary/60 overflow-hidden">
-                    <div className={`h-full ${isLast ? "bg-gradient-to-r from-primary to-accent" : "bg-primary/40"}`} style={{ width: `${30 + w * 0.7}%` }} />
+                    <div
+                      className={`h-full ${isLast ? "bg-gradient-to-r from-primary to-accent" : "bg-primary/40"}`}
+                      style={{ width: `${30 + w * 0.7}%` }}
+                    />
                   </div>
                   <div className="text-[11px] font-bold text-right tabular-nums">{d}d</div>
                 </div>
@@ -591,7 +888,9 @@ function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () 
         </div>
 
         <div>
-          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2">Próxima recompra</div>
+          <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2">
+            Próxima recompra
+          </div>
           <div className="rounded-lg bg-secondary/60 p-3 flex items-center justify-between">
             <div>
               <div className="text-xs text-muted-foreground">Previsão ajustada IA</div>
@@ -599,7 +898,9 @@ function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () 
             </div>
             <div className="text-right">
               <div className="text-xs text-muted-foreground">Estimado</div>
-              <div className="text-lg font-bold text-success">{item.valorEstimado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</div>
+              <div className="text-lg font-bold text-success">
+                {item.valorEstimado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </div>
             </div>
           </div>
         </div>
@@ -623,14 +924,21 @@ function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () 
   );
 }
 
-
-export function SpeciePill({ especie, compact }: { especie: "cachorro" | "gato"; compact?: boolean }) {
+export function SpeciePill({
+  especie,
+  compact,
+}: {
+  especie: "cachorro" | "gato";
+  compact?: boolean;
+}) {
   const isDog = especie === "cachorro";
   const cls = isDog
     ? "bg-teal-500/15 text-teal-700 dark:text-teal-300 border-teal-500/30"
     : "bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30";
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${cls}`}>
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${cls}`}
+    >
       {isDog ? "🐶" : "🐱"} {!compact && (isDog ? "Cachorro" : "Gato")}
     </span>
   );
@@ -639,27 +947,40 @@ export function SpeciePill({ especie, compact }: { especie: "cachorro" | "gato";
 // ───────────────────────── PRODUTOS PREVISTOS ─────────────────────────
 const SEMANAS = ["Todas semanas", "Semana 1", "Semana 2", "Semana 3", "Semana 4"] as const;
 
-function brl2(n: number) { return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+function brl2(n: number) {
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
-function unidadesNaSemana(p: typeof produtosPrevistos[number], s: 0 | 1 | 2 | 3 | 4) {
+function unidadesNaSemana(p: (typeof produtosPrevistos)[number], s: 0 | 1 | 2 | 3 | 4) {
   return s === 0 ? p.semanas.reduce((a, b) => a + b, 0) : p.semanas[s - 1];
 }
 
-function PrevisaoProdutos({ semana, setSemana }: { semana: 0 | 1 | 2 | 3 | 4; setSemana: (s: 0 | 1 | 2 | 3 | 4) => void }) {
+function PrevisaoProdutos({
+  semana,
+  setSemana,
+}: {
+  semana: 0 | 1 | 2 | 3 | 4;
+  setSemana: (s: 0 | 1 | 2 | 3 | 4) => void;
+}) {
   const totals = useMemo(() => {
-    let unidades = 0, receita = 0, custo = 0, necessario = 0;
+    let unidades = 0,
+      receita = 0,
+      custo = 0,
+      necessario = 0;
     produtosPrevistos.forEach((p) => {
       const u = unidadesNaSemana(p, semana);
       unidades += u;
-      receita  += u * p.precoUnit * (p.taxaRecompra / 100);
-      custo    += u * p.custoUnit;
+      receita += u * p.precoUnit * (p.taxaRecompra / 100);
+      custo += u * p.custoUnit;
       const livre = Math.max(0, p.estoqueAtual - p.estoqueReservado);
       necessario += Math.max(0, u - livre);
     });
     return { unidades, receita, margem: receita - custo, necessario };
   }, [semana]);
 
-  const rupturas = produtosPrevistos.filter((p) => p.rupturaSemana && (semana === 0 || p.rupturaSemana <= semana));
+  const rupturas = produtosPrevistos.filter(
+    (p) => p.rupturaSemana && (semana === 0 || p.rupturaSemana <= semana),
+  );
 
   return (
     <section className="space-y-3">
@@ -671,11 +992,15 @@ function PrevisaoProdutos({ semana, setSemana }: { semana: 0 | 1 | 2 | 3 | 4; se
           {SEMANAS.map((label, i) => {
             const on = semana === i;
             return (
-              <button key={label} onClick={() => setSemana(i as 0 | 1 | 2 | 3 | 4)}
+              <button
+                key={label}
+                onClick={() => setSemana(i as 0 | 1 | 2 | 3 | 4)}
                 className={`px-3 h-8 rounded-full text-[11px] font-bold border transition ${
-                  on ? "bg-primary text-primary-foreground border-primary"
-                     : "bg-card border-border hover:border-foreground/30"
-                }`}>
+                  on
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card border-border hover:border-foreground/30"
+                }`}
+              >
                 {label}
               </button>
             );
@@ -685,10 +1010,34 @@ function PrevisaoProdutos({ semana, setSemana }: { semana: 0 | 1 | 2 | 3 | 4; se
 
       {/* KPIs do período */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi icon={<Boxes className="size-4" />}        label="Unidades previstas" value={`${totals.unidades} un`} sub={semana === 0 ? "4 semanas" : `Semana ${semana}`} tone="primary" />
-        <Kpi icon={<TrendingUp className="size-4" />}   label="Receita prevista"   value={brl2(totals.receita)}    sub="recompra ponderada"                                tone="success" />
-        <Kpi icon={<Target className="size-4" />}       label="Margem prevista"    value={brl2(totals.margem)}     sub="receita − custo"                                   tone="success" />
-        <Kpi icon={<ShoppingCart className="size-4" />} label="Estoque a comprar"  value={`+${totals.necessario}`} sub="cobrir o período"                                  tone="destructive" />
+        <Kpi
+          icon={<Boxes className="size-4" />}
+          label="Unidades previstas"
+          value={`${totals.unidades} un`}
+          sub={semana === 0 ? "4 semanas" : `Semana ${semana}`}
+          tone="primary"
+        />
+        <Kpi
+          icon={<TrendingUp className="size-4" />}
+          label="Receita prevista"
+          value={brl2(totals.receita)}
+          sub="recompra ponderada"
+          tone="success"
+        />
+        <Kpi
+          icon={<Target className="size-4" />}
+          label="Margem prevista"
+          value={brl2(totals.margem)}
+          sub="receita − custo"
+          tone="success"
+        />
+        <Kpi
+          icon={<ShoppingCart className="size-4" />}
+          label="Estoque a comprar"
+          value={`+${totals.necessario}`}
+          sub="cobrir o período"
+          tone="destructive"
+        />
       </div>
 
       {/* Alertas logísticos */}
@@ -699,14 +1048,23 @@ function PrevisaoProdutos({ semana, setSemana }: { semana: 0 | 1 | 2 | 3 | 4; se
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
             {rupturas.map((p) => (
-              <div key={p.id} className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] flex items-start gap-2">
+              <div
+                key={p.id}
+                className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] flex items-start gap-2"
+              >
                 <AlertTriangle className="size-3.5 text-destructive shrink-0 mt-0.5" />
-                <div><b className="text-destructive">{p.nome}</b> · pode faltar antes da semana {p.rupturaSemana}</div>
+                <div>
+                  <b className="text-destructive">{p.nome}</b> · pode faltar antes da semana{" "}
+                  {p.rupturaSemana}
+                </div>
               </div>
             ))}
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] flex items-start gap-2">
               <Truck className="size-3.5 text-amber-600 shrink-0 mt-0.5" />
-              <div><b className="text-amber-600">Bairro Rau</b> · alta concentração de entregas previstas</div>
+              <div>
+                <b className="text-amber-600">Bairro Rau</b> · alta concentração de entregas
+                previstas
+              </div>
             </div>
           </div>
         </div>
@@ -746,14 +1104,25 @@ function PrevisaoProdutos({ semana, setSemana }: { semana: 0 | 1 | 2 | 3 | 4; se
                     <td className="px-3 py-3 text-xs font-semibold">{p.nome}</td>
                     <td className="px-3 py-3 text-[11px] text-muted-foreground">{p.categoria}</td>
                     {p.semanas.map((u, i) => (
-                      <td key={i} className={`px-3 py-3 text-center text-xs tabular-nums ${semana === i + 1 ? "font-bold text-primary" : ""}`}>{u}</td>
+                      <td
+                        key={i}
+                        className={`px-3 py-3 text-center text-xs tabular-nums ${semana === i + 1 ? "font-bold text-primary" : ""}`}
+                      >
+                        {u}
+                      </td>
                     ))}
-                    <td className="px-3 py-3 text-center text-xs font-bold tabular-nums">{total}</td>
+                    <td className="px-3 py-3 text-center text-xs font-bold tabular-nums">
+                      {total}
+                    </td>
                     <td className="px-3 py-3 text-center text-xs tabular-nums">{p.estoqueAtual}</td>
-                    <td className="px-3 py-3 text-center text-xs tabular-nums text-muted-foreground">{p.estoqueReservado}</td>
+                    <td className="px-3 py-3 text-center text-xs tabular-nums text-muted-foreground">
+                      {p.estoqueReservado}
+                    </td>
                     <td className="px-3 py-3 text-center">
                       {necessario > 0 ? (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-destructive/15 text-destructive">+{necessario}</span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-destructive/15 text-destructive">
+                          +{necessario}
+                        </span>
                       ) : (
                         <span className="text-[10px] text-muted-foreground">ok</span>
                       )}
@@ -763,12 +1132,18 @@ function PrevisaoProdutos({ semana, setSemana }: { semana: 0 | 1 | 2 | 3 | 4; se
                         <span className="inline-flex items-center gap-1 text-amber-600 font-semibold">
                           <AlertTriangle className="size-3" /> S{p.rupturaSemana}
                         </span>
-                      ) : <span className="text-muted-foreground">—</span>}
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
-                    <td className="px-3 py-3 text-right text-xs font-bold text-success tabular-nums">{brl2(receita)}</td>
+                    <td className="px-3 py-3 text-right text-xs font-bold text-success tabular-nums">
+                      {brl2(receita)}
+                    </td>
                     <td className="px-3 py-3 text-right text-xs tabular-nums">{brl2(margem)}</td>
                     <td className="px-3 py-3 text-center">
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-success/15 text-success">{p.taxaRecompra}%</span>
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-success/15 text-success">
+                        {p.taxaRecompra}%
+                      </span>
                     </td>
                   </tr>
                 );
@@ -806,12 +1181,19 @@ function PrevisaoProdutos({ semana, setSemana }: { semana: 0 | 1 | 2 | 3 | 4; se
               .filter((x) => x.faltam > 0)
               .sort((a, b) => b.faltam - a.faltam)
               .map(({ p, faltam }) => (
-                <div key={p.id} className="rounded-lg border border-border p-2.5 flex items-center justify-between gap-2">
+                <div
+                  key={p.id}
+                  className="rounded-lg border border-border p-2.5 flex items-center justify-between gap-2"
+                >
                   <div className="min-w-0">
                     <div className="text-xs font-semibold truncate">{p.nome}</div>
-                    <div className="text-[10px] text-muted-foreground">custo unit {brl2(p.custoUnit)} · total {brl2(faltam * p.custoUnit)}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      custo unit {brl2(p.custoUnit)} · total {brl2(faltam * p.custoUnit)}
+                    </div>
                   </div>
-                  <span className="shrink-0 text-[11px] font-bold px-2 py-1 rounded-md bg-primary/15 text-primary">+{faltam}</span>
+                  <span className="shrink-0 text-[11px] font-bold px-2 py-1 rounded-md bg-primary/15 text-primary">
+                    +{faltam}
+                  </span>
                 </div>
               ))}
           </div>
@@ -824,14 +1206,17 @@ function PrevisaoProdutos({ semana, setSemana }: { semana: 0 | 1 | 2 | 3 | 4; se
 function DemandaSemanas() {
   const totals: [number, number, number, number] = [0, 0, 0, 0];
   produtosPrevistos.forEach((p) => p.semanas.forEach((u, i) => (totals[i] += u)));
-  const max = Math.max(...totals);
+  const max = Math.max(...totals, 1);
   return (
     <div className="space-y-2">
       {totals.map((u, i) => (
         <div key={i} className="grid grid-cols-[80px_1fr_44px] items-center gap-2">
           <div className="text-xs font-medium">Semana {i + 1}</div>
           <div className="h-6 rounded-md bg-secondary/60 overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-primary to-accent" style={{ width: `${(u / max) * 100}%` }} />
+            <div
+              className="h-full bg-gradient-to-r from-primary to-accent"
+              style={{ width: `${(u / max) * 100}%` }}
+            />
           </div>
           <div className="text-xs font-bold text-right tabular-nums">{u}</div>
         </div>
@@ -863,10 +1248,32 @@ function PrevisaoLogistica({ semana }: { semana: 0 | 1 | 2 | 3 | 4 }) {
       </h2>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi icon={<Truck className="size-4" />}      label="Entregas previstas"  value={String(totalEntregas)} sub={semana === 0 ? "4 semanas" : `Semana ${semana}`} tone="primary" />
-        <Kpi icon={<MapIcon className="size-4" />}    label="Bairros ativos"      value={String(bairros.filter((b) => b.entregas > 0).length)} sub="com pedidos previstos" />
-        <Kpi icon={<Target className="size-4" />}     label="Ticket médio"        value={brl2(ticketMed)} sub="esperado no período" />
-        <Kpi icon={<TrendingUp className="size-4" />} label="Faturamento previsto" value={brl2(totalFat)} sub="entregas × ticket" tone="success" />
+        <Kpi
+          icon={<Truck className="size-4" />}
+          label="Entregas previstas"
+          value={String(totalEntregas)}
+          sub={semana === 0 ? "4 semanas" : `Semana ${semana}`}
+          tone="primary"
+        />
+        <Kpi
+          icon={<MapIcon className="size-4" />}
+          label="Bairros ativos"
+          value={String(bairros.filter((b) => b.entregas > 0).length)}
+          sub="com pedidos previstos"
+        />
+        <Kpi
+          icon={<Target className="size-4" />}
+          label="Ticket médio"
+          value={brl2(ticketMed)}
+          sub="esperado no período"
+        />
+        <Kpi
+          icon={<TrendingUp className="size-4" />}
+          label="Faturamento previsto"
+          value={brl2(totalFat)}
+          sub="entregas × ticket"
+          tone="success"
+        />
       </div>
 
       <div className="card-soft p-4">
@@ -884,10 +1291,15 @@ function PrevisaoLogistica({ semana }: { semana: 0 | 1 | 2 | 3 | 4 }) {
                 <div className="text-[10px] text-muted-foreground truncate">{b.cidade}</div>
               </div>
               <div className="h-6 rounded-md bg-secondary/60 overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-primary to-accent" style={{ width: `${(b.entregas / max) * 100}%` }} />
+                <div
+                  className="h-full bg-gradient-to-r from-primary to-accent"
+                  style={{ width: `${(b.entregas / max) * 100}%` }}
+                />
               </div>
               <div className="text-xs font-bold text-right tabular-nums">{b.entregas}</div>
-              <div className="text-[11px] font-semibold text-success text-right tabular-nums">{brl2(b.faturamento)}</div>
+              <div className="text-[11px] font-semibold text-success text-right tabular-nums">
+                {brl2(b.faturamento)}
+              </div>
             </div>
           ))}
         </div>

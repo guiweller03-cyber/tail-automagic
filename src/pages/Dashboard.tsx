@@ -1,96 +1,288 @@
-import { kpis, vendasSemana, funilDados, crescimentoMensal, conversas } from "@/lib/mock";
+import type { DashboardData } from "@/lib/crm-supabase";
 import {
-  TrendingUp, ShoppingBag, Wallet, RefreshCw, Crown, AlertTriangle,
-  ArrowUpRight, Sparkles, Target, Users, Zap, AlertCircle, TrendingDown,
-  Lightbulb, Package2,
+  AlertTriangle,
+  Crown,
+  RefreshCw,
+  ShoppingBag,
+  Sparkles,
+  Target,
+  TrendingUp,
+  Users,
+  Wallet,
+  Zap,
 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Route } from "@/routes/index";
+import { onCrmReload } from "@/lib/crm-refresh";
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-  LineChart, Line,
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
 
-const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const numeroSeguro = (value: unknown) => {
+  const numero = typeof value === "number" ? value : Number(value ?? 0);
+  return Number.isFinite(numero) ? numero : 0;
+};
+
+const brl = (n: unknown) =>
+  numeroSeguro(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+const dashboardZerado: DashboardData = {
+  kpis: {
+    faturamentoHoje: 0,
+    faturamentoSemana: 0,
+    faturamentoMes: 0,
+    lucroMes: 0,
+    ticketMedio: 0,
+    pedidosHoje: 0,
+    taxaRecompra: 0,
+    taxaUpsell: 0,
+    clientesVip: 0,
+    clientesRisco: 0,
+    estoqueCritico: 0,
+    leadsHoje: 0,
+    leadsSemana: 0,
+    conversaoHoje: 0,
+    conversaoSemana: 0,
+    conversaoMes: 0,
+    recompraPrevista: 0,
+  },
+  vendasSemana: [
+    { dia: "Seg", vendas: 0, lucro: 0 },
+    { dia: "Ter", vendas: 0, lucro: 0 },
+    { dia: "Qua", vendas: 0, lucro: 0 },
+    { dia: "Qui", vendas: 0, lucro: 0 },
+    { dia: "Sex", vendas: 0, lucro: 0 },
+    { dia: "Sab", vendas: 0, lucro: 0 },
+    { dia: "Dom", vendas: 0, lucro: 0 },
+  ],
+  crescimentoMensal: [
+    { mes: "Jan", valor: 0 },
+    { mes: "Fev", valor: 0 },
+    { mes: "Mar", valor: 0 },
+    { mes: "Abr", valor: 0 },
+    { mes: "Mai", valor: 0 },
+    { mes: "Jun", valor: 0 },
+    { mes: "Jul", valor: 0 },
+    { mes: "Ago", valor: 0 },
+  ],
+  funilDados: [
+    { etapa: "Leads", valor: 0, cor: "var(--color-chart-4)" },
+    { etapa: "Conversas", valor: 0, cor: "var(--color-accent)" },
+    { etapa: "Pedidos", valor: 0, cor: "var(--color-primary)" },
+    { etapa: "Clientes ativos", valor: 0, cor: "var(--color-success)" },
+    { etapa: "Recompra", valor: 0, cor: "var(--color-chart-2)" },
+  ],
+  conversas: [],
+};
 
 export function Dashboard() {
+  const loaderData = Route.useLoaderData();
+  const [dashboard, setDashboard] = useState(loaderData ?? dashboardZerado);
+
+  useEffect(() => {
+    if (loaderData) setDashboard(loaderData);
+  }, [loaderData]);
+
+  useEffect(() => {
+    async function carregarDashboard() {
+      try {
+        const response = await fetch("/api/crm/dashboard", { cache: "no-store" });
+        if (!response.ok) return;
+
+        setDashboard((await response.json()) as DashboardData);
+      } catch (error) {
+        console.error("Erro ao atualizar dashboard:", error);
+      }
+    }
+
+    void carregarDashboard();
+    return onCrmReload(() => void carregarDashboard());
+  }, []);
+
+  const { kpis, vendasSemana, funilDados, crescimentoMensal, conversas } = dashboard;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Bom dia, Ana 👋</h1>
+          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Painel de crescimento — Mundo Pet em tempo real
+            Painel com dados reais sincronizados do CRM
           </p>
         </div>
-        <div className="flex gap-2">
-          <button className="h-10 px-4 rounded-xl border border-border bg-card text-sm font-medium hover:bg-secondary transition">
-            Hoje
-          </button>
-          <button className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
-            <Sparkles className="size-4" /> Relatório IA
-          </button>
-        </div>
+        <a
+          href="/assistente"
+          className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2"
+        >
+          <Sparkles className="size-4" /> Relatório IA
+        </a>
       </div>
 
-      {/* LINHA 1 — Receita */}
       <Section title="Receita" subtitle="visão financeira do período">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<Wallet />} label="Faturamento hoje" value={brl(kpis.faturamentoHoje)} delta="+18%" tone="primary" />
-          <Kpi icon={<TrendingUp />} label="Faturamento semana" value={brl(kpis.faturamentoSemana)} delta="+9%" tone="primary" />
-          <Kpi icon={<TrendingUp />} label="Faturamento mês" value={brl(kpis.faturamentoMes)} delta="+12%" tone="primary" />
-          <Kpi icon={<Crown />} label="Lucro líquido mês" value={brl(kpis.lucroMes)} delta="+14%" tone="success" />
+          <Kpi
+            icon={<Wallet />}
+            label="Faturamento hoje"
+            value={brl(kpis.faturamentoHoje)}
+            delta="0%"
+            tone="primary"
+          />
+          <Kpi
+            icon={<TrendingUp />}
+            label="Faturamento semana"
+            value={brl(kpis.faturamentoSemana)}
+            delta="0%"
+            tone="primary"
+          />
+          <Kpi
+            icon={<TrendingUp />}
+            label="Faturamento mês"
+            value={brl(kpis.faturamentoMes)}
+            delta="0%"
+            tone="primary"
+          />
+          <Kpi
+            icon={<Crown />}
+            label="Lucro líquido mês"
+            value={brl(kpis.lucroMes)}
+            delta="0%"
+            tone="success"
+          />
         </div>
       </Section>
 
-      {/* LINHA 2 — Aquisição & Conversão */}
       <Section title="Aquisição & Conversão" subtitle="leads novos e taxas">
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <Kpi icon={<Users />} label="Leads hoje" value={String(kpis.leadsHoje)} delta="+5" tone="accent" />
-          <Kpi icon={<Users />} label="Leads semana" value={String(kpis.leadsSemana)} delta="+22" tone="accent" />
-          <Kpi icon={<Target />} label="Conversão hoje" value={`${kpis.conversaoHoje}%`} delta="+3pp" tone="success" />
-          <Kpi icon={<Target />} label="Conversão semana" value={`${kpis.conversaoSemana}%`} delta="+1pp" tone="success" />
-          <Kpi icon={<Target />} label="Conversão mês" value={`${kpis.conversaoMes}%`} delta="-1pp" tone="warning" />
+          <Kpi
+            icon={<Users />}
+            label="Leads hoje"
+            value={String(kpis.leadsHoje)}
+            delta="0"
+            tone="accent"
+          />
+          <Kpi
+            icon={<Users />}
+            label="Leads semana"
+            value={String(kpis.leadsSemana)}
+            delta="0"
+            tone="accent"
+          />
+          <Kpi
+            icon={<Target />}
+            label="Conversão hoje"
+            value={`${kpis.conversaoHoje}%`}
+            delta="0pp"
+            tone="success"
+          />
+          <Kpi
+            icon={<Target />}
+            label="Conversão semana"
+            value={`${kpis.conversaoSemana}%`}
+            delta="0pp"
+            tone="success"
+          />
+          <Kpi
+            icon={<Target />}
+            label="Conversão mês"
+            value={`${kpis.conversaoMes}%`}
+            delta="0pp"
+            tone="warning"
+          />
         </div>
       </Section>
 
-      {/* LINHA 3 — Operação */}
       <Section title="Operação" subtitle="pedidos, recompra e risco">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<ShoppingBag />} label="Pedidos hoje" value={String(kpis.pedidosHoje)} delta="+6" tone="primary" />
-          <Kpi icon={<RefreshCw />} label="Recompra prevista" value={String(kpis.recompraPrevista)} delta="hoje" tone="success" />
-          <Kpi icon={<AlertTriangle />} label="Clientes em risco" value={String(kpis.clientesRisco)} delta="-2" tone="destructive" />
-          <Kpi icon={<Zap />} label="Taxa upsell" value={`${kpis.taxaUpsell}%`} delta="+4pp" tone="accent" />
+          <Kpi
+            icon={<ShoppingBag />}
+            label="Pedidos hoje"
+            value={String(kpis.pedidosHoje)}
+            delta="0"
+            tone="primary"
+          />
+          <Kpi
+            icon={<RefreshCw />}
+            label="Recompra prevista"
+            value={String(kpis.recompraPrevista)}
+            delta="0"
+            tone="success"
+          />
+          <Kpi
+            icon={<AlertTriangle />}
+            label="Clientes em risco"
+            value={String(kpis.clientesRisco)}
+            delta="0"
+            tone="destructive"
+          />
+          <Kpi
+            icon={<Zap />}
+            label="Taxa upsell"
+            value={`${kpis.taxaUpsell}%`}
+            delta="0pp"
+            tone="accent"
+          />
         </div>
       </Section>
 
-      {/* GRÁFICOS */}
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="card-soft p-5 lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold">Crescimento mensal · 8 meses</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Faturamento consolidado</p>
-            </div>
-            <span className="text-xs font-semibold text-success bg-success/10 px-2 py-1 rounded-md inline-flex items-center gap-1">
-              <ArrowUpRight className="size-3" /> +68% YTD
-            </span>
-          </div>
-          <div className="h-56">
+          <h3 className="font-semibold">Crescimento mensal</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Faturamento consolidado</p>
+          <div className="h-56 mt-4">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={crescimentoMensal}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${v / 1000}k`} />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="var(--color-border)"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="mes"
+                  stroke="var(--color-muted-foreground)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  stroke="var(--color-muted-foreground)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `${v / 1000}k`}
+                />
                 <Tooltip
-                  contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12, fontSize: 12 }}
+                  contentStyle={{
+                    background: "var(--color-card)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 12,
+                    fontSize: 12,
+                  }}
                   formatter={(v: number) => brl(v)}
                 />
-                <Line type="monotone" dataKey="valor" stroke="var(--color-primary)" strokeWidth={3} dot={{ r: 4, fill: "var(--color-primary)" }} activeDot={{ r: 6 }} />
+                <Line
+                  type="monotone"
+                  dataKey="valor"
+                  stroke="var(--color-primary)"
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: "var(--color-primary)" }}
+                  activeDot={{ r: 6 }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
 
           <div className="mt-4 pt-4 border-t border-border">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Crescimento diário (semana)</h4>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Crescimento diário
+            </h4>
             <div className="h-32">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={vendasSemana}>
@@ -100,25 +292,46 @@ export function Dashboard() {
                       <stop offset="100%" stopColor="var(--color-accent)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="dia" stroke="var(--color-muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12, fontSize: 12 }} formatter={(v: number) => brl(v)} />
-                  <Area type="monotone" dataKey="vendas" stroke="var(--color-accent)" strokeWidth={2} fill="url(#dg)" />
+                  <XAxis
+                    dataKey="dia"
+                    stroke="var(--color-muted-foreground)"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--color-card)",
+                      border: "1px solid var(--color-border)",
+                      borderRadius: 12,
+                      fontSize: 12,
+                    }}
+                    formatter={(v: number) => brl(v)}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="vendas"
+                    stroke="var(--color-accent)"
+                    strokeWidth={2}
+                    fill="url(#dg)"
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
         </div>
 
-        {/* FUNIL */}
         <div className="card-soft p-5">
           <h3 className="font-semibold">Funil de conversão</h3>
           <p className="text-xs text-muted-foreground mt-0.5">Lead → Recompra</p>
           <div className="mt-4 space-y-2">
             {funilDados.map((f, i) => {
               const prev = i === 0 ? f.valor : funilDados[i - 1].valor;
-              const taxa = ((f.valor / funilDados[0].valor) * 100).toFixed(0);
-              const conv = i === 0 ? null : ((f.valor / prev) * 100).toFixed(0);
-              const width = (f.valor / funilDados[0].valor) * 100;
+              const totalLeads = funilDados[0]?.valor ?? 0;
+              const taxa = totalLeads > 0 ? ((f.valor / totalLeads) * 100).toFixed(0) : "0";
+              const conv = i === 0 || prev <= 0 ? null : ((f.valor / prev) * 100).toFixed(0);
+              const width = totalLeads > 0 ? (f.valor / totalLeads) * 100 : 0;
+
               return (
                 <div key={f.etapa}>
                   <div className="flex justify-between items-baseline text-xs mb-1">
@@ -141,68 +354,53 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* ALERTAS IA + WHATSAPP */}
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="card-soft p-5 lg:col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="font-semibold inline-flex items-center gap-2">
-                <Sparkles className="size-4 text-primary" /> Alertas da IA
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Análise automática a cada 15 min</p>
-            </div>
-          </div>
-          <ul className="grid sm:grid-cols-2 gap-2.5">
-            <IaAlert tone="destructive" icon={<TrendingDown />} title="Queda de conversão −3pp"
-              desc="Conversão de hoje 31% vs meta 34%. Reveja respostas IA." />
-            <IaAlert tone="success" icon={<TrendingUp />} title="Recompra +18% em ração"
-              desc="Categoria premium acelera. Estoque suficiente para 9 dias." />
-            <IaAlert tone="destructive" icon={<AlertCircle />} title="Estoque crítico · 7 itens"
-              desc="Shampoo Hipoalergênico tem 1 unidade." />
-            <IaAlert tone="warning" icon={<Target />} title="Campanha ruim · Black Pet"
-              desc="ROI 1.1x. Sugiro pausar e realocar verba." />
-            <IaAlert tone="primary" icon={<Lightbulb />} title="Oportunidade · Royal Canin Renal"
-              desc="Pedido 8x sem estoque. R$ 2.560 em vendas perdidas." />
-            <IaAlert tone="primary" icon={<Crown />} title="Cliente lucrativo: Roberto Lima"
-              desc="Margem 39%, comprou +3 vezes esse mês." />
-          </ul>
-        </div>
-
-        <div className="card-soft p-5">
-          <h3 className="font-semibold mb-3 inline-flex items-center gap-2">
-            WhatsApp · ao vivo
-            <span className="size-2 rounded-full bg-success animate-pulse" />
-          </h3>
-          <ul className="space-y-3">
-            {conversas.slice(0, 5).map((c) => (
-              <li key={c.id} className="flex items-center gap-3">
-                <div className="size-9 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 grid place-items-center font-semibold text-xs">
-                  {c.cliente.split(" ").map(n => n[0]).slice(0, 2).join("")}
+      <div className="card-soft p-5">
+        <h3 className="font-semibold mb-3 inline-flex items-center gap-2">WhatsApp · ao vivo</h3>
+        <ul className="space-y-3">
+          {conversas.map((c) => (
+            <li key={c.id} className="flex items-center gap-3">
+              <div className="size-9 rounded-full bg-primary/15 grid place-items-center font-semibold text-xs">
+                {c.cliente
+                  .split(" ")
+                  .map((n) => n[0])
+                  .slice(0, 2)
+                  .join("")}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex justify-between items-baseline gap-2">
+                  <p className="text-sm font-semibold truncate">{c.cliente}</p>
+                  <span className="text-[10px] text-muted-foreground shrink-0">{c.hora}</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-baseline gap-2">
-                    <p className="text-sm font-semibold truncate">{c.cliente}</p>
-                    <span className="text-[10px] text-muted-foreground shrink-0">{c.hora}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground truncate">{c.ultima}</p>
-                </div>
-                {c.naoLidas > 0 && (
-                  <span className="text-[10px] font-bold size-5 grid place-items-center rounded-full bg-success text-success-foreground">{c.naoLidas}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
+                <p className="text-xs text-muted-foreground truncate">{c.ultima}</p>
+              </div>
+              {c.naoLidas > 0 && (
+                <span className="text-[10px] font-bold size-5 grid place-items-center rounded-full bg-success text-success-foreground">
+                  {c.naoLidas}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
 }
 
-function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section>
       <div className="flex items-baseline gap-3 mb-2.5 px-1">
-        <h2 className="text-xs uppercase font-bold tracking-wider text-muted-foreground">{title}</h2>
+        <h2 className="text-xs uppercase font-bold tracking-wider text-muted-foreground">
+          {title}
+        </h2>
         {subtitle && <span className="text-[10px] text-muted-foreground/70">· {subtitle}</span>}
       </div>
       {children}
@@ -210,47 +408,45 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
   );
 }
 
-function Kpi({ icon, label, value, delta, tone }: {
-  icon: React.ReactNode; label: string; value: string; delta: string;
+function Kpi({
+  icon,
+  label,
+  value,
+  delta,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  delta: string;
   tone: "primary" | "success" | "accent" | "warning" | "destructive";
 }) {
   const tones = {
-    primary: { bg: "bg-primary/10", fg: "text-primary", delta: "text-success" },
-    success: { bg: "bg-success/10", fg: "text-success", delta: "text-success" },
-    accent: { bg: "bg-accent/10", fg: "text-accent", delta: "text-success" },
-    warning: { bg: "bg-accent/10", fg: "text-accent", delta: "text-accent" },
-    destructive: { bg: "bg-destructive/10", fg: "text-destructive", delta: "text-destructive" },
+    primary: { bg: "bg-primary/10", fg: "text-primary", delta: "text-muted-foreground" },
+    success: { bg: "bg-success/10", fg: "text-success", delta: "text-muted-foreground" },
+    accent: { bg: "bg-accent/10", fg: "text-accent", delta: "text-muted-foreground" },
+    warning: { bg: "bg-accent/10", fg: "text-accent", delta: "text-muted-foreground" },
+    destructive: {
+      bg: "bg-destructive/10",
+      fg: "text-destructive",
+      delta: "text-muted-foreground",
+    },
   }[tone];
+
   return (
     <div className="card-soft p-4 hover:shadow-md transition">
       <div className="flex items-center justify-between">
-        <div className={`size-8 rounded-lg grid place-items-center ${tones.bg} ${tones.fg} [&_svg]:size-4`}>
+        <div
+          className={`size-8 rounded-lg grid place-items-center ${tones.bg} ${tones.fg} [&_svg]:size-4`}
+        >
           {icon}
         </div>
         <span className={`text-[10px] font-bold ${tones.delta}`}>{delta}</span>
       </div>
       <div className="mt-3 text-[11px] text-muted-foreground leading-tight">{label}</div>
-      <div className="text-xl lg:text-2xl font-bold mt-0.5 tracking-tight tabular-nums">{value}</div>
-    </div>
-  );
-}
-
-function IaAlert({ tone, icon, title, desc }: {
-  tone: "destructive" | "warning" | "success" | "primary"; icon: React.ReactNode; title: string; desc: string;
-}) {
-  const tones = {
-    destructive: "bg-destructive/10 text-destructive",
-    warning: "bg-accent/15 text-accent",
-    success: "bg-success/10 text-success",
-    primary: "bg-primary/10 text-primary",
-  }[tone];
-  return (
-    <li className="flex gap-3 p-2.5 rounded-xl border border-border hover:bg-secondary/40 transition">
-      <div className={`size-8 rounded-lg grid place-items-center shrink-0 ${tones} [&_svg]:size-4`}>{icon}</div>
-      <div className="min-w-0">
-        <p className="text-sm font-semibold leading-tight">{title}</p>
-        <p className="text-[11px] text-muted-foreground mt-0.5">{desc}</p>
+      <div className="text-xl lg:text-2xl font-bold mt-0.5 tracking-tight tabular-nums">
+        {value}
       </div>
-    </li>
+    </div>
   );
 }

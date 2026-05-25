@@ -20,9 +20,21 @@ import { Route as EntregasRouteImport } from './routes/entregas'
 import { Route as ConversasRouteImport } from './routes/conversas'
 import { Route as ClientesRouteImport } from './routes/clientes'
 import { Route as CampanhasRouteImport } from './routes/campanhas'
-import { Route as AutomacoesRouteImport } from './routes/automacoes'
 import { Route as AssistenteRouteImport } from './routes/assistente'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiWebhookWhatsappRouteImport } from './routes/api/webhook.whatsapp'
+import { Route as ApiWebhookPagamentoRouteImport } from './routes/api/webhook.pagamento'
+import { Route as ApiUazapiTestRouteImport } from './routes/api/uazapi.test'
+import { Route as ApiMercadopagoWebhookRouteImport } from './routes/api/mercadopago.webhook'
+import { Route as ApiCrmProdutosProcuradosRouteImport } from './routes/api/crm.produtos-procurados'
+import { Route as ApiCrmProdutosRouteImport } from './routes/api/crm.produtos'
+import { Route as ApiCrmPixRouteImport } from './routes/api/crm.pix'
+import { Route as ApiCrmPedidosRouteImport } from './routes/api/crm.pedidos'
+import { Route as ApiCrmIndicacoesRouteImport } from './routes/api/crm.indicacoes'
+import { Route as ApiCrmDashboardRouteImport } from './routes/api/crm.dashboard'
+import { Route as ApiCrmConversasRouteImport } from './routes/api/crm.conversas'
+import { Route as ApiCrmClientesRouteImport } from './routes/api/crm.clientes'
+import { Route as ApiCrmAssistenteRouteImport } from './routes/api/crm.assistente'
 
 const RecompraPrevistaRoute = RecompraPrevistaRouteImport.update({
   id: '/recompra-prevista',
@@ -79,11 +91,6 @@ const CampanhasRoute = CampanhasRouteImport.update({
   path: '/campanhas',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AutomacoesRoute = AutomacoesRouteImport.update({
-  id: '/automacoes',
-  path: '/automacoes',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AssistenteRoute = AssistenteRouteImport.update({
   id: '/assistente',
   path: '/assistente',
@@ -94,11 +101,76 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhookWhatsappRoute = ApiWebhookWhatsappRouteImport.update({
+  id: '/api/webhook/whatsapp',
+  path: '/api/webhook/whatsapp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhookPagamentoRoute = ApiWebhookPagamentoRouteImport.update({
+  id: '/api/webhook/pagamento',
+  path: '/api/webhook/pagamento',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiUazapiTestRoute = ApiUazapiTestRouteImport.update({
+  id: '/api/uazapi/test',
+  path: '/api/uazapi/test',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMercadopagoWebhookRoute = ApiMercadopagoWebhookRouteImport.update({
+  id: '/api/mercadopago/webhook',
+  path: '/api/mercadopago/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmProdutosProcuradosRoute =
+  ApiCrmProdutosProcuradosRouteImport.update({
+    id: '/api/crm/produtos-procurados',
+    path: '/api/crm/produtos-procurados',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiCrmProdutosRoute = ApiCrmProdutosRouteImport.update({
+  id: '/api/crm/produtos',
+  path: '/api/crm/produtos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmPixRoute = ApiCrmPixRouteImport.update({
+  id: '/api/crm/pix',
+  path: '/api/crm/pix',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmPedidosRoute = ApiCrmPedidosRouteImport.update({
+  id: '/api/crm/pedidos',
+  path: '/api/crm/pedidos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmIndicacoesRoute = ApiCrmIndicacoesRouteImport.update({
+  id: '/api/crm/indicacoes',
+  path: '/api/crm/indicacoes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmDashboardRoute = ApiCrmDashboardRouteImport.update({
+  id: '/api/crm/dashboard',
+  path: '/api/crm/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmConversasRoute = ApiCrmConversasRouteImport.update({
+  id: '/api/crm/conversas',
+  path: '/api/crm/conversas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmClientesRoute = ApiCrmClientesRouteImport.update({
+  id: '/api/crm/clientes',
+  path: '/api/crm/clientes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmAssistenteRoute = ApiCrmAssistenteRouteImport.update({
+  id: '/api/crm/assistente',
+  path: '/api/crm/assistente',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/assistente': typeof AssistenteRoute
-  '/automacoes': typeof AutomacoesRoute
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
@@ -110,11 +182,23 @@ export interface FileRoutesByFullPath {
   '/pedidos': typeof PedidosRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
   '/recompra-prevista': typeof RecompraPrevistaRoute
+  '/api/crm/assistente': typeof ApiCrmAssistenteRoute
+  '/api/crm/clientes': typeof ApiCrmClientesRoute
+  '/api/crm/conversas': typeof ApiCrmConversasRoute
+  '/api/crm/dashboard': typeof ApiCrmDashboardRoute
+  '/api/crm/indicacoes': typeof ApiCrmIndicacoesRoute
+  '/api/crm/pedidos': typeof ApiCrmPedidosRoute
+  '/api/crm/pix': typeof ApiCrmPixRoute
+  '/api/crm/produtos': typeof ApiCrmProdutosRoute
+  '/api/crm/produtos-procurados': typeof ApiCrmProdutosProcuradosRoute
+  '/api/mercadopago/webhook': typeof ApiMercadopagoWebhookRoute
+  '/api/uazapi/test': typeof ApiUazapiTestRoute
+  '/api/webhook/pagamento': typeof ApiWebhookPagamentoRoute
+  '/api/webhook/whatsapp': typeof ApiWebhookWhatsappRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/assistente': typeof AssistenteRoute
-  '/automacoes': typeof AutomacoesRoute
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
@@ -126,12 +210,24 @@ export interface FileRoutesByTo {
   '/pedidos': typeof PedidosRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
   '/recompra-prevista': typeof RecompraPrevistaRoute
+  '/api/crm/assistente': typeof ApiCrmAssistenteRoute
+  '/api/crm/clientes': typeof ApiCrmClientesRoute
+  '/api/crm/conversas': typeof ApiCrmConversasRoute
+  '/api/crm/dashboard': typeof ApiCrmDashboardRoute
+  '/api/crm/indicacoes': typeof ApiCrmIndicacoesRoute
+  '/api/crm/pedidos': typeof ApiCrmPedidosRoute
+  '/api/crm/pix': typeof ApiCrmPixRoute
+  '/api/crm/produtos': typeof ApiCrmProdutosRoute
+  '/api/crm/produtos-procurados': typeof ApiCrmProdutosProcuradosRoute
+  '/api/mercadopago/webhook': typeof ApiMercadopagoWebhookRoute
+  '/api/uazapi/test': typeof ApiUazapiTestRoute
+  '/api/webhook/pagamento': typeof ApiWebhookPagamentoRoute
+  '/api/webhook/whatsapp': typeof ApiWebhookWhatsappRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/assistente': typeof AssistenteRoute
-  '/automacoes': typeof AutomacoesRoute
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
@@ -143,13 +239,25 @@ export interface FileRoutesById {
   '/pedidos': typeof PedidosRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
   '/recompra-prevista': typeof RecompraPrevistaRoute
+  '/api/crm/assistente': typeof ApiCrmAssistenteRoute
+  '/api/crm/clientes': typeof ApiCrmClientesRoute
+  '/api/crm/conversas': typeof ApiCrmConversasRoute
+  '/api/crm/dashboard': typeof ApiCrmDashboardRoute
+  '/api/crm/indicacoes': typeof ApiCrmIndicacoesRoute
+  '/api/crm/pedidos': typeof ApiCrmPedidosRoute
+  '/api/crm/pix': typeof ApiCrmPixRoute
+  '/api/crm/produtos': typeof ApiCrmProdutosRoute
+  '/api/crm/produtos-procurados': typeof ApiCrmProdutosProcuradosRoute
+  '/api/mercadopago/webhook': typeof ApiMercadopagoWebhookRoute
+  '/api/uazapi/test': typeof ApiUazapiTestRoute
+  '/api/webhook/pagamento': typeof ApiWebhookPagamentoRoute
+  '/api/webhook/whatsapp': typeof ApiWebhookWhatsappRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/assistente'
-    | '/automacoes'
     | '/campanhas'
     | '/clientes'
     | '/conversas'
@@ -161,11 +269,23 @@ export interface FileRouteTypes {
     | '/pedidos'
     | '/produtos-procurados'
     | '/recompra-prevista'
+    | '/api/crm/assistente'
+    | '/api/crm/clientes'
+    | '/api/crm/conversas'
+    | '/api/crm/dashboard'
+    | '/api/crm/indicacoes'
+    | '/api/crm/pedidos'
+    | '/api/crm/pix'
+    | '/api/crm/produtos'
+    | '/api/crm/produtos-procurados'
+    | '/api/mercadopago/webhook'
+    | '/api/uazapi/test'
+    | '/api/webhook/pagamento'
+    | '/api/webhook/whatsapp'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/assistente'
-    | '/automacoes'
     | '/campanhas'
     | '/clientes'
     | '/conversas'
@@ -177,11 +297,23 @@ export interface FileRouteTypes {
     | '/pedidos'
     | '/produtos-procurados'
     | '/recompra-prevista'
+    | '/api/crm/assistente'
+    | '/api/crm/clientes'
+    | '/api/crm/conversas'
+    | '/api/crm/dashboard'
+    | '/api/crm/indicacoes'
+    | '/api/crm/pedidos'
+    | '/api/crm/pix'
+    | '/api/crm/produtos'
+    | '/api/crm/produtos-procurados'
+    | '/api/mercadopago/webhook'
+    | '/api/uazapi/test'
+    | '/api/webhook/pagamento'
+    | '/api/webhook/whatsapp'
   id:
     | '__root__'
     | '/'
     | '/assistente'
-    | '/automacoes'
     | '/campanhas'
     | '/clientes'
     | '/conversas'
@@ -193,12 +325,24 @@ export interface FileRouteTypes {
     | '/pedidos'
     | '/produtos-procurados'
     | '/recompra-prevista'
+    | '/api/crm/assistente'
+    | '/api/crm/clientes'
+    | '/api/crm/conversas'
+    | '/api/crm/dashboard'
+    | '/api/crm/indicacoes'
+    | '/api/crm/pedidos'
+    | '/api/crm/pix'
+    | '/api/crm/produtos'
+    | '/api/crm/produtos-procurados'
+    | '/api/mercadopago/webhook'
+    | '/api/uazapi/test'
+    | '/api/webhook/pagamento'
+    | '/api/webhook/whatsapp'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AssistenteRoute: typeof AssistenteRoute
-  AutomacoesRoute: typeof AutomacoesRoute
   CampanhasRoute: typeof CampanhasRoute
   ClientesRoute: typeof ClientesRoute
   ConversasRoute: typeof ConversasRoute
@@ -210,6 +354,19 @@ export interface RootRouteChildren {
   PedidosRoute: typeof PedidosRoute
   ProdutosProcuradosRoute: typeof ProdutosProcuradosRoute
   RecompraPrevistaRoute: typeof RecompraPrevistaRoute
+  ApiCrmAssistenteRoute: typeof ApiCrmAssistenteRoute
+  ApiCrmClientesRoute: typeof ApiCrmClientesRoute
+  ApiCrmConversasRoute: typeof ApiCrmConversasRoute
+  ApiCrmDashboardRoute: typeof ApiCrmDashboardRoute
+  ApiCrmIndicacoesRoute: typeof ApiCrmIndicacoesRoute
+  ApiCrmPedidosRoute: typeof ApiCrmPedidosRoute
+  ApiCrmPixRoute: typeof ApiCrmPixRoute
+  ApiCrmProdutosRoute: typeof ApiCrmProdutosRoute
+  ApiCrmProdutosProcuradosRoute: typeof ApiCrmProdutosProcuradosRoute
+  ApiMercadopagoWebhookRoute: typeof ApiMercadopagoWebhookRoute
+  ApiUazapiTestRoute: typeof ApiUazapiTestRoute
+  ApiWebhookPagamentoRoute: typeof ApiWebhookPagamentoRoute
+  ApiWebhookWhatsappRoute: typeof ApiWebhookWhatsappRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -291,13 +448,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CampanhasRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/automacoes': {
-      id: '/automacoes'
-      path: '/automacoes'
-      fullPath: '/automacoes'
-      preLoaderRoute: typeof AutomacoesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/assistente': {
       id: '/assistente'
       path: '/assistente'
@@ -312,13 +462,103 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/webhook/whatsapp': {
+      id: '/api/webhook/whatsapp'
+      path: '/api/webhook/whatsapp'
+      fullPath: '/api/webhook/whatsapp'
+      preLoaderRoute: typeof ApiWebhookWhatsappRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhook/pagamento': {
+      id: '/api/webhook/pagamento'
+      path: '/api/webhook/pagamento'
+      fullPath: '/api/webhook/pagamento'
+      preLoaderRoute: typeof ApiWebhookPagamentoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/uazapi/test': {
+      id: '/api/uazapi/test'
+      path: '/api/uazapi/test'
+      fullPath: '/api/uazapi/test'
+      preLoaderRoute: typeof ApiUazapiTestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mercadopago/webhook': {
+      id: '/api/mercadopago/webhook'
+      path: '/api/mercadopago/webhook'
+      fullPath: '/api/mercadopago/webhook'
+      preLoaderRoute: typeof ApiMercadopagoWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/produtos-procurados': {
+      id: '/api/crm/produtos-procurados'
+      path: '/api/crm/produtos-procurados'
+      fullPath: '/api/crm/produtos-procurados'
+      preLoaderRoute: typeof ApiCrmProdutosProcuradosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/produtos': {
+      id: '/api/crm/produtos'
+      path: '/api/crm/produtos'
+      fullPath: '/api/crm/produtos'
+      preLoaderRoute: typeof ApiCrmProdutosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/pix': {
+      id: '/api/crm/pix'
+      path: '/api/crm/pix'
+      fullPath: '/api/crm/pix'
+      preLoaderRoute: typeof ApiCrmPixRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/pedidos': {
+      id: '/api/crm/pedidos'
+      path: '/api/crm/pedidos'
+      fullPath: '/api/crm/pedidos'
+      preLoaderRoute: typeof ApiCrmPedidosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/indicacoes': {
+      id: '/api/crm/indicacoes'
+      path: '/api/crm/indicacoes'
+      fullPath: '/api/crm/indicacoes'
+      preLoaderRoute: typeof ApiCrmIndicacoesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/dashboard': {
+      id: '/api/crm/dashboard'
+      path: '/api/crm/dashboard'
+      fullPath: '/api/crm/dashboard'
+      preLoaderRoute: typeof ApiCrmDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/conversas': {
+      id: '/api/crm/conversas'
+      path: '/api/crm/conversas'
+      fullPath: '/api/crm/conversas'
+      preLoaderRoute: typeof ApiCrmConversasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/clientes': {
+      id: '/api/crm/clientes'
+      path: '/api/crm/clientes'
+      fullPath: '/api/crm/clientes'
+      preLoaderRoute: typeof ApiCrmClientesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/assistente': {
+      id: '/api/crm/assistente'
+      path: '/api/crm/assistente'
+      fullPath: '/api/crm/assistente'
+      preLoaderRoute: typeof ApiCrmAssistenteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AssistenteRoute: AssistenteRoute,
-  AutomacoesRoute: AutomacoesRoute,
   CampanhasRoute: CampanhasRoute,
   ClientesRoute: ClientesRoute,
   ConversasRoute: ConversasRoute,
@@ -330,7 +570,30 @@ const rootRouteChildren: RootRouteChildren = {
   PedidosRoute: PedidosRoute,
   ProdutosProcuradosRoute: ProdutosProcuradosRoute,
   RecompraPrevistaRoute: RecompraPrevistaRoute,
+  ApiCrmAssistenteRoute: ApiCrmAssistenteRoute,
+  ApiCrmClientesRoute: ApiCrmClientesRoute,
+  ApiCrmConversasRoute: ApiCrmConversasRoute,
+  ApiCrmDashboardRoute: ApiCrmDashboardRoute,
+  ApiCrmIndicacoesRoute: ApiCrmIndicacoesRoute,
+  ApiCrmPedidosRoute: ApiCrmPedidosRoute,
+  ApiCrmPixRoute: ApiCrmPixRoute,
+  ApiCrmProdutosRoute: ApiCrmProdutosRoute,
+  ApiCrmProdutosProcuradosRoute: ApiCrmProdutosProcuradosRoute,
+  ApiMercadopagoWebhookRoute: ApiMercadopagoWebhookRoute,
+  ApiUazapiTestRoute: ApiUazapiTestRoute,
+  ApiWebhookPagamentoRoute: ApiWebhookPagamentoRoute,
+  ApiWebhookWhatsappRoute: ApiWebhookWhatsappRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

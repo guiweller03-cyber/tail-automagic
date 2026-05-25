@@ -74,7 +74,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Mundo Pet CRM — Venda, entregue e fidelize no WhatsApp" },
-      { name: "description", content: "CRM inteligente para pet shops com WhatsApp, IA, pedidos, entregas e estoque automatizado." },
+      {
+        name: "description",
+        content:
+          "CRM inteligente para pet shops com WhatsApp, IA, pedidos, entregas e estoque automatizado.",
+      },
       { name: "author", content: "Mundo Pet" },
       { property: "og:title", content: "Mundo Pet CRM" },
       { property: "og:description", content: "Venda, entregue e fidelize no WhatsApp." },
@@ -86,7 +90,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "stylesheet", href: appCss },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap",
+      },
     ],
   }),
   shellComponent: RootShell,
@@ -101,7 +108,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {children}
         <Scripts />
       </body>
@@ -118,4 +125,3 @@ function RootComponent() {
     </QueryClientProvider>
   );
 }
-
