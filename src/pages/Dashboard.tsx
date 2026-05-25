@@ -11,6 +11,7 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useVendas } from "@/contexts/VendasContext";
+import { VelocidadeOperacional } from "@/features/velocidade/VelocidadeOperacional";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -94,6 +95,9 @@ export function Dashboard() {
           <Kpi icon={<Zap />} label="Taxa upsell" value={`${kpis.taxaUpsell}%`} delta="+4pp" tone="accent" />
         </div>
       </Section>
+
+      {/* VELOCIDADE OPERACIONAL */}
+      <VelocidadeOperacional />
 
       {/* GRÁFICOS */}
       <div className="grid lg:grid-cols-3 gap-4">
