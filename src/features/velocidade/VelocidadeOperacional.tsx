@@ -113,14 +113,15 @@ export function VelocidadeOperacional() {
     const saiu = Math.round(base * 0.55);
     const entregue = Math.round(base * 0.52);
     return [
-      { etapa: "Atendimento iniciado", v: base },
-      { etapa: "Orçamento enviado", v: orc },
-      { etapa: "Aguardando resposta", v: aguard },
-      { etapa: "Pagamento aprovado", v: pago },
-      { etapa: "Separação", v: sep },
+      { etapa: "Conversa iniciada (IA)", v: base },
+      { etapa: "Proposta enviada pela IA", v: orc },
+      { etapa: "Aguardando cliente", v: aguard },
+      { etapa: "Venda fechada pela IA", v: pago },
+      { etapa: "Pagamento confirmado", v: Math.round(base * 0.6) },
       { etapa: "Saiu para entrega", v: saiu },
-      { etapa: "Entregue", v: entregue },
+      { etapa: "Entrega concluída", v: entregue },
     ];
+
   }, [atuais]);
 
   // Evolução (linha) — média total por diaIdx
