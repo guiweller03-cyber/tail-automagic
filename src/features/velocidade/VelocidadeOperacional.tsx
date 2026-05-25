@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
-  Bot, Zap, Timer, Truck, MessageSquare, CheckCircle2, Route,
-  AlertTriangle, TrendingUp, TrendingDown, Sparkles, Trophy, Activity, PackageCheck,
+  Bot, Zap, Truck, CheckCircle2, Route,
+  AlertTriangle, TrendingUp, TrendingDown, Sparkles, Trophy, Activity,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
