@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import {
-  Clock, Zap, Timer, Truck, MessageSquare, CheckCircle2, Route,
+  Bot, Zap, Truck, CheckCircle2, Route,
   AlertTriangle, TrendingUp, TrendingDown, Sparkles, Trophy, Activity,
 } from "lucide-react";
 import {
@@ -109,18 +109,19 @@ export function VelocidadeOperacional() {
     const orc = Math.round(base * 0.92);
     const aguard = Math.round(base * 0.78);
     const pago = Math.round(base * 0.61);
-    const sep = Math.round(base * 0.58);
+    
     const saiu = Math.round(base * 0.55);
     const entregue = Math.round(base * 0.52);
     return [
-      { etapa: "Atendimento iniciado", v: base },
-      { etapa: "Orçamento enviado", v: orc },
-      { etapa: "Aguardando resposta", v: aguard },
-      { etapa: "Pagamento aprovado", v: pago },
-      { etapa: "Separação", v: sep },
+      { etapa: "Conversa iniciada (IA)", v: base },
+      { etapa: "Proposta enviada pela IA", v: orc },
+      { etapa: "Aguardando cliente", v: aguard },
+      { etapa: "Venda fechada pela IA", v: pago },
+      { etapa: "Pagamento confirmado", v: Math.round(base * 0.6) },
       { etapa: "Saiu para entrega", v: saiu },
-      { etapa: "Entregue", v: entregue },
+      { etapa: "Entrega concluída", v: entregue },
     ];
+
   }, [atuais]);
 
   // Evolução (linha) — média total por diaIdx
@@ -217,16 +218,26 @@ export function VelocidadeOperacional() {
         </div>
       </div>
 
-      {/* KPIs de tempo */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
-        <TempoKpi icon={<MessageSquare />} label="Resposta WhatsApp" value={fmtMin(m.wpp)} delta={deltaPct(m.wpp, mAnt.wpp)} invert />
-        <TempoKpi icon={<Clock />}         label="1º atendimento" value={fmtMin(m.atendimento)} />
-        <TempoKpi icon={<CheckCircle2 />}  label="Cliente confirma" value={fmtMin(m.confirmacao)} />
-        <TempoKpi icon={<Zap />}           label="1º contato → pago" value={fmtMin(m.primContPag)} delta={deltaPct(m.primContPag, mAnt.primContPag)} invert />
-        <TempoKpi icon={<Timer />}         label="Separação" value={fmtMin(m.separacao)} />
-        <TempoKpi icon={<Truck />}         label="Pedido → entrega" value={fmtMin(m.pedEntrega)} delta={deltaPct(m.entrega, mAnt.entrega)} invert />
-        <TempoKpi icon={<Route />}         label="Jornada total" value={fmtMin(m.total)} delta={deltaPct(m.total, mAnt.total)} invert highlight />
+      {/* KPIs de tempo — atendimento 100% IA no WhatsApp */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+        <TempoKpi icon={<Bot />}           label="Resposta da IA no WhatsApp" value={fmtMin(m.wpp)} delta={deltaPct(m.wpp, mAnt.wpp)} invert />
+        <TempoKpi icon={<CheckCircle2 />}  label="Conversa → fechamento" value={fmtMin(m.atendimento + m.confirmacao)} />
+        <TempoKpi icon={<Zap />}           label="Conversa → pagamento" value={fmtMin(m.primContPag)} delta={deltaPct(m.primContPag, mAnt.primContPag)} invert />
+        <TempoKpi icon={<Truck />}         label="Pagamento → entrega" value={fmtMin(m.pedEntrega)} delta={deltaPct(m.entrega, mAnt.entrega)} invert />
+        <TempoKpi icon={<Route />}         label="Jornada total do pedido" value={fmtMin(m.total)} delta={deltaPct(m.total, mAnt.total)} invert highlight />
       </div>
+
+      <div className="card-soft p-3 flex items-center gap-3 text-xs">
+        <div className="size-8 rounded-lg grid place-items-center bg-primary/10 text-primary"><Bot className="size-4" /></div>
+        <div className="flex-1">
+          <p className="font-semibold leading-tight">IA registra os marcos automaticamente</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">início da conversa · fechamento da venda · pagamento · saída para entrega · entrega concluída — atualizado em tempo real</p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-success">
+          <span className="size-1.5 rounded-full bg-success animate-pulse" /> AO VIVO
+        </span>
+      </div>
+
 
       {/* Funil + Alertas */}
       <div className="grid lg:grid-cols-3 gap-4">
