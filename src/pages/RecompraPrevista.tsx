@@ -377,7 +377,11 @@ export function RecompraPrevista() {
       {/* LOGÍSTICA + COMPRAS */}
       <PrevisaoLogistica semana={semana} />
 
+      {/* AUTOMAÇÕES POR CATEGORIA DE PRODUTO */}
+      <AutomacoesCategoria />
+
       {/* FILTROS */}
+
       <section className="space-y-3">
         <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
           <Users className="size-4 text-primary" /> Clientes em recompra
@@ -1305,5 +1309,221 @@ function PrevisaoLogistica({ semana }: { semana: 0 | 1 | 2 | 3 | 4 }) {
         </div>
       </div>
     </section>
+  );
+}
+
+// ───────────────────────── AUTOMAÇÕES POR CATEGORIA ─────────────────────────
+type RegraCategoria = {
+  id: string;
+  categoria: string;
+  emoji: string;
+  ativo: boolean;
+  cicloBaseDias: number;       // padrão sugerido (a IA adapta por cliente)
+  diasAntes: number;           // antecedência da 1ª mensagem
+  qtdMensagens: number;        // quantas mensagens enviar
+  mensagem: string;            // template
+  aprendeIA: boolean;          // se IA pode sobrescrever ciclo por cliente
+  perguntaConfirmacao?: string; // ex: vermífugo
+};
+
+const REGRAS_KEY = "recompra_regras_categoria_v1";
+const REGRAS_DEFAULT: RegraCategoria[] = [
+  { id: "areia",       categoria: "Areia para gato",     emoji: "🪨", ativo: true,  cicloBaseDias: 25, diasAntes: 5, qtdMensagens: 2, mensagem: "Oi {nome}! 🐱 A areia do {pet} deve estar acabando. Posso já separar?", aprendeIA: true },
+  { id: "tapete",      categoria: "Tapete higiênico",    emoji: "🧻", ativo: true,  cicloBaseDias: 20, diasAntes: 4, qtdMensagens: 2, mensagem: "Oi {nome}! Os tapetes do {pet} costumam acabar nessa altura. Quer renovar?", aprendeIA: true },
+  { id: "vermifugo",   categoria: "Vermífugo",           emoji: "💊", ativo: true,  cicloBaseDias: 90, diasAntes: 7, qtdMensagens: 2, mensagem: "Oi {nome}! 🐾 A proteção do {pet} contra vermes vai vencer em {dias}d.", aprendeIA: false, perguntaConfirmacao: "Você conseguiu administrar o vermífugo no {pet}? (sim/não)" },
+  { id: "antipulgas",  categoria: "Antipulgas",          emoji: "🛡️", ativo: true,  cicloBaseDias: 30, diasAntes: 5, qtdMensagens: 1, mensagem: "Oi {nome}! Está chegando a próxima dose de antipulgas do {pet}.", aprendeIA: false },
+  { id: "racao",       categoria: "Ração",               emoji: "🥣", ativo: true,  cicloBaseDias: 35, diasAntes: 6, qtdMensagens: 2, mensagem: "Oi {nome}! 🐶 A ração do {pet} está perto do fim — quer que eu separe?", aprendeIA: true },
+  { id: "saches",      categoria: "Sachês",              emoji: "🥫", ativo: true,  cicloBaseDias: 15, diasAntes: 3, qtdMensagens: 1, mensagem: "Oi {nome}! Os sachês do {pet} acabam logo. Quer reposição?", aprendeIA: true },
+  { id: "petiscos",    categoria: "Petiscos",            emoji: "🦴", ativo: false, cicloBaseDias: 30, diasAntes: 4, qtdMensagens: 1, mensagem: "Oi {nome}! Que tal renovar os petiscos do {pet}?", aprendeIA: true },
+  { id: "suplementos", categoria: "Suplementos",         emoji: "💪", ativo: true,  cicloBaseDias: 30, diasAntes: 5, qtdMensagens: 1, mensagem: "Oi {nome}! O suplemento do {pet} está acabando. Renovar?", aprendeIA: false },
+  { id: "shampoos",    categoria: "Shampoos",            emoji: "🧴", ativo: false, cicloBaseDias: 60, diasAntes: 7, qtdMensagens: 1, mensagem: "Oi {nome}! Já pensou em renovar o shampoo do {pet}?", aprendeIA: true },
+  { id: "medcont",     categoria: "Medicamentos contínuos", emoji: "💉", ativo: true, cicloBaseDias: 30, diasAntes: 7, qtdMensagens: 3, mensagem: "Oi {nome}! ⚠️ O medicamento contínuo do {pet} acaba em {dias}d. Não pode faltar.", aprendeIA: false, perguntaConfirmacao: "O {pet} segue tomando o medicamento normalmente?" },
+];
+
+function loadRegras(): RegraCategoria[] {
+  if (typeof window === "undefined") return REGRAS_DEFAULT;
+  try {
+    const raw = window.localStorage.getItem(REGRAS_KEY);
+    if (!raw) return REGRAS_DEFAULT;
+    const parsed = JSON.parse(raw) as RegraCategoria[];
+    // merge: garantir que novas categorias padrão sempre apareçam
+    const ids = new Set(parsed.map((r) => r.id));
+    const extra = REGRAS_DEFAULT.filter((r) => !ids.has(r.id));
+    return [...parsed, ...extra];
+  } catch { return REGRAS_DEFAULT; }
+}
+
+function AutomacoesCategoria() {
+  const [regras, setRegras] = useState<RegraCategoria[]>(loadRegras);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+
+  function update(id: string, patch: Partial<RegraCategoria>) {
+    setRegras((arr) => {
+      const next = arr.map((r) => (r.id === id ? { ...r, ...patch } : r));
+      try { window.localStorage.setItem(REGRAS_KEY, JSON.stringify(next)); } catch { /* noop */ }
+      return next;
+    });
+  }
+  function resetar() {
+    setRegras(REGRAS_DEFAULT);
+    try { window.localStorage.removeItem(REGRAS_KEY); } catch { /* noop */ }
+  }
+
+  // Faturamento recorrente previsto por categoria (de produtosPrevistos)
+  const recorrentePorCat = useMemo(() => {
+    const map = new Map<string, { receita: number; unidades: number }>();
+    produtosPrevistos.forEach((p) => {
+      const r = p.unidadesPrevistas * p.precoUnit * (p.taxaRecompra / 100);
+      const cur = map.get(p.categoria) || { receita: 0, unidades: 0 };
+      cur.receita += r; cur.unidades += p.unidadesPrevistas;
+      map.set(p.categoria, cur);
+    });
+    return Array.from(map.entries()).map(([cat, v]) => ({ cat, ...v })).sort((a, b) => b.receita - a.receita);
+  }, []);
+
+  const totalRecorrente = recorrentePorCat.reduce((s, c) => s + c.receita, 0);
+  const ativos = regras.filter((r) => r.ativo).length;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
+          <Settings2 className="size-4 text-primary" /> Automações por categoria de produto
+        </h2>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-muted-foreground">{ativos}/{regras.length} ativas · IA adapta ciclo por cliente</span>
+          <button onClick={resetar} className="text-[11px] font-semibold text-muted-foreground hover:text-foreground">Restaurar padrão</button>
+        </div>
+      </div>
+
+      {/* Faturamento recorrente previsto */}
+      <div className="card-soft p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Faturamento recorrente previsto</div>
+            <div className="text-2xl font-bold text-success mt-0.5">{brl(totalRecorrente)}</div>
+            <div className="text-[11px] text-muted-foreground">próximas 4 semanas · ponderado por taxa de recompra</div>
+          </div>
+          <BarChart3 className="size-8 text-success/40" />
+        </div>
+        <div className="space-y-1.5">
+          {recorrentePorCat.map((c) => {
+            const pct = totalRecorrente > 0 ? (c.receita / totalRecorrente) * 100 : 0;
+            return (
+              <div key={c.cat} className="grid grid-cols-[100px_1fr_90px] items-center gap-2">
+                <div className="text-[11px] font-semibold truncate">{c.cat}</div>
+                <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-success to-primary" style={{ width: `${pct}%` }} />
+                </div>
+                <div className="text-[11px] font-bold tabular-nums text-right">{brl(c.receita)}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Regras editáveis */}
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {regras.map((r) => {
+          const editando = editandoId === r.id;
+          return (
+            <div key={r.id} className={`card-soft p-4 space-y-2.5 transition ${r.ativo ? "" : "opacity-60"}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xl shrink-0">{r.emoji}</span>
+                  <div className="min-w-0">
+                    <div className="font-bold text-sm truncate">{r.categoria}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      ciclo base {r.cicloBaseDias}d · {r.diasAntes}d antes · {r.qtdMensagens} msg
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => update(r.id, { ativo: !r.ativo })}
+                  className={`relative w-10 h-5 rounded-full shrink-0 transition ${r.ativo ? "bg-success" : "bg-border"}`}
+                  title={r.ativo ? "Desativar" : "Ativar"}
+                >
+                  <span className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition ${r.ativo ? "left-5" : "left-0.5"}`} />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {r.aprendeIA && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border border-accent/30 bg-accent/10 text-accent">
+                    <Brain className="size-3" /> IA adapta
+                  </span>
+                )}
+                {r.perguntaConfirmacao && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border border-primary/30 bg-primary/10 text-primary">
+                    <MessageCircle className="size-3" /> Confirma uso
+                  </span>
+                )}
+              </div>
+
+              {!editando ? (
+                <>
+                  <div className="text-[11px] text-muted-foreground bg-secondary/50 rounded-md px-2.5 py-2 line-clamp-2">
+                    "{r.mensagem}"
+                  </div>
+                  <button
+                    onClick={() => setEditandoId(r.id)}
+                    className="w-full h-8 rounded-lg bg-secondary text-xs font-semibold hover:bg-secondary/70 inline-flex items-center justify-center gap-1.5"
+                  >
+                    <Settings2 className="size-3.5" /> Editar regra
+                  </button>
+                </>
+              ) : (
+                <div className="space-y-2 pt-1">
+                  <div className="grid grid-cols-3 gap-2">
+                    <NumInline label="Ciclo (d)"  value={r.cicloBaseDias} onChange={(v) => update(r.id, { cicloBaseDias: v })} />
+                    <NumInline label="D-antes"    value={r.diasAntes}     onChange={(v) => update(r.id, { diasAntes: v })} />
+                    <NumInline label="Nº msg"     value={r.qtdMensagens}  onChange={(v) => update(r.id, { qtdMensagens: v })} />
+                  </div>
+                  <textarea
+                    rows={3}
+                    value={r.mensagem}
+                    onChange={(e) => update(r.id, { mensagem: e.target.value })}
+                    placeholder="Use {nome} {pet} {dias}"
+                    className="w-full text-[11px] px-2.5 py-2 rounded-md bg-secondary outline-none focus:ring-2 ring-primary/30 resize-none"
+                  />
+                  {r.perguntaConfirmacao !== undefined && (
+                    <textarea
+                      rows={2}
+                      value={r.perguntaConfirmacao}
+                      onChange={(e) => update(r.id, { perguntaConfirmacao: e.target.value })}
+                      placeholder="Pergunta de confirmação pós-envio"
+                      className="w-full text-[11px] px-2.5 py-2 rounded-md bg-primary/5 border border-primary/20 outline-none focus:ring-2 ring-primary/30 resize-none"
+                    />
+                  )}
+                  <label className="flex items-center justify-between rounded-md bg-secondary/60 px-2.5 py-1.5 cursor-pointer">
+                    <span className="text-[11px] font-semibold flex items-center gap-1.5"><Brain className="size-3 text-accent" /> IA adapta ciclo por cliente</span>
+                    <input type="checkbox" checked={r.aprendeIA} onChange={(e) => update(r.id, { aprendeIA: e.target.checked })} className="size-3.5 accent-accent" />
+                  </label>
+                  <button
+                    onClick={() => setEditandoId(null)}
+                    className="w-full h-8 rounded-lg bg-foreground text-background text-xs font-semibold hover:opacity-90"
+                  >
+                    Salvar
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function NumInline({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <label className="rounded-md bg-secondary/60 px-2 py-1.5 block">
+      <div className="text-[9px] uppercase font-bold tracking-wide text-muted-foreground">{label}</div>
+      <input
+        type="number" min={0} max={365} value={value}
+        onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
+        className="w-full bg-transparent text-xs font-bold tabular-nums outline-none"
+      />
+    </label>
   );
 }

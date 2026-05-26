@@ -1,131 +1,103 @@
-import type { Produto } from "@/lib/mock";
-import { onCrmReload } from "@/lib/crm-refresh";
-import {
-  AlertTriangle,
-  TrendingUp,
-  Package,
-  Plus,
-  Boxes,
-  Handshake,
-  Pencil,
-  X,
-} from "lucide-react";
-import { useEffect, useState } from "react";
+import { produtos as seedProdutos, recomprasPrevistas, type Produto } from "@/lib/mock";
+import { AlertTriangle, TrendingUp, Package, Plus, Boxes, Handshake, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-type ProdutoForm = {
-  skuAtual?: string;
-  sku: string;
-  nome: string;
-  categoria: string;
-  estoque: string;
-  minimo: string;
-  giro: Produto["giro"];
-  preco: string;
-  precoCompra: string;
-  tipo: Produto["tipo"];
-  fornecedor: string;
-};
+type EditCell = { sku: string; field: "preco" | "precoCompra" } | null;
 
-function formFromProduto(produto?: Produto): ProdutoForm {
-  return {
-    skuAtual: produto?.sku,
-    sku: produto?.sku ?? "",
-    nome: produto?.nome ?? "",
-    categoria: produto?.categoria ?? "",
-    estoque: produto ? String(produto.estoque) : "0",
-    minimo: produto ? String(produto.minimo) : "0",
-    giro: produto?.giro ?? "baixo",
-    preco: produto ? String(produto.preco) : "",
-    precoCompra: produto ? String(produto.precoCompra) : "",
-    tipo: produto?.tipo ?? "próprio",
-    fornecedor: produto?.fornecedor ?? "",
-  };
+function calcMargem(p: Produto) {
+  const venda = p.preco;
+  if (venda <= 0) return { pct: 0, lucro: 0, tipoLabel: "—" };
+  if (p.tipo === "consignado") {
+    const comissao = p.precoCompra * 0.7;
+    const lucro = venda - comissao;
+    return { pct: (lucro / venda) * 100, lucro, tipoLabel: "Líq. consig." };
+  }
+  const lucro = venda - p.precoCompra;
+  return { pct: (lucro / venda) * 100, lucro, tipoLabel: "Bruta" };
 }
 
+function comportamentoCompra(produto: Produto) {
+  // Cruza categoria com clientes que recompram itens dessa categoria
+  const cat = produto.categoria.toLowerCase();
+  const matches = recomprasPrevistas.filter(r => r.racao.toLowerCase().includes(cat.slice(0, 4)) || produto.nome.split(" ").some(t => t.length > 3 && r.racao.toLowerCase().includes(t.toLowerCase())));
+  const count = new Set(matches.map(m => m.clienteId)).size;
+  if (count >= 3) return { label: "Alta demanda", tone: "bg-success/15 text-success", count };
+  if (count >= 1) return { label: "Média", tone: "bg-accent/15 text-accent", count };
+  return { label: "Baixa", tone: "bg-secondary text-muted-foreground", count };
+}
+
+const CATEGORIAS = ["Ração", "Higiene", "Petiscos", "Saúde", "Brinquedos", "Acessórios"];
+
 export function Estoque() {
-  const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [produtos, setProdutos] = useState<Produto[]>(seedProdutos);
   const [tipo, setTipo] = useState<"todos" | "próprio" | "consignado">("todos");
-  const [form, setForm] = useState<ProdutoForm | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [edit, setEdit] = useState<EditCell>(null);
+  const [draft, setDraft] = useState("");
+  const [showNovo, setShowNovo] = useState(false);
+
+  // novo produto
+  const [novo, setNovo] = useState({
+    sku: "", nome: "", categoria: "Ração", tipo: "próprio" as Produto["tipo"],
+    estoque: "", minimo: "", precoCompra: "", preco: "", fornecedor: "",
+  });
+
   useEffect(() => {
-    let ignore = false;
+    if (!showNovo) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setShowNovo(false); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [showNovo]);
 
-    async function carregarProdutos() {
-      try {
-        const response = await fetch("/api/crm/produtos", { cache: "no-store" });
+  const list = tipo === "todos" ? produtos : produtos.filter(p => p.tipo === tipo);
+  const criticos = list.filter(p => p.estoque < p.minimo);
 
-        if (!response.ok) return;
-
-        const data = (await response.json()) as Produto[];
-
-        if (!ignore && Array.isArray(data)) {
-          setProdutos(data);
-        }
-      } catch (error) {
-        console.error("Erro ao carregar produtos do Supabase:", error);
-      }
-    }
-
-    void carregarProdutos();
-    const offCrmReload = onCrmReload(() => void carregarProdutos());
-
-    return () => {
-      ignore = true;
-      offCrmReload();
-    };
-  }, []);
-
-  const list = tipo === "todos" ? produtos : produtos.filter((p) => p.tipo === tipo);
-  const criticos = list.filter((p) => p.estoque < p.minimo);
-
-  const valorProprio = produtos
-    .filter((p) => p.tipo === "próprio")
-    .reduce((s, p) => s + p.estoque * p.precoCompra, 0);
-  const valorConsig = produtos
-    .filter((p) => p.tipo === "consignado")
-    .reduce((s, p) => s + p.estoque * p.precoCompra, 0);
-  const margemMedia = produtos.length
-    ? (produtos.reduce((s, p) => s + (p.preco > 0 ? (p.preco - p.precoCompra) / p.preco : 0), 0) /
-        produtos.length) *
-      100
+  const valorProprio = produtos.filter(p=>p.tipo==="próprio").reduce((s,p)=>s+p.estoque*p.precoCompra,0);
+  const valorConsig = produtos.filter(p=>p.tipo==="consignado").reduce((s,p)=>s+p.estoque*p.precoCompra,0);
+  const margemMedia = produtos.length > 0
+    ? produtos.reduce((s, p) => s + calcMargem(p).pct, 0) / produtos.length
     : 0;
 
-  async function salvarProduto(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!form) return;
+  function startEdit(sku: string, field: "preco" | "precoCompra", val: number) {
+    setEdit({ sku, field });
+    setDraft(String(val));
+  }
+  function commitEdit() {
+    if (!edit) return;
+    const n = Number(draft);
+    if (isNaN(n) || n < 0) { setEdit(null); return; }
+    setProdutos(prev => prev.map(p => p.sku === edit.sku ? { ...p, [edit.field]: n } : p));
+    setEdit(null);
+  }
 
-    setSaving(true);
-    setError(null);
+  const novaMargem = useMemo(() => {
+    const venda = Number(novo.preco) || 0;
+    const compra = Number(novo.precoCompra) || 0;
+    if (venda <= 0) return null;
+    const lucro = novo.tipo === "consignado" ? venda - compra * 0.7 : venda - compra;
+    return { pct: (lucro / venda) * 100, lucro };
+  }, [novo.preco, novo.precoCompra, novo.tipo]);
 
-    try {
-      const response = await fetch("/api/crm/produtos", {
-        method: form.skuAtual ? "PATCH" : "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          estoque: Number(form.estoque),
-          minimo: Number(form.minimo),
-          preco: Number(form.preco.replace(",", ".")),
-          precoCompra: Number(form.precoCompra.replace(",", ".")),
-        }),
-      });
-      const payload = (await response.json()) as Produto & { erro?: string };
-      if (!response.ok) throw new Error(payload.erro ?? "Erro ao salvar produto");
-
-      setProdutos((current) =>
-        form.skuAtual
-          ? current.map((produto) => (produto.sku === form.skuAtual ? payload : produto))
-          : [...current, payload].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-      );
-      setForm(null);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Erro desconhecido");
-    } finally {
-      setSaving(false);
+  function salvarNovo() {
+    if (!novo.sku || !novo.nome || !novo.preco || !novo.precoCompra) {
+      toast.error("Preencha SKU, nome e preços");
+      return;
     }
+    if (produtos.some(p => p.sku === novo.sku)) {
+      toast.error("SKU já existe");
+      return;
+    }
+    setProdutos(prev => [...prev, {
+      sku: novo.sku, nome: novo.nome, categoria: novo.categoria, tipo: novo.tipo,
+      estoque: Number(novo.estoque) || 0, minimo: Number(novo.minimo) || 0,
+      preco: Number(novo.preco), precoCompra: Number(novo.precoCompra),
+      giro: "médio", fornecedor: novo.fornecedor || undefined,
+    }]);
+    toast.success("Produto adicionado ✅");
+    setNovo({ sku: "", nome: "", categoria: "Ração", tipo: "próprio", estoque: "", minimo: "", precoCompra: "", preco: "", fornecedor: "" });
+    setShowNovo(false);
   }
 
   return (
@@ -133,43 +105,18 @@ export function Estoque() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Estoque inteligente</h1>
-          <p className="text-sm text-muted-foreground">
-            Controle financeiro completo · próprio e consignado
-          </p>
+          <p className="text-sm text-muted-foreground">Controle financeiro completo · próprio e consignado · edição inline</p>
         </div>
-        <button
-          onClick={() => setForm(formFromProduto())}
-          className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2"
-        >
+        <button onClick={()=>setShowNovo(true)} className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
           <Plus className="size-4" /> Novo produto
         </button>
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card
-          icon={<Package className="size-4" />}
-          label="SKUs ativos"
-          value={String(produtos.length)}
-          tone="primary"
-        />
-        <Card
-          icon={<Boxes className="size-4" />}
-          label="Estoque próprio"
-          value={brl(valorProprio)}
-          tone="primary"
-        />
-        <Card
-          icon={<Handshake className="size-4" />}
-          label="Consignado"
-          value={brl(valorConsig)}
-          tone="accent"
-        />
-        <Card
-          icon={<TrendingUp className="size-4" />}
-          label="Margem média"
-          value={`${margemMedia.toFixed(0)}%`}
-          tone="success"
-        />
+        <KCard icon={<Package className="size-4" />} label="SKUs ativos" value={String(produtos.length)} tone="primary" />
+        <KCard icon={<Boxes className="size-4" />} label="Estoque próprio" value={brl(valorProprio)} tone="primary" />
+        <KCard icon={<Handshake className="size-4" />} label="Consignado" value={brl(valorConsig)} tone="accent" />
+        <KCard icon={<TrendingUp className="size-4" />} label="Margem média" value={`${margemMedia.toFixed(0)}%`} tone="success" />
       </div>
 
       {criticos.length > 0 && (
@@ -177,32 +124,17 @@ export function Estoque() {
           <div className="flex items-start gap-3">
             <AlertTriangle className="size-5 text-destructive shrink-0 mt-0.5" />
             <div className="flex-1">
-              <h3 className="font-semibold">
-                Atenção · {criticos.length} produtos abaixo do mínimo
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                A IA recomenda repor os itens abaixo nas próximas 48h.
-              </p>
+              <h3 className="font-semibold">Atenção · {criticos.length} produtos abaixo do mínimo</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">A IA recomenda repor os itens abaixo nas próximas 48h.</p>
             </div>
-            <a
-              href="/pedidos"
-              className="h-9 px-4 rounded-lg bg-destructive text-destructive-foreground text-xs font-bold inline-flex items-center"
-            >
-              Abrir pedidos
-            </a>
+            <button className="h-9 px-4 rounded-lg bg-destructive text-destructive-foreground text-xs font-bold">Gerar pedido</button>
           </div>
         </div>
       )}
 
       <div className="card-soft p-3 flex flex-wrap gap-2">
-        {(["todos", "próprio", "consignado"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTipo(t)}
-            className={`h-9 px-4 rounded-lg text-xs font-semibold capitalize ${tipo === t ? "bg-foreground text-background" : "bg-secondary hover:bg-secondary/70"}`}
-          >
-            {t === "todos" ? "Todos" : t === "próprio" ? "Estoque próprio" : "Consignado"}
-          </button>
+        {(["todos","próprio","consignado"] as const).map(t => (
+          <button key={t} onClick={()=>setTipo(t)} className={`h-9 px-4 rounded-lg text-xs font-semibold capitalize ${tipo===t?"bg-foreground text-background":"bg-secondary hover:bg-secondary/70"}`}>{t === "todos" ? "Todos" : t === "próprio" ? "Estoque próprio" : "Consignado"}</button>
         ))}
       </div>
 
@@ -217,76 +149,70 @@ export function Estoque() {
                 <th className="font-medium px-4 py-3 text-right hidden md:table-cell">Custo</th>
                 <th className="font-medium px-4 py-3 text-right">Venda</th>
                 <th className="font-medium px-4 py-3 text-right">Margem</th>
+                <th className="font-medium px-4 py-3 hidden xl:table-cell">Tipo margem</th>
                 <th className="font-medium px-4 py-3 text-right hidden md:table-cell">Lucro un.</th>
-                <th className="font-medium px-4 py-3 text-right">Acao</th>
+                <th className="font-medium px-4 py-3 hidden lg:table-cell">Demanda</th>
               </tr>
             </thead>
             <tbody>
               {list.map((p) => {
                 const critico = p.estoque < p.minimo;
-                const lucro = p.preco - p.precoCompra;
-                const margem = (lucro / p.preco) * 100;
-                const semMargem = margem < 20;
+                const m = calcMargem(p);
+                const semMargem = m.pct < 20;
+                const negativa = m.pct < 0;
+                const comp = comportamentoCompra(p);
                 return (
                   <tr key={p.sku} className="border-t border-border hover:bg-secondary/30">
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        {p.imagem ? (
-                          <img
-                            src={p.imagem}
-                            alt={p.nome}
-                            className="size-10 rounded-md object-cover border border-border shrink-0"
-                          />
-                        ) : (
-                          <div className="size-10 rounded-md bg-secondary border border-border grid place-items-center shrink-0">
-                            <Package className="size-5 text-muted-foreground" />
-                          </div>
-                        )}
-                        <div>
-                          <div className="font-semibold">{p.nome}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {p.categoria} · {p.sku}
-                            {p.fornecedor ? ` · ${p.fornecedor}` : ""}
-                          </div>
-                        </div>
-                      </div>
+                      <div className="font-semibold">{p.nome}</div>
+                      <div className="text-xs text-muted-foreground">{p.categoria} · {p.sku}{p.fornecedor?` · ${p.fornecedor}`:""}</div>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
-                      <span
-                        className={`text-[10px] font-bold px-2 py-1 rounded-md capitalize ${p.tipo === "próprio" ? "bg-primary/15 text-primary" : "bg-accent/15 text-accent"}`}
-                      >
-                        {p.tipo}
-                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-md capitalize ${p.tipo==="próprio"?"bg-primary/15 text-primary":"bg-accent/15 text-accent"}`}>{p.tipo}</span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`font-bold ${critico ? "text-destructive" : ""}`}>
-                        {p.estoque}
-                      </span>
+                      <span className={`font-bold ${critico ? "text-destructive" : ""}`}>{p.estoque}</span>
                       <span className="text-muted-foreground text-xs">/{p.minimo}</span>
-                      {critico && (
-                        <div className="text-[9px] font-semibold text-destructive mt-0.5">
-                          CRÍTICO
-                        </div>
+                      {critico && <div className="text-[9px] font-semibold text-destructive mt-0.5">CRÍTICO</div>}
+                    </td>
+                    <td className="px-4 py-3 text-right hidden md:table-cell">
+                      {edit?.sku === p.sku && edit.field === "precoCompra" ? (
+                        <input
+                          autoFocus type="number" step="0.01" value={draft}
+                          onChange={e=>setDraft(e.target.value)}
+                          onBlur={commitEdit}
+                          onKeyDown={e=>{ if (e.key==="Enter") commitEdit(); if (e.key==="Escape") setEdit(null); }}
+                          className="w-24 h-8 px-2 text-right rounded bg-secondary outline-none focus:ring-2 ring-primary/30"
+                        />
+                      ) : (
+                        <button onClick={()=>startEdit(p.sku, "precoCompra", p.precoCompra)} className="text-muted-foreground hover:text-foreground hover:underline">{brl(p.precoCompra)}</button>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right hidden md:table-cell text-muted-foreground">
-                      {brl(p.precoCompra)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold">{brl(p.preco)}</td>
-                    <td
-                      className={`px-4 py-3 text-right font-bold ${semMargem ? "text-destructive" : "text-success"}`}
-                    >
-                      {margem.toFixed(0)}%
-                    </td>
-                    <td className="px-4 py-3 text-right hidden md:table-cell">{brl(lucro)}</td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => setForm(formFromProduto(p))}
-                        title="Editar produto"
-                        className="p-2 rounded-lg hover:bg-secondary text-muted-foreground"
-                      >
-                        <Pencil className="size-4" />
-                      </button>
+                      {edit?.sku === p.sku && edit.field === "preco" ? (
+                        <input
+                          autoFocus type="number" step="0.01" value={draft}
+                          onChange={e=>setDraft(e.target.value)}
+                          onBlur={commitEdit}
+                          onKeyDown={e=>{ if (e.key==="Enter") commitEdit(); if (e.key==="Escape") setEdit(null); }}
+                          className="w-24 h-8 px-2 text-right rounded bg-secondary outline-none focus:ring-2 ring-primary/30"
+                        />
+                      ) : (
+                        <button onClick={()=>startEdit(p.sku, "preco", p.preco)} className="font-semibold hover:text-primary hover:underline">{brl(p.preco)}</button>
+                      )}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-bold ${negativa ? "text-destructive" : semMargem ? "text-destructive" : "text-success"}`}>
+                      {m.pct.toFixed(0)}%
+                      {negativa && <div className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-destructive text-destructive-foreground inline-block ml-1">ATENÇÃO</div>}
+                    </td>
+                    <td className="px-4 py-3 hidden xl:table-cell">
+                      <span className="text-[10px] font-semibold text-muted-foreground">{m.tipoLabel}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right hidden md:table-cell">{brl(m.lucro)}</td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <span title={`${comp.count} clientes compram regularmente`} className={`text-[10px] font-bold px-2 py-1 rounded-md ${comp.tone}`}>
+                        {comp.label}
+                      </span>
                     </td>
                   </tr>
                 );
@@ -296,199 +222,63 @@ export function Estoque() {
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
-      {form && (
-        <div
-          className="fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
-          onClick={() => setForm(null)}
-        >
-          <form
-            onSubmit={(event) => void salvarProduto(event)}
-            onClick={(event) => event.stopPropagation()}
-            className="w-full md:max-w-2xl bg-card md:rounded-2xl rounded-t-3xl shadow-2xl overflow-hidden"
-          >
-            <div className="p-5 border-b border-border flex items-center justify-between gap-3">
-              <div>
-                <h2 className="font-bold">{form.skuAtual ? "Editar produto" : "Novo produto"}</h2>
-                <p className="text-xs text-muted-foreground">
-                  Catalogo usado pelo estoque e pela IA.
-                </p>
+      {showNovo && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50" onClick={()=>setShowNovo(false)}>
+          <div className="card-soft p-5 w-full max-w-lg space-y-4 max-h-[92vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-start justify-between">
+              <h3 className="font-semibold inline-flex items-center gap-2"><Plus className="size-4 text-primary" /> Novo produto</h3>
+              <button onClick={()=>setShowNovo(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="size-4" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="SKU"><input value={novo.sku} onChange={e=>setNovo(s=>({...s, sku: e.target.value.toUpperCase()}))} placeholder="RAC-XXX-00" className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Categoria">
+                <select value={novo.categoria} onChange={e=>setNovo(s=>({...s, categoria: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30">
+                  {CATEGORIAS.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </Field>
+              <Field label="Nome" full><input value={novo.nome} onChange={e=>setNovo(s=>({...s, nome: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Tipo">
+                <select value={novo.tipo} onChange={e=>setNovo(s=>({...s, tipo: e.target.value as Produto["tipo"]}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30">
+                  <option value="próprio">Próprio</option>
+                  <option value="consignado">Consignado</option>
+                </select>
+              </Field>
+              <Field label="Fornecedor (opcional)"><input value={novo.fornecedor} onChange={e=>setNovo(s=>({...s, fornecedor: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Estoque atual"><input type="number" value={novo.estoque} onChange={e=>setNovo(s=>({...s, estoque: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Estoque mínimo"><input type="number" value={novo.minimo} onChange={e=>setNovo(s=>({...s, minimo: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Preço de compra"><input type="number" step="0.01" value={novo.precoCompra} onChange={e=>setNovo(s=>({...s, precoCompra: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Preço de venda"><input type="number" step="0.01" value={novo.preco} onChange={e=>setNovo(s=>({...s, preco: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+            </div>
+            {novaMargem && (
+              <div className={`rounded-xl p-3 ${novaMargem.pct < 0 ? "bg-destructive/10" : novaMargem.pct < 20 ? "bg-accent/10" : "bg-success/10"}`}>
+                <div className="text-xs text-muted-foreground">Margem prevista ({novo.tipo === "consignado" ? "líquida consignado" : "bruta"})</div>
+                <div className={`text-2xl font-bold tabular-nums ${novaMargem.pct < 0 ? "text-destructive" : novaMargem.pct < 20 ? "text-accent" : "text-success"}`}>
+                  {novaMargem.pct.toFixed(1)}% · {brl(novaMargem.lucro)}/un.
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setForm(null)}
-                className="p-2 rounded-lg hover:bg-secondary"
-              >
-                <X className="size-4" />
-              </button>
+            )}
+            <div className="flex gap-2">
+              <button onClick={()=>setShowNovo(false)} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold">Cancelar</button>
+              <button onClick={salvarNovo} className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold">Adicionar</button>
             </div>
-            <div className="p-5 grid md:grid-cols-3 gap-3">
-              <ProdutoField
-                label="SKU"
-                value={form.sku}
-                onChange={(sku) => setForm({ ...form, sku })}
-                required
-                disabled={Boolean(form.skuAtual)}
-              />
-              <ProdutoField
-                label="Nome"
-                value={form.nome}
-                onChange={(nome) => setForm({ ...form, nome })}
-                required
-                span
-              />
-              <ProdutoField
-                label="Categoria"
-                value={form.categoria}
-                onChange={(categoria) => setForm({ ...form, categoria })}
-                required
-              />
-              <ProdutoField
-                label="Fornecedor"
-                value={form.fornecedor}
-                onChange={(fornecedor) => setForm({ ...form, fornecedor })}
-              />
-              <ProdutoField
-                label="Estoque"
-                value={form.estoque}
-                onChange={(estoque) => setForm({ ...form, estoque })}
-                required
-              />
-              <ProdutoField
-                label="Minimo"
-                value={form.minimo}
-                onChange={(minimo) => setForm({ ...form, minimo })}
-                required
-              />
-              <ProdutoField
-                label="Preco venda"
-                value={form.preco}
-                onChange={(preco) => setForm({ ...form, preco })}
-                required
-              />
-              <ProdutoField
-                label="Preco compra"
-                value={form.precoCompra}
-                onChange={(precoCompra) => setForm({ ...form, precoCompra })}
-                required
-              />
-              <ProdutoSelect
-                label="Giro"
-                value={form.giro}
-                options={["alto", "médio", "baixo"]}
-                onChange={(giro) => setForm({ ...form, giro: giro as Produto["giro"] })}
-              />
-              <ProdutoSelect
-                label="Tipo"
-                value={form.tipo}
-                options={["próprio", "consignado"]}
-                onChange={(tipoProduto) =>
-                  setForm({ ...form, tipo: tipoProduto as Produto["tipo"] })
-                }
-              />
-            </div>
-            <div className="p-4 border-t border-border flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setForm(null)}
-                className="h-10 px-4 rounded-xl bg-secondary text-sm font-semibold"
-              >
-                Cancelar
-              </button>
-              <button
-                disabled={saving}
-                className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold disabled:opacity-50"
-              >
-                {saving ? "Salvando" : "Salvar produto"}
-              </button>
-            </div>
-          </form>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function ProdutoField({
-  label,
-  value,
-  onChange,
-  required,
-  disabled,
-  span,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  required?: boolean;
-  disabled?: boolean;
-  span?: boolean;
-}) {
+function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
   return (
-    <label
-      className={`grid gap-1 text-xs font-semibold text-muted-foreground ${span ? "md:col-span-2" : ""}`}
-    >
-      {label}
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        required={required}
-        disabled={disabled}
-        className="h-10 rounded-lg bg-secondary px-3 text-sm text-foreground outline-none disabled:opacity-60"
-      />
+    <label className={`block ${full ? "col-span-2" : ""}`}>
+      <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-1 block">{label}</span>
+      {children}
     </label>
   );
 }
 
-function ProdutoSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="grid gap-1 text-xs font-semibold text-muted-foreground">
-      {label}
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-10 rounded-lg bg-secondary px-3 text-sm text-foreground outline-none"
-      >
-        {options.map((option) => (
-          <option key={option}>{option}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function Card({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  tone: "primary" | "destructive" | "success" | "accent";
-}) {
-  const cls = {
-    primary: "bg-primary/15 text-primary",
-    destructive: "bg-destructive/10 text-destructive",
-    success: "bg-success/15 text-success",
-    accent: "bg-accent/15 text-accent",
-  }[tone];
+function KCard({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: "primary"|"destructive"|"success"|"accent" }) {
+  const cls = { primary: "bg-primary/15 text-primary", destructive: "bg-destructive/10 text-destructive", success: "bg-success/15 text-success", accent: "bg-accent/15 text-accent" }[tone];
   return (
     <div className="card-soft p-4 flex items-center gap-4">
       <div className={`size-11 rounded-xl grid place-items-center ${cls}`}>{icon}</div>

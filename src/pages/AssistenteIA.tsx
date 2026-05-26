@@ -1,384 +1,136 @@
-import type { DashboardData } from "@/lib/crm-supabase";
-import { onCrmReload } from "@/lib/crm-refresh";
-import {
-  AlertTriangle,
-  Bot,
-  CheckCircle2,
-  LineChart,
-  Loader2,
-  Send,
-  Sparkles,
-  User,
-  Wallet,
-  Zap,
-} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Sparkles, Send, Bot, User, AlertTriangle, TrendingUp, Zap, CheckCircle2, XCircle, ArrowRight } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { gerarInsights, responderPergunta } from "@/features/ia-consultor/insights";
+import { useAlertas, ALERTA_META } from "@/features/alertas/store";
 
-type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-  actions?: string[];
-};
+type Msg = { role: "user" | "ai"; content: string };
 
-type AssistenteResponse = {
-  ok: boolean;
-  resposta?: string;
-  erro?: string;
-  acoesExecutadas?: string[];
-  metricas?: DashboardData["kpis"];
-};
-
-const brl = (value: number) =>
-  value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
-const sugestoes = [
-  "Me resume o que precisa de atencao hoje",
-  "Como esta o faturamento da semana?",
-  "Quais clientes ou conversas devo priorizar?",
-  "Desativar IA geral do CRM",
-  "Ativar IA geral do CRM",
+const SUGESTOES = [
+  "Quem está em risco de churn?",
+  "Sugira campanha Golden",
+  "Cupons abaixo da média",
+  "Pets com vermífugo vencendo",
+  "Sugestões de upsell",
+  "Clientes inativos +60 dias",
 ];
 
 export function AssistenteIA() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      content:
-        "Oi. Sou seu assistente de gestao do CRM. Posso resumir metricas, apontar prioridades e executar acoes seguras, como ligar ou desligar a IA geral.",
-    },
+  const [messages, setMessages] = useState<Msg[]>([
+    { role: "ai", content: "Olá! Sou seu consultor operacional. Já analisei o CRM — veja os insights na lateral ou me pergunte algo." },
   ]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const insights = useMemo(() => gerarInsights(), []);
+  const { ativos: alertasAtivos, resolver, descartar } = useAlertas();
 
-  useEffect(() => {
-    let ignore = false;
-
-    async function carregarResumo() {
-      try {
-        const response = await fetch("/api/crm/dashboard", { cache: "no-store" });
-        if (!response.ok) return;
-
-        const data = (await response.json()) as DashboardData;
-        if (!ignore) setDashboard(data);
-      } catch (error) {
-        console.error("Erro ao carregar metricas do assistente:", error);
-      }
-    }
-
-    void carregarResumo();
-    const offCrmReload = onCrmReload(() => void carregarResumo());
-
-    return () => {
-      ignore = true;
-      offCrmReload();
-    };
-  }, []);
-
-  const metricas = useMemo(() => dashboard?.kpis ?? null, [dashboard]);
-
-  async function send(text: string) {
-    const prompt = text.trim();
-    if (!prompt || loading) return;
-
-    const userMessage: ChatMessage = { role: "user", content: prompt };
-    const nextMessages = [...messages, userMessage];
-
-    setMessages(nextMessages);
+  function send(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    const reply = responderPergunta(t);
+    setMessages((m) => [...m, { role: "user", content: t }, { role: "ai", content: reply }]);
     setInput("");
-    setLoading(true);
-
-    try {
-      const response = await fetch("/api/crm/assistente", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: prompt, messages }),
-      });
-      const data = (await response.json()) as AssistenteResponse;
-
-      if (!response.ok || !data.ok) {
-        throw new Error(data.erro ?? "Erro ao falar com o assistente");
-      }
-
-      setMessages((current) => [
-        ...current,
-        {
-          role: "assistant",
-          content: data.resposta ?? "Nao consegui montar uma resposta agora.",
-          actions: data.acoesExecutadas ?? [],
-        },
-      ]);
-
-      if (data.metricas && dashboard) {
-        setDashboard({ ...dashboard, kpis: data.metricas });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro ao falar com o assistente";
-      setMessages((current) => [
-        ...current,
-        {
-          role: "assistant",
-          content: `Nao consegui concluir agora: ${message}`,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
+    <div className="h-[calc(100vh-8rem)] grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
       <div className="card-soft flex flex-col overflow-hidden">
         <div className="p-4 border-b border-border flex items-center gap-3">
           <div className="size-10 rounded-xl bg-gradient-to-br from-primary to-accent grid place-items-center text-primary-foreground">
             <Sparkles className="size-5" />
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold">Assistente IA do CRM</div>
-            <div className="text-xs text-muted-foreground">
-              Analisa metricas, prioriza tarefas e executa acoes seguras
-            </div>
+          <div className="flex-1">
+            <div className="font-semibold">Consultor IA · Mundo Pet</div>
+            <div className="text-xs text-muted-foreground">Análise contínua de funil, cupons, churn e recompra</div>
           </div>
-          <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-success/15 text-success">
-            OPERACIONAL
-          </span>
+          <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-success/15 text-success">CONECTADO AO CRM</span>
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-3 bg-secondary/30">
-          {messages.map((message, index) => (
-            <Bubble key={index} message={message} onSuggest={send} />
-          ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="rounded-2xl rounded-bl-md bg-card border border-border px-4 py-3 text-sm inline-flex items-center gap-2">
-                <Loader2 className="size-4 animate-spin text-primary" />
-                Analisando o CRM...
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="p-3 border-t border-border space-y-2">
-          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
-            {sugestoes.map((sugestao) => (
-              <button
-                key={sugestao}
-                onClick={() => void send(sugestao)}
-                disabled={loading}
-                className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-secondary hover:bg-primary/10 disabled:opacity-50 transition"
-              >
-                {sugestao}
-              </button>
+          {messages.map((m, i) => <Bubble key={i} m={m} />)}
+          <div className="flex flex-wrap gap-1.5 pt-2">
+            {SUGESTOES.map((s) => (
+              <button key={s} onClick={() => send(s)} className="text-[11px] px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary transition">{s}</button>
             ))}
           </div>
-          <div className="flex items-end gap-2">
-            <textarea
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void send(input);
-                }
-              }}
-              placeholder="Pergunte sobre vendas, lucro, estoque, clientes ou peca uma acao..."
-              rows={1}
-              className="flex-1 resize-none px-4 py-2.5 rounded-xl bg-secondary outline-none text-sm focus:bg-card focus:border-primary border border-transparent"
-            />
-            <button
-              onClick={() => void send(input)}
-              disabled={loading || !input.trim()}
-              className="p-3 rounded-xl bg-foreground text-background hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Enviar"
-            >
-              {loading ? <Loader2 className="size-5 animate-spin" /> : <Send className="size-5" />}
-            </button>
-          </div>
+        </div>
+
+        <div className="p-3 border-t border-border flex items-end gap-2">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
+            placeholder="Pergunte sobre clientes, cupons, ticket, marcas..."
+            rows={1}
+            className="flex-1 resize-none px-4 py-2.5 rounded-xl bg-secondary outline-none text-sm focus:bg-card focus:border-primary border border-transparent"
+          />
+          <button onClick={() => send(input)} className="p-3 rounded-xl bg-foreground text-background hover:opacity-90"><Send className="size-5" /></button>
         </div>
       </div>
 
-      <aside className="space-y-4 overflow-y-auto scrollbar-thin">
+      <div className="space-y-4 overflow-y-auto scrollbar-thin">
         <div className="card-soft p-4">
-          <h3 className="font-semibold text-sm flex items-center gap-2">
-            <LineChart className="size-4 text-primary" /> Painel que a IA esta lendo
-          </h3>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <MetricCard
-              icon={<Wallet className="size-4" />}
-              label="Hoje"
-              value={brl(metricas?.faturamentoHoje ?? 0)}
-            />
-            <MetricCard
-              icon={<Wallet className="size-4" />}
-              label="Semana"
-              value={brl(metricas?.faturamentoSemana ?? 0)}
-            />
-            <MetricCard
-              icon={<CheckCircle2 className="size-4" />}
-              label="Pedidos hoje"
-              value={String(metricas?.pedidosHoje ?? 0)}
-            />
-            <MetricCard
-              icon={<AlertTriangle className="size-4" />}
-              label="Estoque critico"
-              value={String(metricas?.estoqueCritico ?? 0)}
-            />
-          </div>
-        </div>
-
-        <div className="card-soft p-4">
-          <h3 className="font-semibold text-sm flex items-center gap-2">
-            <Zap className="size-4 text-accent" /> O que ele pode fazer agora
-          </h3>
-          <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-            <Capability text="Resumir faturamento, lucro, ticket medio e pedidos." />
-            <Capability text="Apontar clientes em risco, estoque critico e conversas pendentes." />
-            <Capability text="Sugerir proximas acoes comerciais para o administrador." />
-            <Capability text="Ativar ou desativar a IA geral do CRM quando solicitado." />
-          </div>
-        </div>
-
-        <div className="card-soft p-4">
-          <h3 className="font-semibold text-sm flex items-center gap-2">
-            <AlertTriangle className="size-4 text-accent" /> Alertas atuais
-          </h3>
+          <h3 className="font-semibold text-sm flex items-center gap-2"><Zap className="size-4 text-accent" /> Insights do CRM</h3>
           <div className="mt-3 space-y-2">
-            <AlertCard
-              active={(metricas?.estoqueCritico ?? 0) > 0}
-              text={`${metricas?.estoqueCritico ?? 0} produto(s) abaixo do minimo.`}
-            />
-            <AlertCard
-              active={(metricas?.clientesRisco ?? 0) > 0}
-              text={`${metricas?.clientesRisco ?? 0} cliente(s) marcados como risco.`}
-            />
-            <AlertCard
-              active={(dashboard?.conversas ?? []).some((conversa) => conversa.naoLidas > 0)}
-              text="Ha conversas recentes aguardando atencao."
-            />
+            {insights.map((i) => {
+              const tone = i.severidade === "critico" ? "border-destructive/30 bg-destructive/5" : i.severidade === "alerta" ? "border-accent/30 bg-accent/5" : "border-primary/20 bg-primary/5";
+              const Icon = i.severidade === "critico" ? AlertTriangle : i.severidade === "alerta" ? TrendingUp : Sparkles;
+              const iconColor = i.severidade === "critico" ? "text-destructive" : i.severidade === "alerta" ? "text-accent" : "text-primary";
+              return (
+                <div key={i.id} className={`p-3 rounded-xl border ${tone}`}>
+                  <div className="flex items-center gap-2 text-xs font-semibold"><Icon className={`size-3.5 ${iconColor}`} /> {i.titulo}</div>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{i.descricao}</p>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold text-foreground/80 truncate">→ {i.acao}</span>
+                    {i.rota && (
+                      <Link to={i.rota} className="text-[10px] font-bold text-primary hover:underline inline-flex items-center gap-0.5">
+                        Aplicar <ArrowRight className="size-3" />
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </aside>
+
+        <div className="card-soft p-4">
+          <h3 className="font-semibold text-sm flex items-center gap-2"><AlertTriangle className="size-4 text-accent" /> Alertas ativos ({alertasAtivos.length})</h3>
+          <div className="mt-3 space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin">
+            {alertasAtivos.length === 0 && <p className="text-xs text-muted-foreground">Nenhum alerta ativo 🎉</p>}
+            {alertasAtivos.map((a) => {
+              const meta = ALERTA_META[a.tipo];
+              return (
+                <div key={a.id} className={`p-2.5 rounded-lg border ${meta.tone}`}>
+                  <div className="flex items-start gap-2">
+                    <Link to={a.rota} className="flex-1 min-w-0">
+                      <div className="text-[10px] uppercase font-bold opacity-70">{meta.label}</div>
+                      <div className="text-xs font-semibold mt-0.5 truncate text-foreground">{a.titulo}</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{a.mensagem}</div>
+                    </Link>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button onClick={() => resolver(a.id)} title="Resolver" className="p-1 rounded hover:bg-success/15 text-success"><CheckCircle2 className="size-3.5" /></button>
+                      <button onClick={() => descartar(a.id)} title="Descartar" className="p-1 rounded hover:bg-destructive/15 text-destructive"><XCircle className="size-3.5" /></button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function Bubble({
-  message,
-  onSuggest,
-}: {
-  message: ChatMessage;
-  onSuggest: (text: string) => void;
-}) {
-  const me = message.role === "user";
-
+function Bubble({ m }: { m: Msg }) {
+  const me = m.role === "user";
   return (
     <div className={`flex ${me ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm ${
-          me
-            ? "bg-foreground text-background rounded-br-md"
-            : "bg-card border border-border rounded-bl-md"
-        }`}
-      >
+      <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${me ? "bg-foreground text-background rounded-br-md" : "bg-card border border-border rounded-bl-md"}`}>
         <div className="flex items-center gap-1 text-[10px] opacity-80 mb-1.5">
-          {me ? (
-            <>
-              <User className="size-3" /> Admin
-            </>
-          ) : (
-            <>
-              <Bot className="size-3" /> Assistente do CRM
-            </>
-          )}
+          {me ? <><User className="size-3" /> Você</> : <><Bot className="size-3" /> Consultor IA</>}
         </div>
-        <div className="whitespace-pre-wrap leading-relaxed">
-          <MessageContent content={message.content} />
-        </div>
-        {message.actions && message.actions.length > 0 && (
-          <div className="mt-3 space-y-1">
-            {message.actions.map((action) => (
-              <div
-                key={action}
-                className="text-[11px] rounded-lg bg-success/10 text-success px-2.5 py-1 inline-flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="size-3" /> {action}
-              </div>
-            ))}
-          </div>
-        )}
-        {!me && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {["O que eu faco agora?", "Detalhe os alertas", "Monte um plano de acao"].map(
-              (suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => onSuggest(suggestion)}
-                  className="text-[11px] px-2.5 py-1 rounded-lg bg-secondary hover:bg-primary/15 transition"
-                >
-                  {suggestion}
-                </button>
-              ),
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MessageContent({ content }: { content: string }) {
-  return content.split(/(\*\*.+?\*\*)/g).map((part, index) => {
-    const destaque = part.match(/^\*\*(.+)\*\*$/s)?.[1];
-
-    return destaque ? <b key={index}>{destaque}</b> : <span key={index}>{part}</span>;
-  });
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-xl bg-secondary/70 p-3">
-      <div className="text-muted-foreground">{icon}</div>
-      <div className="mt-2 text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-0.5 text-sm font-bold truncate">{value}</div>
-    </div>
-  );
-}
-
-function Capability({ text }: { text: string }) {
-  return (
-    <div className="flex gap-2">
-      <CheckCircle2 className="size-3.5 text-success shrink-0 mt-0.5" />
-      <span>{text}</span>
-    </div>
-  );
-}
-
-function AlertCard({ active, text }: { active: boolean; text: string }) {
-  return (
-    <div
-      className={`p-3 rounded-xl border text-xs ${
-        active
-          ? "border-accent/30 bg-accent/5 text-foreground"
-          : "border-success/30 bg-success/5 text-muted-foreground"
-      }`}
-    >
-      <div className="flex items-center gap-2 font-semibold">
-        {active ? (
-          <AlertTriangle className="size-3.5 text-accent" />
-        ) : (
-          <CheckCircle2 className="size-3.5 text-success" />
-        )}
-        {text}
+        <div className="whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: m.content.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>") }} />
       </div>
     </div>
   );

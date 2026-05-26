@@ -1,27 +1,9 @@
 import { Link, Outlet, useLocation, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  LayoutDashboard,
-  MessageCircle,
-  Users,
-  ShoppingBag,
-  Store,
-  Truck,
-  Boxes,
-  Wallet,
-  Megaphone,
-  PawPrint,
-  Search,
-  Bell,
-  Menu,
-  X,
-  Sparkles,
-  PackageSearch,
-  ArrowRightLeft,
-  Gift,
-  Moon,
-  RefreshCw,
-  Sun,
+  LayoutDashboard, MessageCircle, Users, ShoppingBag, Store, Truck,
+  Boxes, Wallet, Megaphone, Zap, PawPrint, Search, Bell, Menu, X,
+  Sparkles, PackageSearch, ArrowRightLeft, Gift, Ticket, RefreshCw, Moon, Sun
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -29,18 +11,20 @@ import { dispatchCrmReload } from "@/lib/crm-refresh";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/conversas", label: "WhatsApp IA", icon: MessageCircle },
+  { to: "/conversas", label: "WhatsApp IA", icon: MessageCircle, badge: 6 },
   { to: "/assistente", label: "Assistente IA", icon: Sparkles },
   { to: "/clientes", label: "Clientes", icon: Users },
   { to: "/indicacoes", label: "Indicações", icon: Gift },
-  { to: "/recompra-prevista", label: "Recompra Prevista", icon: ArrowRightLeft },
-  { to: "/pedidos", label: "Pedidos", icon: ShoppingBag },
+  { to: "/recompra-prevista", label: "Recompra Prevista", icon: ArrowRightLeft, badge: 4 },
+  { to: "/pedidos", label: "Pedidos", icon: ShoppingBag, badge: 3 },
   { to: "/pdv", label: "PDV", icon: Store },
   { to: "/entregas", label: "Entregas", icon: Truck },
   { to: "/estoque", label: "Estoque", icon: Boxes },
-  { to: "/produtos-procurados", label: "Procurados", icon: PackageSearch },
+  { to: "/produtos-procurados", label: "Procurados", icon: PackageSearch, badge: 6 },
   { to: "/financeiro", label: "Financeiro", icon: Wallet },
   { to: "/campanhas", label: "Campanhas", icon: Megaphone },
+  { to: "/cupons", label: "Cupons", icon: Ticket },
+  { to: "/automacoes", label: "Automações", icon: Zap },
 ] as const;
 
 export function AppShell() {
@@ -109,10 +93,7 @@ export function AppShell() {
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Topbar */}
         <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur border-b border-border flex items-center gap-3 px-4 lg:px-8">
-          <button
-            className="lg:hidden p-2 rounded-lg hover:bg-secondary"
-            onClick={() => setOpen(true)}
-          >
+          <button className="lg:hidden p-2 rounded-lg hover:bg-secondary" onClick={() => setOpen(true)}>
             <Menu className="size-5" />
           </button>
           <div className="flex-1 max-w-xl relative hidden sm:block">
@@ -147,9 +128,7 @@ export function AppShell() {
               <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-accent" />
             </button>
             <div className="hidden sm:flex items-center gap-2.5 pl-3 pr-1.5 py-1.5 rounded-xl bg-secondary">
-              <div className="size-7 rounded-lg bg-primary/20 grid place-items-center text-primary font-semibold text-xs">
-                MP
-              </div>
+              <div className="size-7 rounded-lg bg-primary/20 grid place-items-center text-primary font-semibold text-xs">MP</div>
               <div className="text-xs leading-tight">
                 <div className="font-semibold">Mundo Pet</div>
                 <div className="text-muted-foreground">Loja Vila Mariana</div>
@@ -195,11 +174,16 @@ function NavList({ currentPath, onNavigate }: { currentPath: string; onNavigate?
               "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition",
               active
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
             )}
           >
             <Icon className={cn("size-[18px]", active && "text-primary")} />
             <span className="flex-1">{item.label}</span>
+            {"badge" in item && item.badge ? (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-accent text-accent-foreground">
+                {item.badge}
+              </span>
+            ) : null}
           </Link>
         );
       })}
@@ -212,7 +196,7 @@ function UserCard() {
     <div className="m-3 p-4 rounded-2xl bg-gradient-to-br from-primary/15 to-accent/10 border border-primary/20">
       <div className="text-xs font-semibold text-foreground">Relatório IA · 22h</div>
       <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-        Nenhum resumo financeiro disponivel ainda.
+        Hoje você vendeu R$ 4.870. Deseja receber o resumo no seu WhatsApp?
       </p>
       <button className="mt-3 w-full text-xs font-semibold py-2 rounded-lg bg-foreground text-background hover:opacity-90 transition">
         Ativar resumo diário

@@ -17,9 +17,11 @@ import { Route as IndicacoesRouteImport } from './routes/indicacoes'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
 import { Route as EstoqueRouteImport } from './routes/estoque'
 import { Route as EntregasRouteImport } from './routes/entregas'
+import { Route as CuponsRouteImport } from './routes/cupons'
 import { Route as ConversasRouteImport } from './routes/conversas'
 import { Route as ClientesRouteImport } from './routes/clientes'
 import { Route as CampanhasRouteImport } from './routes/campanhas'
+import { Route as AutomacoesRouteImport } from './routes/automacoes'
 import { Route as AssistenteRouteImport } from './routes/assistente'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiWebhookWhatsappRouteImport } from './routes/api/webhook.whatsapp'
@@ -76,6 +78,11 @@ const EntregasRoute = EntregasRouteImport.update({
   path: '/entregas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CuponsRoute = CuponsRouteImport.update({
+  id: '/cupons',
+  path: '/cupons',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ConversasRoute = ConversasRouteImport.update({
   id: '/conversas',
   path: '/conversas',
@@ -89,6 +96,11 @@ const ClientesRoute = ClientesRouteImport.update({
 const CampanhasRoute = CampanhasRouteImport.update({
   id: '/campanhas',
   path: '/campanhas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AutomacoesRoute = AutomacoesRouteImport.update({
+  id: '/automacoes',
+  path: '/automacoes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AssistenteRoute = AssistenteRouteImport.update({
@@ -171,9 +183,11 @@ const ApiCrmAssistenteRoute = ApiCrmAssistenteRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/assistente': typeof AssistenteRoute
+  '/automacoes': typeof AutomacoesRoute
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
+  '/cupons': typeof CuponsRoute
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
@@ -199,9 +213,11 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/assistente': typeof AssistenteRoute
+  '/automacoes': typeof AutomacoesRoute
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
+  '/cupons': typeof CuponsRoute
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
@@ -228,9 +244,11 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/assistente': typeof AssistenteRoute
+  '/automacoes': typeof AutomacoesRoute
   '/campanhas': typeof CampanhasRoute
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
+  '/cupons': typeof CuponsRoute
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
@@ -258,9 +276,11 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/assistente'
+    | '/automacoes'
     | '/campanhas'
     | '/clientes'
     | '/conversas'
+    | '/cupons'
     | '/entregas'
     | '/estoque'
     | '/financeiro'
@@ -286,9 +306,11 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/assistente'
+    | '/automacoes'
     | '/campanhas'
     | '/clientes'
     | '/conversas'
+    | '/cupons'
     | '/entregas'
     | '/estoque'
     | '/financeiro'
@@ -314,9 +336,11 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/assistente'
+    | '/automacoes'
     | '/campanhas'
     | '/clientes'
     | '/conversas'
+    | '/cupons'
     | '/entregas'
     | '/estoque'
     | '/financeiro'
@@ -343,9 +367,11 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AssistenteRoute: typeof AssistenteRoute
+  AutomacoesRoute: typeof AutomacoesRoute
   CampanhasRoute: typeof CampanhasRoute
   ClientesRoute: typeof ClientesRoute
   ConversasRoute: typeof ConversasRoute
+  CuponsRoute: typeof CuponsRoute
   EntregasRoute: typeof EntregasRoute
   EstoqueRoute: typeof EstoqueRoute
   FinanceiroRoute: typeof FinanceiroRoute
@@ -427,6 +453,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EntregasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cupons': {
+      id: '/cupons'
+      path: '/cupons'
+      fullPath: '/cupons'
+      preLoaderRoute: typeof CuponsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/conversas': {
       id: '/conversas'
       path: '/conversas'
@@ -446,6 +479,13 @@ declare module '@tanstack/react-router' {
       path: '/campanhas'
       fullPath: '/campanhas'
       preLoaderRoute: typeof CampanhasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/automacoes': {
+      id: '/automacoes'
+      path: '/automacoes'
+      fullPath: '/automacoes'
+      preLoaderRoute: typeof AutomacoesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/assistente': {
@@ -559,9 +599,11 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AssistenteRoute: AssistenteRoute,
+  AutomacoesRoute: AutomacoesRoute,
   CampanhasRoute: CampanhasRoute,
   ClientesRoute: ClientesRoute,
   ConversasRoute: ConversasRoute,
+  CuponsRoute: CuponsRoute,
   EntregasRoute: EntregasRoute,
   EstoqueRoute: EstoqueRoute,
   FinanceiroRoute: FinanceiroRoute,
