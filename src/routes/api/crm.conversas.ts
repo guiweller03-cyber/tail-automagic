@@ -1,17 +1,37 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
-import { gerarResposta, limparRespostaCliente } from "@/lib/openai";
+import { extrairPerfilClienteDaConversa, gerarResposta, limparRespostaCliente } from "@/lib/openai";
 import {
   adicionarMensagemConversa,
   atualizarConversaAguardandoHumano,
   atualizarConversaPipeline,
+  buscarConversaPorTelefone,
+  buscarIaAprendizadoResumo,
+  buscarIaPromptConfig,
   buscarAprendizados,
   buscarIaStatus,
   definirIaGlobalDesativada,
+  salvarIaPromptConfig,
   listarPedidos,
   listarConversas,
+  upsertConversa,
+  type Conversa,
 } from "@/lib/supabase";
-import { enviarMensagem } from "@/lib/uazapi";
+import {
+  atualizarClienteCrm,
+  criarClienteCrm,
+  listarClientes,
+  type ClienteCrmInput,
+} from "@/lib/crm-supabase";
+import { BASE_SYSTEM_PROMPT, type IaRegraCustomizada } from "@/lib/openai";
+import {
+  buscarMensagensChatWhatsApp,
+  enviarMensagemLonga,
+  enviarMidiaBase64,
+  listarChatsWhatsApp,
+  type ChatWhatsApp,
+  type MensagemWhatsApp,
+} from "@/lib/uazapi";
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
@@ -19,6 +39,184 @@ function json(data: unknown, init?: ResponseInit): Response {
 
 function normalizarTelefone(value: string): string {
   return value.replace("@s.whatsapp.net", "").replace(/\D/g, "");
+}
+
+function nomeClienteSeguro(value?: string | null): string | undefined {
+  const nome = value?.trim();
+  if (!nome || /^cliente\s+\d+$/i.test(nome)) return undefined;
+
+  return nome;
+}
+
+function chatIdFromChat(chat: ChatWhatsApp): string | undefined {
+  const telefone = normalizarTelefone(chat.wa_chatid ?? chat.phone ?? "");
+  if (!telefone) return undefined;
+
+  return chat.wa_chatid?.includes("@") ? chat.wa_chatid : `${telefone}@s.whatsapp.net`;
+}
+
+function nomeFromChat(chat: ChatWhatsApp): string | undefined {
+  return nomeClienteSeguro(chat.wa_contactName) ?? nomeClienteSeguro(chat.name) ?? nomeClienteSeguro(chat.wa_name);
+}
+
+function isoFromTimestamp(timestamp?: number): string | undefined {
+  if (!timestamp || !Number.isFinite(timestamp)) return undefined;
+
+  const millis = timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+  const date = new Date(millis);
+
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function textoMensagemWhatsapp(message: MensagemWhatsApp): string | undefined {
+  if (typeof message.text === "string" && message.text.trim()) return message.text;
+
+  if (message.content && typeof message.content === "object") {
+    const content = message.content as {
+      text?: string;
+      body?: string;
+      caption?: string;
+      conversation?: string;
+    };
+    if (typeof content.text === "string" && content.text.trim()) return content.text;
+    if (typeof content.body === "string" && content.body.trim()) return content.body;
+    if (typeof content.caption === "string" && content.caption.trim()) return content.caption;
+    if (typeof content.conversation === "string" && content.conversation.trim()) {
+      return content.conversation;
+    }
+  }
+
+  const tipo = (message.messageType ?? "").toLowerCase();
+  if (tipo.includes("audio")) return message.fromMe ? "[Audio enviado]" : "[Audio recebido]";
+  if (tipo.includes("image")) return message.fromMe ? "[Imagem enviada]" : "[Imagem recebida]";
+  if (tipo.includes("video")) return message.fromMe ? "[Video enviado]" : "[Video recebido]";
+  if (tipo.includes("document")) return message.fromMe ? "[Documento enviado]" : "[Documento recebido]";
+  if (tipo.includes("sticker")) return message.fromMe ? "[Figurinha enviada]" : "[Figurinha recebida]";
+  if (tipo.includes("location")) return message.fromMe ? "[Localizacao enviada]" : "[Localizacao recebida]";
+  if (tipo.includes("contact")) return message.fromMe ? "[Contato enviado]" : "[Contato recebido]";
+
+  return undefined;
+}
+
+function mapMensagemWhatsapp(message: MensagemWhatsApp): Conversa["historico"][number] | null {
+  if (message.isGroup) return null;
+
+  const content = textoMensagemWhatsapp(message)?.trim();
+  if (!content) return null;
+
+  return {
+    role: message.fromMe ? "assistant" : "user",
+    content,
+    id: message.messageid ?? message.id,
+    at: isoFromTimestamp(message.messageTimestamp),
+    source: "whatsapp",
+    fromMe: Boolean(message.fromMe),
+    messageType: message.messageType,
+  };
+}
+
+function chaveMensagem(message: Conversa["historico"][number]): string {
+  if (message.id) return `id:${message.id}`;
+  return [
+    message.role,
+    message.at ?? "",
+    message.content.trim(),
+  ].join("|");
+}
+
+function mergeHistorico(
+  atual: Conversa["historico"],
+  importado: Conversa["historico"],
+): { historico: Conversa["historico"]; adicionadas: number } {
+  const mensagens = new Map<string, Conversa["historico"][number]>();
+
+  for (const mensagem of atual) {
+    mensagens.set(chaveMensagem(mensagem), mensagem);
+  }
+
+  let adicionadas = 0;
+  for (const mensagem of importado) {
+    const chave = chaveMensagem(mensagem);
+    if (!mensagens.has(chave)) adicionadas += 1;
+    mensagens.set(chave, mensagem);
+  }
+
+  const historico = [...mensagens.values()].sort((a, b) => {
+    const aTime = a.at ? new Date(a.at).getTime() : 0;
+    const bTime = b.at ? new Date(b.at).getTime() : 0;
+    if (aTime && bTime && aTime !== bTime) return aTime - bTime;
+    return 0;
+  });
+
+  return { historico: historico.slice(-250), adicionadas };
+}
+
+function ultimoHorarioHistorico(historico: Conversa["historico"]): string {
+  const horarios = historico
+    .map((mensagem) => (mensagem.at ? new Date(mensagem.at).getTime() : 0))
+    .filter((time) => time > 0);
+  const ultimo = horarios.length > 0 ? Math.max(...horarios) : Date.now();
+
+  return new Date(ultimo).toISOString();
+}
+
+async function sincronizarWhatsapp({
+  chatsLimite = 50,
+  mensagensLimite = 80,
+}: {
+  chatsLimite?: number;
+  mensagensLimite?: number;
+}) {
+  const chats = await listarChatsWhatsApp({ limit: Math.min(Math.max(chatsLimite, 1), 100), offset: 0 });
+  let sincronizadas = 0;
+  let mensagensImportadas = 0;
+  let ignoradas = 0;
+
+  for (const chat of chats) {
+    const chatid = chatIdFromChat(chat);
+    const telefone = normalizarTelefone(chatid ?? chat.phone ?? "");
+    if (!chatid || !telefone || chat.wa_isGroup) {
+      ignoradas += 1;
+      continue;
+    }
+
+    const mensagens = await buscarMensagensChatWhatsApp(
+      chatid,
+      Math.min(Math.max(mensagensLimite, 1), 100),
+    );
+    const historicoImportado = mensagens
+      .map(mapMensagemWhatsapp)
+      .filter((mensagem): mensagem is Conversa["historico"][number] => Boolean(mensagem));
+
+    const existente = await buscarConversaPorTelefone(telefone);
+    const { historico, adicionadas } = mergeHistorico(existente?.historico ?? [], historicoImportado);
+
+    if (!existente && historico.length === 0) {
+      ignoradas += 1;
+      continue;
+    }
+
+    await upsertConversa({
+      telefone,
+      historico,
+      nome_cliente: existente?.nome_cliente ?? nomeFromChat(chat),
+      aguardando_humano: existente?.aguardando_humano ?? false,
+      ia_ativa: existente?.ia_ativa ?? null,
+      estagio: existente?.estagio ?? "novo",
+      atualizado_em: ultimoHorarioHistorico(historico),
+    });
+
+    sincronizadas += 1;
+    mensagensImportadas += adicionadas;
+  }
+
+  return {
+    ok: true,
+    chats_analisados: chats.length,
+    conversas_sincronizadas: sincronizadas,
+    mensagens_importadas: mensagensImportadas,
+    ignoradas,
+  };
 }
 
 function pipelineFromKanban(stage: unknown): {
@@ -42,6 +240,48 @@ function pipelineFromKanban(stage: unknown): {
   }
 }
 
+async function salvarPerfilExtraidoCliente({
+  telefone,
+  nomeCliente,
+  historico,
+}: {
+  telefone: string;
+  nomeCliente?: string | null;
+  historico: Conversa["historico"];
+}) {
+  const telefoneNormalizado = normalizarTelefone(telefone);
+  if (!telefoneNormalizado) throw new Error("Telefone invalido");
+
+  const extraido = await extrairPerfilClienteDaConversa(historico);
+  const clientes = await listarClientes();
+  const existente = clientes.find((cliente) => normalizarTelefone(cliente.telefone) === telefoneNormalizado);
+  const input: ClienteCrmInput = {
+    nome: extraido.nome ?? existente?.nome ?? nomeClienteSeguro(nomeCliente) ?? `Cliente ${telefoneNormalizado.slice(-4)}`,
+    telefone: telefoneNormalizado,
+    endereco: extraido.endereco ?? existente?.endereco,
+    bairro: extraido.bairro ?? existente?.bairro,
+    pets: extraido.pets ?? existente?.pets ?? [],
+    perfil: existente?.perfil ?? "Novo",
+    origem: existente?.origem ?? "WhatsApp IA",
+    observacoes: extraido.observacoes ?? existente?.observacoes,
+    followUpManual: extraido.followUpMensagem
+      ? {
+          mensagem: extraido.followUpMensagem,
+          data: existente?.followUpManual?.data ?? "",
+          canal: existente?.followUpManual?.canal ?? "WhatsApp",
+          status: existente?.followUpManual?.status ?? "pendente",
+          atualizadoEm: new Date().toISOString(),
+        }
+      : existente?.followUpManual,
+  };
+
+  const cliente = existente
+    ? await atualizarClienteCrm(existente.id, input)
+    : await criarClienteCrm(input);
+
+  return { ok: true, cliente, extraido };
+}
+
 export const Route = createFileRoute("/api/crm/conversas")({
   server: {
     handlers: {
@@ -50,6 +290,15 @@ export const Route = createFileRoute("/api/crm/conversas")({
           const url = new URL(request.url);
           if (url.searchParams.get("ia") === "status") {
             return json(await buscarIaStatus());
+          }
+
+          if (url.searchParams.get("ia") === "config") {
+            const [config, aprendizado] = await Promise.all([
+              buscarIaPromptConfig(),
+              buscarIaAprendizadoResumo(),
+            ]);
+
+            return json({ ...config, baseSystemPrompt: BASE_SYSTEM_PROMPT, aprendizado });
           }
 
           const [conversas, pedidos] = await Promise.all([listarConversas(), listarPedidos()]);
@@ -88,10 +337,18 @@ export const Route = createFileRoute("/api/crm/conversas")({
           const body = (await request.json()) as
             | { tipo: "conversa"; id: string; aguardandoHumano: boolean }
             | { tipo: "pipeline"; id: string; stage: string }
-            | { tipo: "global"; desativada: boolean };
+            | { tipo: "global"; desativada: boolean }
+            | { tipo: "ia_config"; systemPrompt: string; regras: IaRegraCustomizada[] };
 
           if (body.tipo === "global") {
             return json(await definirIaGlobalDesativada(body.desativada));
+          }
+
+          if (body.tipo === "ia_config") {
+            return json(await salvarIaPromptConfig({
+              systemPrompt: body.systemPrompt,
+              regras: body.regras,
+            }));
           }
 
           if (body.tipo === "pipeline") {
@@ -105,6 +362,7 @@ export const Route = createFileRoute("/api/crm/conversas")({
             await atualizarConversaAguardandoHumano({
               id: body.id,
               aguardandoHumano: body.aguardandoHumano,
+              iaAtiva: !body.aguardandoHumano,
             }),
           );
         } catch (error) {
@@ -118,14 +376,34 @@ export const Route = createFileRoute("/api/crm/conversas")({
           const body = (await request.json()) as
             | { tipo: "mensagem"; id: string; telefone: string; texto: string }
             | {
+                tipo: "midia";
+                id: string;
+                telefone: string;
+                base64: string;
+                legenda?: string;
+                nomeArquivo?: string;
+                mimeType?: string;
+                audio?: boolean;
+              }
+            | {
                 tipo: "sugestao_ia";
                 historico: Array<{ role: "user" | "assistant"; content: string }>;
                 texto: string;
-              };
+              }
+            | {
+                tipo: "perfil_cliente_ia";
+                telefone: string;
+                nomeCliente?: string | null;
+                historico: Conversa["historico"];
+              }
+            | { tipo: "sincronizar_whatsapp"; chatsLimite?: number; mensagensLimite?: number };
 
           if (body.tipo === "sugestao_ia") {
-            const aprendizados = await buscarAprendizados(10);
-            const resposta = await gerarResposta(body.historico, body.texto, aprendizados);
+            const [aprendizados, config] = await Promise.all([
+              buscarAprendizados(10),
+              buscarIaPromptConfig(),
+            ]);
+            const resposta = await gerarResposta(body.historico, body.texto, aprendizados, config);
 
             return json({
               resposta: limparRespostaCliente(
@@ -138,10 +416,55 @@ export const Route = createFileRoute("/api/crm/conversas")({
             });
           }
 
+          if (body.tipo === "perfil_cliente_ia") {
+            return json(
+              await salvarPerfilExtraidoCliente({
+                telefone: body.telefone,
+                nomeCliente: body.nomeCliente,
+                historico: Array.isArray(body.historico) ? body.historico : [],
+              }),
+            );
+          }
+
+          if (body.tipo === "sincronizar_whatsapp") {
+            return json(
+              await sincronizarWhatsapp({
+                chatsLimite: body.chatsLimite,
+                mensagensLimite: body.mensagensLimite,
+              }),
+            );
+          }
+
+          if (body.tipo === "midia") {
+            if (!body.base64?.trim()) return json({ ok: false, erro: "Midia vazia" }, { status: 400 });
+
+            const legenda = body.legenda?.trim();
+            const telefone = normalizarTelefone(body.telefone);
+            await enviarMidiaBase64(`${telefone}@s.whatsapp.net`, body.base64, legenda, {
+              fileName: body.nomeArquivo,
+              mimetype: body.mimeType,
+              ptt: body.audio,
+            });
+
+            const conteudo = body.audio
+              ? "[Audio enviado]"
+              : legenda
+                ? `[Midia enviada] ${legenda}`
+                : `[Midia enviada] ${body.nomeArquivo ?? ""}`.trim();
+
+            return json(
+              await adicionarMensagemConversa({
+                id: body.id,
+                mensagem: { role: "assistant", content: conteudo },
+              }),
+            );
+          }
+
           const texto = body.texto.trim();
           if (!texto) return json({ ok: false, erro: "Mensagem vazia" }, { status: 400 });
 
-          await enviarMensagem(`${body.telefone}@s.whatsapp.net`, texto);
+          const telefone = normalizarTelefone(body.telefone);
+          await enviarMensagemLonga(`${telefone}@s.whatsapp.net`, texto);
 
           return json(
             await adicionarMensagemConversa({

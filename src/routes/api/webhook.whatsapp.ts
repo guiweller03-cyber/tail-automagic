@@ -3,6 +3,7 @@ import type {} from "@tanstack/react-start";
 import { gerarPixPedido } from "@/lib/mercadopago";
 import { gerarRespostaWhatsapp, limparRespostaCliente } from "@/lib/openai";
 import { buscarRacoesTecnicasPorTexto, clientePediuFichaTecnica } from "@/lib/racoes-tecnicas";
+import { buscarCupomAtivo, extrairCupomTexto } from "@/lib/indicacoes-supabase";
 import {
   adicionarMensagemConversa,
   atualizarPedidoPixMercadoPago,
@@ -10,32 +11,85 @@ import {
   buscarClientePorTelefone,
   buscarConversaPorTelefone,
   buscarIaStatus,
+  buscarIaPromptConfig,
   buscarProdutosDisponiveisPorTexto,
   criarPedidoPixPendente,
   listarPedidos,
   registrarPedidoDoWhatsapp,
+  registrarProdutoProcurado,
   salvarCadastroCliente,
   upsertConversa,
   type ClienteCadastro,
   type Conversa,
   type PedidoCrm,
 } from "@/lib/supabase";
-import { enviarMensagem } from "@/lib/uazapi";
+import { enviarMensagemLonga } from "@/lib/uazapi";
 import { erroLog, logPix, telefoneLog } from "@/lib/pix-log";
 
 type UazapiMessage = {
+  id?: string;
+  messageid?: string;
+  key?: {
+    remoteJid?: string;
+    fromMe?: boolean;
+    id?: string;
+    participant?: string;
+  };
   chatid?: string;
+  chatId?: string;
+  chat_id?: string;
+  phone?: string;
+  from?: string;
+  to?: string;
+  remoteJid?: string;
+  jid?: string;
   fromMe?: boolean;
+  from_me?: boolean;
+  owner?: boolean | string;
+  isGroup?: boolean;
+  wasSentByApi?: boolean;
+  messageTimestamp?: number;
+  timestamp?: number;
   messageType?: string;
-  text?: string;
+  type?: string;
+  body?: string;
+  text?: string | { message?: string; body?: string };
+  message?:
+    | string
+    | {
+        text?: string;
+        conversation?: string;
+        extendedTextMessage?: { text?: string };
+        imageMessage?: { caption?: string };
+        videoMessage?: { caption?: string };
+        documentMessage?: { caption?: string; fileName?: string };
+        audioMessage?: unknown;
+        stickerMessage?: unknown;
+      };
+  content?: unknown;
+  caption?: string;
   senderName?: string;
   pushName?: string;
+  pushname?: string;
+  fromName?: string;
+  chatName?: string;
+  name?: string;
 };
 
 type UazapiWebhook = {
-  body?: { message?: UazapiMessage };
+  body?: { message?: UazapiMessage; data?: UazapiPayload };
   message?: UazapiMessage;
+  Message?: UazapiMessage;
+  data?: UazapiPayload;
+  Data?: UazapiPayload;
+  messages?: UazapiMessage[];
+  Messages?: UazapiMessage[];
 };
+
+type UazapiPayload =
+  | UazapiMessage
+  | UazapiMessage[]
+  | { messages?: UazapiMessage[]; Messages?: UazapiMessage[]; message?: UazapiMessage; Message?: UazapiMessage; data?: UazapiPayload; Data?: UazapiPayload };
 
 type ResultadoPix = {
   ok: boolean;
@@ -72,12 +126,147 @@ function mensagemValida(message?: UazapiMessage): message is UazapiMessage & {
   chatid: string;
   text: string;
 } {
-  return Boolean(
-    message?.chatid &&
-    !message.fromMe &&
-    message.messageType === "Conversation" &&
-    message.text?.trim(),
-  );
+  const tipo = (message?.messageType ?? message?.type ?? "").toLowerCase();
+  const texto = textoMensagem(message);
+
+  return Boolean(message?.chatid && !message?.isGroup && tipo !== "status" && texto?.trim());
+}
+
+function textoMensagem(message?: UazapiMessage): string | undefined {
+  if (!message) return undefined;
+  if (typeof message.text === "string") return message.text;
+  if (typeof message.text?.message === "string") return message.text.message;
+  if (typeof message.text?.body === "string") return message.text.body;
+  if (typeof message.body === "string") return message.body;
+  if (typeof message.message === "string") return message.message;
+  if (typeof message.message?.text === "string") return message.message.text;
+  if (typeof message.message?.conversation === "string") return message.message.conversation;
+  if (typeof message.message?.extendedTextMessage?.text === "string") {
+    return message.message.extendedTextMessage.text;
+  }
+  if (typeof message.message?.imageMessage?.caption === "string") {
+    return message.message.imageMessage.caption || "[Imagem recebida]";
+  }
+  if (message.message?.imageMessage) return "[Imagem recebida]";
+  if (typeof message.message?.videoMessage?.caption === "string") {
+    return message.message.videoMessage.caption || "[Video recebido]";
+  }
+  if (message.message?.videoMessage) return "[Video recebido]";
+  if (typeof message.message?.documentMessage?.caption === "string") {
+    return message.message.documentMessage.caption || "[Documento recebido]";
+  }
+  if (typeof message.message?.documentMessage?.fileName === "string") {
+    return `[Documento recebido] ${message.message.documentMessage.fileName}`;
+  }
+  if (typeof message.caption === "string") return message.caption;
+  if (typeof message.content === "string") return message.content;
+  if (message.content && typeof message.content === "object") {
+    const content = message.content as {
+      text?: string;
+      body?: string;
+      caption?: string;
+      conversation?: string;
+    };
+    if (typeof content.text === "string") return content.text;
+    if (typeof content.body === "string") return content.body;
+    if (typeof content.caption === "string") return content.caption;
+    if (typeof content.conversation === "string") return content.conversation;
+  }
+  if (message.message?.audioMessage) return "[Audio recebido]";
+  if (message.message?.stickerMessage) return "[Figurinha recebida]";
+
+  const tipo = (message.messageType ?? message.type ?? "").toLowerCase();
+  if (tipo.includes("audio")) return message.fromMe ? "[Audio enviado]" : "[Audio recebido]";
+  if (tipo.includes("image")) return message.fromMe ? "[Imagem enviada]" : "[Imagem recebida]";
+  if (tipo.includes("video")) return message.fromMe ? "[Video enviado]" : "[Video recebido]";
+  if (tipo.includes("document")) return message.fromMe ? "[Documento enviado]" : "[Documento recebido]";
+  if (tipo.includes("sticker")) return message.fromMe ? "[Figurinha enviada]" : "[Figurinha recebida]";
+  if (tipo.includes("location")) return message.fromMe ? "[Localizacao enviada]" : "[Localizacao recebida]";
+  if (tipo.includes("contact")) return message.fromMe ? "[Contato enviado]" : "[Contato recebido]";
+
+  return undefined;
+}
+
+function normalizarMensagem(message?: UazapiMessage): UazapiMessage | undefined {
+  if (!message) return undefined;
+
+  return {
+    ...message,
+    chatid:
+      message.chatid ??
+      message.chatId ??
+      message.chat_id ??
+      message.key?.remoteJid ??
+      message.remoteJid ??
+      message.jid ??
+      message.from ??
+      message.to ??
+      message.phone,
+    fromMe:
+      message.fromMe ??
+      message.from_me ??
+      (typeof message.owner === "boolean" ? message.owner : undefined) ??
+      message.key?.fromMe,
+    messageType: message.messageType ?? message.type,
+    text: textoMensagem(message),
+    senderName:
+      message.senderName ??
+      message.pushName ??
+      message.pushname ??
+      message.fromName ??
+      message.chatName ??
+      message.name,
+  };
+}
+
+function extrairMensagemWebhook(event: UazapiWebhook): UazapiMessage | undefined {
+  return extrairMensagensWebhook(event)[0];
+}
+
+function extrairMensagensPayload(payload?: UazapiPayload): UazapiMessage[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+
+  const container = payload as Exclude<UazapiPayload, UazapiMessage[]>;
+  const nested = [
+    ...(Array.isArray(container.messages) ? container.messages : []),
+    ...(Array.isArray(container.Messages) ? container.Messages : []),
+    container.message,
+    container.Message,
+    ...extrairMensagensPayload(container.data),
+    ...extrairMensagensPayload(container.Data),
+  ].filter((message): message is UazapiMessage => Boolean(message));
+
+  return nested.length > 0 ? nested : [container as UazapiMessage];
+}
+
+function extrairMensagensWebhook(event: UazapiWebhook): UazapiMessage[] {
+  const candidatos = [
+    ...(Array.isArray(event.messages) ? event.messages : []),
+    ...(Array.isArray(event.Messages) ? event.Messages : []),
+    ...extrairMensagensPayload(event.data),
+    ...extrairMensagensPayload(event.Data),
+    ...extrairMensagensPayload(event.body?.data),
+    event.body?.message,
+    event.message,
+    event.Message,
+  ];
+
+  return candidatos
+    .map((message) => normalizarMensagem(message))
+    .filter((message): message is UazapiMessage => Boolean(message));
+}
+
+function motivoMensagemInvalida(message?: UazapiMessage): string {
+  if (!message) return "payload_sem_message";
+  if (!message.chatid) return "chatid_ausente";
+  if (message.isGroup) return "grupo_ignorado";
+  if (!textoMensagem(message)?.trim()) return "texto_ausente";
+
+  const tipo = (message.messageType ?? message.type ?? "").toLowerCase();
+  if (tipo === "status") return `tipo_nao_suportado:${tipo}`;
+
+  return "formato_nao_suportado";
 }
 
 function extrairCampoMarcador(dados: string, campo: string): string | undefined {
@@ -115,6 +304,12 @@ function extrairPagamentoPedido(content: string): string | undefined {
   const marcadorPedido = content.match(/\[PEDIDO\]([^\r\n]*)/i)?.[1];
 
   return marcadorPedido ? extrairCampoMarcador(marcadorPedido, "pagamento") : undefined;
+}
+
+function extrairProdutoProcurado(content: string): string | undefined {
+  const marcador = content.match(/\[PRODUTO_PROCURADO\s+([^\]]+)\]/i)?.[1];
+  if (!marcador) return undefined;
+  return marcador.replace(/^["']|["']$/g, "").trim() || undefined;
 }
 
 function limparRespostaTecnica(content: string): string {
@@ -161,6 +356,35 @@ function pixSolicitadoRecentemente(conversa: Conversa): boolean {
   );
 
   return ultimaSolicitacaoPix >= 0 && ultimaSolicitacaoPix > ultimoPixEnviado;
+}
+
+function mensagemSomenteCupom(texto: string, codigo: string): boolean {
+  const normalizado = texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toUpperCase();
+  const palavras = normalizado.split(/\s+/).filter(Boolean);
+
+  return palavras.length <= 5 && palavras.includes(codigo);
+}
+
+function cupomRecenteDaConversa(conversa: Conversa, textoAtual: string): string | null {
+  const mensagens = [
+    ...conversa.historico
+      .filter((mensagem) => mensagem.role === "user")
+      .slice(-8)
+      .map((mensagem) => mensagem.content),
+    textoAtual,
+  ];
+
+  for (const mensagem of mensagens.reverse()) {
+    const cupom = extrairCupomTexto(mensagem);
+    if (cupom) return cupom;
+  }
+
+  return null;
 }
 
 function clienteTemEnderecoCompleto(cliente: ClienteCadastro | null): boolean {
@@ -230,16 +454,76 @@ async function buscarOuCriarConversa(telefone: string): Promise<Conversa> {
   );
 }
 
-async function registrarMensagemCliente(conversa: Conversa, content: string): Promise<Conversa> {
+async function salvarClienteWhatsappInicial({
+  telefone,
+  nomeWhatsapp,
+}: {
+  telefone: string;
+  nomeWhatsapp?: string | null;
+}): Promise<ClienteCadastro | null> {
+  try {
+    return await salvarCadastroCliente({
+      telefone,
+      nome: nomeWhatsapp,
+      origem: "WhatsApp IA",
+    });
+  } catch (error) {
+    console.error("[whatsapp] erro_salvar_cliente_inicial", erroLog(error));
+    return null;
+  }
+}
+
+function dataMensagem(message: UazapiMessage): string | undefined {
+  const timestamp = message.messageTimestamp ?? message.timestamp;
+  if (!timestamp || !Number.isFinite(timestamp)) return undefined;
+
+  const millis = timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+  const date = new Date(millis);
+
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function metadataMensagem(message: UazapiMessage): Partial<Conversa["historico"][number]> {
+  return {
+    id: message.messageid ?? message.id ?? message.key?.id,
+    at: dataMensagem(message),
+    source: "whatsapp",
+    fromMe: Boolean(message.fromMe),
+    messageType: message.messageType,
+  };
+}
+
+async function registrarMensagemHistorico(
+  conversa: Conversa,
+  role: "user" | "assistant",
+  content: string,
+  metadata: Partial<Conversa["historico"][number]> = {},
+): Promise<Conversa> {
   const ultimaMensagem = conversa.historico.at(-1);
-  if (ultimaMensagem?.role === "user" && ultimaMensagem.content.trim() === content.trim()) {
+  const messageId = metadata.id;
+  if (
+    messageId &&
+    conversa.historico.some((mensagem) => mensagem.id === messageId)
+  ) {
+    return conversa;
+  }
+
+  if (ultimaMensagem?.role === role && ultimaMensagem.content.trim() === content.trim()) {
     return conversa;
   }
 
   return adicionarMensagemConversa({
     id: conversa.id,
-    mensagem: { role: "user", content },
+    mensagem: { role, content, ...metadata },
   });
+}
+
+async function registrarMensagemCliente(
+  conversa: Conversa,
+  content: string,
+  metadata: Partial<Conversa["historico"][number]> = {},
+): Promise<Conversa> {
+  return registrarMensagemHistorico(conversa, "user", content, metadata);
 }
 
 function contextoCliente(cliente: ClienteCadastro | null) {
@@ -469,13 +753,65 @@ async function registrarPedidoPixPorHistorico({
 }
 
 export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Response> {
-  const message = event.body?.message ?? event.message;
+  const mensagens = extrairMensagensWebhook(event);
+
+  if (mensagens.length > 1) {
+    const resultados: unknown[] = [];
+
+    for (const mensagem of mensagens) {
+      const response = await processarWebhookWhatsapp({ message: mensagem });
+      resultados.push(await response.json().catch(() => ({ ok: response.ok })));
+    }
+
+    return json({
+      received: true,
+      batch: true,
+      total: mensagens.length,
+      resultados,
+    });
+  }
+
+  const message = mensagens[0] ?? extrairMensagemWebhook(event);
   if (!mensagemValida(message)) {
-    return json({ received: true, ignored: true });
+    const reason = motivoMensagemInvalida(message);
+    console.info("[whatsapp] webhook_ignorado", {
+      reason,
+      eventKeys: Object.keys(event ?? {}),
+      messageKeys: message ? Object.keys(message) : [],
+    });
+
+    return json({ received: true, ignored: true, reason });
   }
 
   const telefone = normalizarTelefone(message.chatid);
   const texto = message.text.trim();
+  const nomeWhatsapp = nomeClienteSeguro(message.senderName ?? message.pushName);
+  const metadata = metadataMensagem(message);
+  const conversaInicial = await buscarOuCriarConversa(telefone);
+  const clienteWhatsappInicial = await salvarClienteWhatsappInicial({ telefone, nomeWhatsapp });
+
+  if (nomeWhatsapp && !nomeClienteSeguro(conversaInicial.nome_cliente)) {
+    await upsertConversa({
+      telefone,
+      historico: conversaInicial.historico,
+      nome_cliente: nomeWhatsapp,
+      aguardando_humano: conversaInicial.aguardando_humano,
+      ia_ativa: conversaInicial.ia_ativa,
+      estagio: conversaInicial.estagio,
+      atualizado_em: new Date().toISOString(),
+    });
+  }
+
+  if (message.fromMe) {
+    await registrarMensagemHistorico(conversaInicial, "assistant", texto, metadata);
+
+    return json({
+      received: true,
+      ignored: true,
+      reason: "mensagem_enviada_pela_propria_instancia_registrada",
+    });
+  }
+
   const solicitouPixNaMensagem = pediuPix(texto);
   if (solicitouPixNaMensagem) {
     logPix("whatsapp", "solicitacao_recebida", {
@@ -483,19 +819,31 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
       conversa_chatid_valido: Boolean(message.chatid),
     });
   }
-  const conversaInicial = await buscarOuCriarConversa(telefone);
-  const conversa = await registrarMensagemCliente(conversaInicial, texto);
+  const conversa = await registrarMensagemCliente(conversaInicial, texto, metadata);
+  const cupomMensagemAtual = extrairCupomTexto(texto);
   const solicitouPix = solicitouPixNaMensagem || pixSolicitadoRecentemente(conversa);
   const iaStatus = await buscarIaStatus();
+  const iaLigadaNestaConversa = conversa.ia_ativa === true;
+  const iaDesligadaNestaConversa = conversa.ia_ativa === false;
+  const deveIgnorarIa =
+    iaDesligadaNestaConversa ||
+    (iaStatus.globalDesativada && !iaLigadaNestaConversa) ||
+    (conversa.aguardando_humano && !iaLigadaNestaConversa);
 
-  if (iaStatus.globalDesativada || conversa.aguardando_humano) {
+  if (deveIgnorarIa) {
+    const motivo = iaDesligadaNestaConversa
+      ? "ia_conversa_desativada"
+      : iaStatus.globalDesativada
+        ? "ia_global_desativada"
+        : "aguardando_humano";
+
     if (solicitouPix) {
       logPix(
         "whatsapp",
         "solicitacao_ignorada",
         {
           telefone: telefoneLog(telefone),
-          motivo: iaStatus.globalDesativada ? "ia_global_desativada" : "aguardando_humano",
+          motivo,
         },
         "warn",
       );
@@ -503,15 +851,16 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
     return json({
       received: true,
       ignored: true,
-      reason: iaStatus.globalDesativada ? "ia_global_desativada" : "aguardando_humano",
+      reason: motivo,
     });
   }
 
-  const [cliente, pedidos, produtos, aprendizados] = await Promise.all([
+  const [cliente, pedidos, produtos, aprendizados, iaConfig] = await Promise.all([
     buscarClientePorTelefone(telefone),
     listarPedidos(),
     buscarProdutosDisponiveisPorTexto(texto, 5),
     buscarAprendizados(5),
+    buscarIaPromptConfig(),
   ]);
   const textoComHistorico = [...conversa.historico.slice(-8), { role: "user", content: texto }]
     .map((mensagem) => mensagem.content)
@@ -532,11 +881,36 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
       ).length,
     });
   }
+
+  if (cupomMensagemAtual && mensagemSomenteCupom(texto, cupomMensagemAtual)) {
+    const cupom = await buscarCupomAtivo(cupomMensagemAtual);
+    const respostaCupom = cupom
+      ? `Cupom ${cupom.codigo} aplicado. Vou considerar ele no fechamento do pedido.`
+      : `Nao encontrei esse cupom ativo. Confere o codigo e me manda de novo?`;
+    const chatid = `${telefone}@s.whatsapp.net`;
+
+    await Promise.all([
+      enviarMensagemLonga(chatid, respostaCupom),
+      adicionarMensagemConversa({
+        id: conversa.id,
+        mensagem: { role: "assistant", content: respostaCupom },
+      }),
+    ]);
+
+    return json({
+      received: true,
+      responded: true,
+      cupom: cupomMensagemAtual,
+      cupom_valido: Boolean(cupom),
+    });
+  }
+
   const temPedidoPendente = pedidosRecentes.some(
     (pedido) => pedido.statusPagamento !== "pago" && pedido.total > 0,
   );
   const respostaIa = await gerarRespostaWhatsapp({
     mensagem: texto,
+    config: iaConfig,
     contexto: {
       cliente: contextoCliente(cliente),
       conversa: {
@@ -554,6 +928,17 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
       aprendizados,
     },
   });
+  const termoProcurado = extrairProdutoProcurado(respostaIa);
+  if (termoProcurado) {
+    registrarProdutoProcurado({
+      termo: termoProcurado,
+      telefone,
+      nomeCliente: cliente?.nome ?? nomeClienteSeguro(message.senderName ?? message.pushName),
+      contexto: texto,
+    }).catch((error) => {
+      console.error("[whatsapp] erro_registrar_produto_procurado", erroLog(error));
+    });
+  }
   const cadastroIa = extrairCadastroCliente(respostaIa);
   const cadastroTexto = solicitouPix ? extrairEnderecoDoHistorico(conversa, texto) : null;
   const cadastro =
@@ -564,21 +949,21 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
         }
       : null;
   const temPedido = /\[PEDIDO\]/i.test(respostaIa);
-  const nomeWhatsapp = nomeClienteSeguro(message.senderName ?? message.pushName);
   const clienteSalvo = cadastro
     ? await salvarCadastroCliente({
         telefone,
-        nome: cadastro.nome ?? cliente?.nome ?? nomeWhatsapp,
+        nome: cadastro.nome ?? cliente?.nome ?? clienteWhatsappInicial?.nome ?? nomeWhatsapp,
         endereco: cadastro.endereco,
         bairro: cadastro.bairro,
         pets: cadastro.pets,
       })
-    : cliente;
+    : (cliente ?? clienteWhatsappInicial);
+  const cupomRecente = cupomRecenteDaConversa(conversa, texto);
   const pedidoMarcado = temPedido
     ? await registrarPedidoDoWhatsapp({
         telefone,
-        texto: `${respostaIa}\n${texto}`,
-        nomeCliente: cliente?.nome ?? nomeWhatsapp,
+        texto: `${respostaIa}\n${texto}${cupomRecente ? `\ncupom ${cupomRecente}` : ""}`,
+        nomeCliente: cliente?.nome ?? clienteWhatsappInicial?.nome ?? nomeWhatsapp,
         formaPagamento: extrairPagamentoPedido(respostaIa),
       })
     : null;
@@ -589,7 +974,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
           telefone,
           conversa,
           texto,
-          nomeCliente: cliente?.nome ?? nomeWhatsapp,
+          nomeCliente: cliente?.nome ?? clienteWhatsappInicial?.nome ?? nomeWhatsapp,
         })
       : null);
 
@@ -648,7 +1033,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
   await Promise.all([
     (async () => {
       for (const mensagemCliente of mensagensCliente) {
-        await enviarMensagem(chatid, mensagemCliente);
+        await enviarMensagemLonga(chatid, mensagemCliente);
       }
     })()
       .then((resultado) => {
