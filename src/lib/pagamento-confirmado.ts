@@ -6,7 +6,7 @@ import {
   upsertConversa,
   type PedidoPixRow,
 } from "@/lib/supabase";
-import { enviarMensagem } from "@/lib/uazapi";
+import { enviarMensagemLonga } from "@/lib/uazapi";
 import { erroLog, logPix, telefoneLog } from "@/lib/pix-log";
 
 export const MENSAGEM_PAGAMENTO_CONFIRMADO =
@@ -54,7 +54,7 @@ export async function confirmarPagamentoPixPedido(
   }
 
   try {
-    await enviarMensagem(`${telefone}@s.whatsapp.net`, MENSAGEM_PAGAMENTO_CONFIRMADO);
+    await enviarMensagemLonga(`${telefone}@s.whatsapp.net`, MENSAGEM_PAGAMENTO_CONFIRMADO);
   } catch (error) {
     logPix(
       "whatsapp",

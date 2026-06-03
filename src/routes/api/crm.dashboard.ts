@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
-import { carregarDashboard } from "@/lib/crm-supabase";
+import { carregarDashboard, invalidarDashboardCache } from "@/lib/crm-supabase";
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
@@ -9,8 +9,13 @@ function json(data: unknown, init?: ResponseInit): Response {
 export const Route = createFileRoute("/api/crm/dashboard")({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }) => {
         try {
+          const url = new URL(request.url);
+          if (url.searchParams.get("refresh") === "1") {
+            invalidarDashboardCache();
+          }
+
           const dashboard = await carregarDashboard();
 
           return json(dashboard);

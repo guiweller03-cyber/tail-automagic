@@ -1,103 +1,464 @@
-import { produtos as seedProdutos, recomprasPrevistas, type Produto } from "@/lib/mock";
-import { AlertTriangle, TrendingUp, Package, Plus, Boxes, Handshake, X } from "lucide-react";
+import type { Produto, ProdutoDetalhesTecnicos } from "@/lib/crm-types";
+import { useGlobalSearch } from "@/lib/global-search";
+import {
+  AlertTriangle,
+  TrendingUp,
+  Package,
+  Plus,
+  Boxes,
+  Handshake,
+  Pencil,
+  X,
+  ImageIcon,
+  Upload,
+  Trash2,
+  Loader2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { onCrmReload } from "@/lib/crm-refresh";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 type EditCell = { sku: string; field: "preco" | "precoCompra" } | null;
+type ProdutoFormState = {
+  sku: string;
+  nome: string;
+  categoria: string;
+  tipo: Produto["tipo"];
+  giro: Produto["giro"];
+  estoque: string;
+  minimo: string;
+  precoCompra: string;
+  preco: string;
+  fornecedor: string;
+  detalhesTecnicos: Record<keyof ProdutoDetalhesTecnicos, string>;
+};
+
+function normalizarBusca(valor: string) {
+  return valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function textoProduto(produto: Produto) {
+  return normalizarBusca(
+    [
+      produto.nome,
+      produto.sku,
+      produto.categoria,
+      produto.tipo,
+      produto.fornecedor,
+      produto.giro,
+      produto.estoque,
+      produto.minimo,
+      produto.preco,
+      produto.precoCompra,
+      ...Object.values(produto.detalhesTecnicos ?? {}),
+    ]
+      .filter((item) => item !== undefined && item !== null)
+      .join(" "),
+  );
+}
 
 function calcMargem(p: Produto) {
   const venda = p.preco;
   if (venda <= 0) return { pct: 0, lucro: 0, tipoLabel: "—" };
-  if (p.tipo === "consignado") {
-    const comissao = p.precoCompra * 0.7;
-    const lucro = venda - comissao;
-    return { pct: (lucro / venda) * 100, lucro, tipoLabel: "Líq. consig." };
-  }
   const lucro = venda - p.precoCompra;
-  return { pct: (lucro / venda) * 100, lucro, tipoLabel: "Bruta" };
+  return {
+    pct: (lucro / venda) * 100,
+    lucro,
+    tipoLabel: p.tipo === "consignado" ? "Consig." : "Bruta",
+  };
 }
 
 function comportamentoCompra(produto: Produto) {
-  // Cruza categoria com clientes que recompram itens dessa categoria
-  const cat = produto.categoria.toLowerCase();
-  const matches = recomprasPrevistas.filter(r => r.racao.toLowerCase().includes(cat.slice(0, 4)) || produto.nome.split(" ").some(t => t.length > 3 && r.racao.toLowerCase().includes(t.toLowerCase())));
-  const count = new Set(matches.map(m => m.clienteId)).size;
+  const count = produto.giro === "alto" ? 3 : produto.giro === "médio" ? 1 : 0;
   if (count >= 3) return { label: "Alta demanda", tone: "bg-success/15 text-success", count };
   if (count >= 1) return { label: "Média", tone: "bg-accent/15 text-accent", count };
   return { label: "Baixa", tone: "bg-secondary text-muted-foreground", count };
 }
 
 const CATEGORIAS = ["Ração", "Higiene", "Petiscos", "Saúde", "Brinquedos", "Acessórios"];
+const GIROS: Produto["giro"][] = ["alto", "médio", "baixo"];
+const FOTO_MAX_BYTES = 5 * 1024 * 1024;
+const DETALHE_FIELDS: Array<{ key: keyof ProdutoDetalhesTecnicos; label: string; full?: boolean }> =
+  [
+    { key: "marca", label: "Marca" },
+    { key: "linha", label: "Linha" },
+    { key: "peso", label: "Peso / embalagem" },
+    { key: "especie", label: "Espécie" },
+    { key: "idade", label: "Idade" },
+    { key: "porte", label: "Porte" },
+    { key: "racaEspecifica", label: "Raça específica" },
+    { key: "tipoProduto", label: "Tipo do produto" },
+    { key: "proteinaBruta", label: "Proteína bruta" },
+    { key: "gordura", label: "Gordura" },
+    { key: "fibra", label: "Fibra" },
+    { key: "umidade", label: "Umidade" },
+    { key: "materiaMineral", label: "Matéria mineral" },
+    { key: "calcio", label: "Cálcio" },
+    { key: "fosforo", label: "Fósforo" },
+    { key: "omega3", label: "Omega 3" },
+    { key: "omega6", label: "Omega 6" },
+    { key: "taurina", label: "Taurina" },
+    { key: "condroitina", label: "Condroitina" },
+    { key: "glicosamina", label: "Glicosamina" },
+    { key: "prebioticos", label: "Prebióticos" },
+    { key: "yucca", label: "Yucca" },
+    { key: "miniBits", label: "Mini bits" },
+    { key: "semCorantes", label: "Sem corantes" },
+    { key: "semTransgenicos", label: "Sem transgênicos" },
+    { key: "fonteProteinaAnimal", label: "Fonte proteína animal", full: true },
+    { key: "principaisIngredientes", label: "Principais ingredientes", full: true },
+    { key: "beneficios", label: "Benefícios", full: true },
+    { key: "indicacao", label: "Indicação", full: true },
+  ];
 
-export function Estoque() {
-  const [produtos, setProdutos] = useState<Produto[]>(seedProdutos);
+function detalhesVazios(): Record<keyof ProdutoDetalhesTecnicos, string> {
+  return Object.fromEntries(DETALHE_FIELDS.map(({ key }) => [key, ""])) as Record<
+    keyof ProdutoDetalhesTecnicos,
+    string
+  >;
+}
+
+function normalizarDetalhes(
+  detalhes?: ProdutoDetalhesTecnicos,
+): Record<keyof ProdutoDetalhesTecnicos, string> {
+  const base = detalhesVazios();
+  for (const { key } of DETALHE_FIELDS) {
+    base[key] = detalhes?.[key] ?? "";
+  }
+  return base;
+}
+
+function limparDetalhes(
+  detalhes: Record<keyof ProdutoDetalhesTecnicos, string>,
+): ProdutoDetalhesTecnicos {
+  return Object.fromEntries(
+    Object.entries(detalhes)
+      .map(([key, value]) => [key, String(value).trim()])
+      .filter(([, value]) => value),
+  ) as ProdutoDetalhesTecnicos;
+}
+
+function produtoToForm(produto: Produto): ProdutoFormState {
+  return {
+    sku: produto.sku,
+    nome: produto.nome,
+    categoria: produto.categoria,
+    tipo: produto.tipo,
+    giro: produto.giro,
+    estoque: String(produto.estoque),
+    minimo: String(produto.minimo),
+    precoCompra: String(produto.precoCompra),
+    preco: String(produto.preco),
+    fornecedor: produto.fornecedor ?? "",
+    detalhesTecnicos: normalizarDetalhes(produto.detalhesTecnicos),
+  };
+}
+
+function formToProduto(form: ProdutoFormState): Produto | null {
+  const estoque = Number(form.estoque);
+  const minimo = Number(form.minimo);
+  const preco = Number(form.preco);
+  const precoCompra = Number(form.precoCompra);
+
+  if (
+    !form.sku.trim() ||
+    !form.nome.trim() ||
+    !form.categoria.trim() ||
+    !Number.isInteger(estoque) ||
+    !Number.isInteger(minimo) ||
+    estoque < 0 ||
+    minimo < 0 ||
+    !Number.isFinite(preco) ||
+    !Number.isFinite(precoCompra) ||
+    preco < 0 ||
+    precoCompra < 0
+  ) {
+    return null;
+  }
+
+  return {
+    sku: form.sku.trim().toUpperCase(),
+    nome: form.nome.trim(),
+    categoria: form.categoria.trim(),
+    estoque,
+    minimo,
+    giro: form.giro,
+    preco,
+    precoCompra,
+    tipo: form.tipo,
+    fornecedor: form.fornecedor.trim() || undefined,
+    detalhesTecnicos: limparDetalhes(form.detalhesTecnicos),
+  };
+}
+
+export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
+  const [produtos, setProdutos] = useState<Produto[]>(produtosIniciais);
   const [tipo, setTipo] = useState<"todos" | "próprio" | "consignado">("todos");
   const [edit, setEdit] = useState<EditCell>(null);
   const [draft, setDraft] = useState("");
   const [showNovo, setShowNovo] = useState(false);
+  const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null);
+  const [editForm, setEditForm] = useState<ProdutoFormState | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  const [fotoSalvandoSku, setFotoSalvandoSku] = useState<string | null>(null);
+  const { query: buscaGlobal, setQuery: setBuscaGlobal } = useGlobalSearch();
+
+  useEffect(() => {
+    setProdutos(produtosIniciais);
+  }, [produtosIniciais]);
+
+  useEffect(() => {
+    return onCrmReload(() => {
+      void fetch("/api/crm/produtos", { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error("Falha ao carregar produtos");
+          return response.json() as Promise<Produto[]>;
+        })
+        .then(setProdutos)
+        .catch(() => toast.error("Nao foi possivel atualizar o estoque"));
+    });
+  }, []);
 
   // novo produto
   const [novo, setNovo] = useState({
-    sku: "", nome: "", categoria: "Ração", tipo: "próprio" as Produto["tipo"],
-    estoque: "", minimo: "", precoCompra: "", preco: "", fornecedor: "",
+    sku: "",
+    nome: "",
+    categoria: "Ração",
+    tipo: "próprio" as Produto["tipo"],
+    estoque: "",
+    minimo: "",
+    precoCompra: "",
+    preco: "",
+    fornecedor: "",
+    detalhesTecnicos: detalhesVazios(),
   });
 
   useEffect(() => {
     if (!showNovo) return;
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setShowNovo(false); };
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowNovo(false);
+    };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [showNovo]);
 
-  const list = tipo === "todos" ? produtos : produtos.filter(p => p.tipo === tipo);
-  const criticos = list.filter(p => p.estoque < p.minimo);
+  const termoBusca = normalizarBusca(buscaGlobal);
+  const list = (tipo === "todos" ? produtos : produtos.filter((p) => p.tipo === tipo)).filter(
+    (produto) => !termoBusca || textoProduto(produto).includes(termoBusca),
+  );
+  const criticos = list.filter((p) => p.estoque < p.minimo);
 
-  const valorProprio = produtos.filter(p=>p.tipo==="próprio").reduce((s,p)=>s+p.estoque*p.precoCompra,0);
-  const valorConsig = produtos.filter(p=>p.tipo==="consignado").reduce((s,p)=>s+p.estoque*p.precoCompra,0);
-  const margemMedia = produtos.length > 0
-    ? produtos.reduce((s, p) => s + calcMargem(p).pct, 0) / produtos.length
-    : 0;
+  const valorProprio = produtos
+    .filter((p) => p.tipo === "próprio")
+    .reduce((s, p) => s + p.estoque * p.precoCompra, 0);
+  const valorConsig = produtos
+    .filter((p) => p.tipo === "consignado")
+    .reduce((s, p) => s + p.estoque * p.precoCompra, 0);
+  const margemMedia =
+    produtos.length > 0 ? produtos.reduce((s, p) => s + calcMargem(p).pct, 0) / produtos.length : 0;
 
   function startEdit(sku: string, field: "preco" | "precoCompra", val: number) {
     setEdit({ sku, field });
     setDraft(String(val));
   }
-  function commitEdit() {
+  async function commitEdit() {
     if (!edit) return;
     const n = Number(draft);
-    if (isNaN(n) || n < 0) { setEdit(null); return; }
-    setProdutos(prev => prev.map(p => p.sku === edit.sku ? { ...p, [edit.field]: n } : p));
+    if (isNaN(n) || n < 0) {
+      setEdit(null);
+      return;
+    }
+    const produto = produtos.find((p) => p.sku === edit.sku);
+    if (!produto) {
+      setEdit(null);
+      return;
+    }
+    const atualizado = { ...produto, [edit.field]: n };
+    const anterior = produtos;
+    setProdutos((prev) => prev.map((p) => (p.sku === edit.sku ? atualizado : p)));
     setEdit(null);
+    try {
+      const response = await fetch("/api/crm/produtos", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ skuAtual: edit.sku, ...atualizado }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.erro ?? "Erro ao salvar produto");
+      setProdutos((prev) => prev.map((p) => (p.sku === edit.sku ? data : p)));
+      toast.success("Produto atualizado");
+    } catch (error) {
+      setProdutos(anterior);
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar produto");
+    }
+  }
+
+  async function salvarFotoProduto(produto: Produto, file: File) {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Envie uma imagem valida");
+      return;
+    }
+
+    if (file.size > FOTO_MAX_BYTES) {
+      toast.error("A foto deve ter no maximo 5MB");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("sku", produto.sku);
+    formData.append("foto", file);
+    setFotoSalvandoSku(produto.sku);
+
+    try {
+      const response = await fetch("/api/crm/produtos/foto", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.erro ?? "Erro ao salvar foto");
+
+      setProdutos((prev) => prev.map((p) => (p.sku === produto.sku ? data : p)));
+      toast.success("Foto salva");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar foto");
+    } finally {
+      setFotoSalvandoSku(null);
+    }
+  }
+
+  async function removerFotoProduto(produto: Produto) {
+    if (!produto.fotoUrl && !produto.fotoPath) return;
+
+    setFotoSalvandoSku(produto.sku);
+    try {
+      const response = await fetch("/api/crm/produtos/foto", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sku: produto.sku }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.erro ?? "Erro ao remover foto");
+
+      setProdutos((prev) => prev.map((p) => (p.sku === produto.sku ? data : p)));
+      toast.success("Foto removida");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao remover foto");
+    } finally {
+      setFotoSalvandoSku(null);
+    }
+  }
+
+  function abrirEdicao(produto: Produto) {
+    setProdutoEditando(produto);
+    setEditForm(produtoToForm(produto));
+  }
+
+  function fecharEdicao() {
+    if (salvando) return;
+    setProdutoEditando(null);
+    setEditForm(null);
+  }
+
+  async function salvarEdicao() {
+    if (!produtoEditando || !editForm) return;
+    const produto = formToProduto(editForm);
+    if (!produto) {
+      toast.error("Preencha os dados do produto corretamente");
+      return;
+    }
+    if (produtos.some((p) => p.sku !== produtoEditando.sku && p.sku === produto.sku)) {
+      toast.error("SKU já existe");
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      const response = await fetch("/api/crm/produtos", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ skuAtual: produtoEditando.sku, ...produto }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.erro ?? "Erro ao salvar produto");
+
+      setProdutos((prev) => prev.map((p) => (p.sku === produtoEditando.sku ? data : p)));
+      toast.success("Produto atualizado");
+      setProdutoEditando(null);
+      setEditForm(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar produto");
+    } finally {
+      setSalvando(false);
+    }
   }
 
   const novaMargem = useMemo(() => {
     const venda = Number(novo.preco) || 0;
     const compra = Number(novo.precoCompra) || 0;
     if (venda <= 0) return null;
-    const lucro = novo.tipo === "consignado" ? venda - compra * 0.7 : venda - compra;
+    const lucro = venda - compra;
     return { pct: (lucro / venda) * 100, lucro };
-  }, [novo.preco, novo.precoCompra, novo.tipo]);
+  }, [novo.preco, novo.precoCompra]);
 
-  function salvarNovo() {
+  async function salvarNovo() {
     if (!novo.sku || !novo.nome || !novo.preco || !novo.precoCompra) {
       toast.error("Preencha SKU, nome e preços");
       return;
     }
-    if (produtos.some(p => p.sku === novo.sku)) {
+    if (produtos.some((p) => p.sku === novo.sku)) {
       toast.error("SKU já existe");
       return;
     }
-    setProdutos(prev => [...prev, {
-      sku: novo.sku, nome: novo.nome, categoria: novo.categoria, tipo: novo.tipo,
-      estoque: Number(novo.estoque) || 0, minimo: Number(novo.minimo) || 0,
-      preco: Number(novo.preco), precoCompra: Number(novo.precoCompra),
-      giro: "médio", fornecedor: novo.fornecedor || undefined,
-    }]);
-    toast.success("Produto adicionado ✅");
-    setNovo({ sku: "", nome: "", categoria: "Ração", tipo: "próprio", estoque: "", minimo: "", precoCompra: "", preco: "", fornecedor: "" });
-    setShowNovo(false);
+    const produto: Produto = {
+      sku: novo.sku,
+      nome: novo.nome,
+      categoria: novo.categoria,
+      tipo: novo.tipo,
+      estoque: Number(novo.estoque) || 0,
+      minimo: Number(novo.minimo) || 0,
+      preco: Number(novo.preco),
+      precoCompra: Number(novo.precoCompra),
+      giro: "médio",
+      fornecedor: novo.fornecedor || undefined,
+      detalhesTecnicos: limparDetalhes(novo.detalhesTecnicos),
+    };
+
+    setSalvando(true);
+    try {
+      const response = await fetch("/api/crm/produtos", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(produto),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.erro ?? "Erro ao adicionar produto");
+
+      setProdutos((prev) => [...prev, data]);
+      toast.success("Produto adicionado ✓");
+      setNovo({
+        sku: "",
+        nome: "",
+        categoria: "Ração",
+        tipo: "próprio",
+        estoque: "",
+        minimo: "",
+        precoCompra: "",
+        preco: "",
+        fornecedor: "",
+        detalhesTecnicos: detalhesVazios(),
+      });
+      setShowNovo(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao adicionar produto");
+    } finally {
+      setSalvando(false);
+    }
   }
 
   return (
@@ -105,18 +466,43 @@ export function Estoque() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Estoque inteligente</h1>
-          <p className="text-sm text-muted-foreground">Controle financeiro completo · próprio e consignado · edição inline</p>
+          <p className="text-sm text-muted-foreground">
+            Controle financeiro completo · próprio e consignado · edição inline
+          </p>
         </div>
-        <button onClick={()=>setShowNovo(true)} className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
+        <button
+          onClick={() => setShowNovo(true)}
+          className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2"
+        >
           <Plus className="size-4" /> Novo produto
         </button>
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <KCard icon={<Package className="size-4" />} label="SKUs ativos" value={String(produtos.length)} tone="primary" />
-        <KCard icon={<Boxes className="size-4" />} label="Estoque próprio" value={brl(valorProprio)} tone="primary" />
-        <KCard icon={<Handshake className="size-4" />} label="Consignado" value={brl(valorConsig)} tone="accent" />
-        <KCard icon={<TrendingUp className="size-4" />} label="Margem média" value={`${margemMedia.toFixed(0)}%`} tone="success" />
+        <KCard
+          icon={<Package className="size-4" />}
+          label="SKUs ativos"
+          value={String(produtos.length)}
+          tone="primary"
+        />
+        <KCard
+          icon={<Boxes className="size-4" />}
+          label="Estoque próprio"
+          value={brl(valorProprio)}
+          tone="primary"
+        />
+        <KCard
+          icon={<Handshake className="size-4" />}
+          label="Consignado"
+          value={brl(valorConsig)}
+          tone="accent"
+        />
+        <KCard
+          icon={<TrendingUp className="size-4" />}
+          label="Margem média"
+          value={`${margemMedia.toFixed(0)}%`}
+          tone={margemMedia < 0 ? "destructive" : "success"}
+        />
       </div>
 
       {criticos.length > 0 && (
@@ -124,17 +510,29 @@ export function Estoque() {
           <div className="flex items-start gap-3">
             <AlertTriangle className="size-5 text-destructive shrink-0 mt-0.5" />
             <div className="flex-1">
-              <h3 className="font-semibold">Atenção · {criticos.length} produtos abaixo do mínimo</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">A IA recomenda repor os itens abaixo nas próximas 48h.</p>
+              <h3 className="font-semibold">
+                Atenção · {criticos.length} produtos abaixo do mínimo
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                A IA recomenda repor os itens abaixo nas próximas 48h.
+              </p>
             </div>
-            <button className="h-9 px-4 rounded-lg bg-destructive text-destructive-foreground text-xs font-bold">Gerar pedido</button>
+            <button className="h-9 px-4 rounded-lg bg-destructive text-destructive-foreground text-xs font-bold">
+              Gerar pedido
+            </button>
           </div>
         </div>
       )}
 
       <div className="card-soft p-3 flex flex-wrap gap-2">
-        {(["todos","próprio","consignado"] as const).map(t => (
-          <button key={t} onClick={()=>setTipo(t)} className={`h-9 px-4 rounded-lg text-xs font-semibold capitalize ${tipo===t?"bg-foreground text-background":"bg-secondary hover:bg-secondary/70"}`}>{t === "todos" ? "Todos" : t === "próprio" ? "Estoque próprio" : "Consignado"}</button>
+        {(["todos", "próprio", "consignado"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTipo(t)}
+            className={`h-9 px-4 rounded-lg text-xs font-semibold capitalize ${tipo === t ? "bg-foreground text-background" : "bg-secondary hover:bg-secondary/70"}`}
+          >
+            {t === "todos" ? "Todos" : t === "próprio" ? "Estoque próprio" : "Consignado"}
+          </button>
         ))}
       </div>
 
@@ -152,6 +550,7 @@ export function Estoque() {
                 <th className="font-medium px-4 py-3 hidden xl:table-cell">Tipo margem</th>
                 <th className="font-medium px-4 py-3 text-right hidden md:table-cell">Lucro un.</th>
                 <th className="font-medium px-4 py-3 hidden lg:table-cell">Demanda</th>
+                <th className="font-medium px-4 py-3 text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -163,103 +562,437 @@ export function Estoque() {
                 const comp = comportamentoCompra(p);
                 return (
                   <tr key={p.sku} className="border-t border-border hover:bg-secondary/30">
-                    <td className="px-4 py-3">
-                      <div className="font-semibold">{p.nome}</div>
-                      <div className="text-xs text-muted-foreground">{p.categoria} · {p.sku}{p.fornecedor?` · ${p.fornecedor}`:""}</div>
+                    <td className="px-4 py-3 min-w-[320px]">
+                      <div className="flex items-center gap-3">
+                        <ProdutoFotoControl
+                          produto={p}
+                          salvando={fotoSalvandoSku === p.sku}
+                          onUpload={salvarFotoProduto}
+                          onRemove={removerFotoProduto}
+                        />
+                        <div className="min-w-0">
+                          <div className="font-semibold">{p.nome}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {p.categoria} · {p.sku}
+                            {p.fornecedor ? ` · ${p.fornecedor}` : ""}
+                          </div>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-md capitalize ${p.tipo==="próprio"?"bg-primary/15 text-primary":"bg-accent/15 text-accent"}`}>{p.tipo}</span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-1 rounded-md capitalize ${p.tipo === "próprio" ? "bg-primary/15 text-primary" : "bg-accent/15 text-accent"}`}
+                      >
+                        {p.tipo}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`font-bold ${critico ? "text-destructive" : ""}`}>{p.estoque}</span>
+                      <span className={`font-bold ${critico ? "text-destructive" : ""}`}>
+                        {p.estoque}
+                      </span>
                       <span className="text-muted-foreground text-xs">/{p.minimo}</span>
-                      {critico && <div className="text-[9px] font-semibold text-destructive mt-0.5">CRÍTICO</div>}
+                      {critico && (
+                        <div className="text-[9px] font-semibold text-destructive mt-0.5">
+                          CRÍTICO
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right hidden md:table-cell">
                       {edit?.sku === p.sku && edit.field === "precoCompra" ? (
                         <input
-                          autoFocus type="number" step="0.01" value={draft}
-                          onChange={e=>setDraft(e.target.value)}
+                          autoFocus
+                          type="number"
+                          step="0.01"
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
                           onBlur={commitEdit}
-                          onKeyDown={e=>{ if (e.key==="Enter") commitEdit(); if (e.key==="Escape") setEdit(null); }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitEdit();
+                            if (e.key === "Escape") setEdit(null);
+                          }}
                           className="w-24 h-8 px-2 text-right rounded bg-secondary outline-none focus:ring-2 ring-primary/30"
                         />
                       ) : (
-                        <button onClick={()=>startEdit(p.sku, "precoCompra", p.precoCompra)} className="text-muted-foreground hover:text-foreground hover:underline">{brl(p.precoCompra)}</button>
+                        <button
+                          onClick={() => startEdit(p.sku, "precoCompra", p.precoCompra)}
+                          className="text-muted-foreground hover:text-foreground hover:underline"
+                        >
+                          {brl(p.precoCompra)}
+                        </button>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {edit?.sku === p.sku && edit.field === "preco" ? (
                         <input
-                          autoFocus type="number" step="0.01" value={draft}
-                          onChange={e=>setDraft(e.target.value)}
+                          autoFocus
+                          type="number"
+                          step="0.01"
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
                           onBlur={commitEdit}
-                          onKeyDown={e=>{ if (e.key==="Enter") commitEdit(); if (e.key==="Escape") setEdit(null); }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitEdit();
+                            if (e.key === "Escape") setEdit(null);
+                          }}
                           className="w-24 h-8 px-2 text-right rounded bg-secondary outline-none focus:ring-2 ring-primary/30"
                         />
                       ) : (
-                        <button onClick={()=>startEdit(p.sku, "preco", p.preco)} className="font-semibold hover:text-primary hover:underline">{brl(p.preco)}</button>
+                        <button
+                          onClick={() => startEdit(p.sku, "preco", p.preco)}
+                          className="font-semibold hover:text-primary hover:underline"
+                        >
+                          {brl(p.preco)}
+                        </button>
                       )}
                     </td>
-                    <td className={`px-4 py-3 text-right font-bold ${negativa ? "text-destructive" : semMargem ? "text-destructive" : "text-success"}`}>
+                    <td
+                      className={`px-4 py-3 text-right font-bold ${negativa ? "text-destructive" : semMargem ? "text-destructive" : "text-success"}`}
+                    >
                       {m.pct.toFixed(0)}%
-                      {negativa && <div className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-destructive text-destructive-foreground inline-block ml-1">ATENÇÃO</div>}
+                      {negativa && (
+                        <div className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-destructive text-destructive-foreground inline-block ml-1">
+                          ATENÇÃO
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 hidden xl:table-cell">
-                      <span className="text-[10px] font-semibold text-muted-foreground">{m.tipoLabel}</span>
+                      <span className="text-[10px] font-semibold text-muted-foreground">
+                        {m.tipoLabel}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right hidden md:table-cell">{brl(m.lucro)}</td>
                     <td className="px-4 py-3 hidden lg:table-cell">
-                      <span title={`${comp.count} clientes compram regularmente`} className={`text-[10px] font-bold px-2 py-1 rounded-md ${comp.tone}`}>
+                      <span
+                        title={`${comp.count} clientes compram regularmente`}
+                        className={`text-[10px] font-bold px-2 py-1 rounded-md ${comp.tone}`}
+                      >
                         {comp.label}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => abrirEdicao(p)}
+                        className="h-8 px-3 rounded-lg bg-secondary text-xs font-semibold inline-flex items-center gap-2 hover:bg-secondary/70"
+                      >
+                        <Pencil className="size-3.5" /> Editar
+                      </button>
                     </td>
                   </tr>
                 );
               })}
+              {list.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="px-4 py-10 text-center">
+                    <div className="mx-auto max-w-sm">
+                      <div className="text-sm font-semibold">Nenhum produto encontrado</div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Ajuste a busca ou limpe o termo para ver todos os itens do estoque.
+                      </p>
+                      {buscaGlobal && (
+                        <button
+                          type="button"
+                          onClick={() => setBuscaGlobal("")}
+                          className="mt-4 h-9 px-4 rounded-lg bg-secondary text-xs font-semibold hover:bg-secondary/70"
+                        >
+                          Limpar busca
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
       {showNovo && (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50" onClick={()=>setShowNovo(false)}>
-          <div className="card-soft p-5 w-full max-w-lg space-y-4 max-h-[92vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50"
+          onClick={() => setShowNovo(false)}
+        >
+          <div
+            className="card-soft p-5 w-full max-w-lg space-y-4 max-h-[92vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between">
-              <h3 className="font-semibold inline-flex items-center gap-2"><Plus className="size-4 text-primary" /> Novo produto</h3>
-              <button onClick={()=>setShowNovo(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="size-4" /></button>
+              <h3 className="font-semibold inline-flex items-center gap-2">
+                <Plus className="size-4 text-primary" /> Novo produto
+              </h3>
+              <button
+                onClick={() => setShowNovo(false)}
+                className="p-1 rounded-lg hover:bg-secondary"
+              >
+                <X className="size-4" />
+              </button>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="SKU"><input value={novo.sku} onChange={e=>setNovo(s=>({...s, sku: e.target.value.toUpperCase()}))} placeholder="RAC-XXX-00" className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="SKU">
+                <input
+                  value={novo.sku}
+                  onChange={(e) => setNovo((s) => ({ ...s, sku: e.target.value.toUpperCase() }))}
+                  placeholder="RAC-XXX-00"
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
               <Field label="Categoria">
-                <select value={novo.categoria} onChange={e=>setNovo(s=>({...s, categoria: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30">
-                  {CATEGORIAS.map(c=><option key={c} value={c}>{c}</option>)}
+                <select
+                  value={novo.categoria}
+                  onChange={(e) => setNovo((s) => ({ ...s, categoria: e.target.value }))}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                >
+                  {CATEGORIAS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </select>
               </Field>
-              <Field label="Nome" full><input value={novo.nome} onChange={e=>setNovo(s=>({...s, nome: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Nome" full>
+                <input
+                  value={novo.nome}
+                  onChange={(e) => setNovo((s) => ({ ...s, nome: e.target.value }))}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
               <Field label="Tipo">
-                <select value={novo.tipo} onChange={e=>setNovo(s=>({...s, tipo: e.target.value as Produto["tipo"]}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30">
+                <select
+                  value={novo.tipo}
+                  onChange={(e) =>
+                    setNovo((s) => ({ ...s, tipo: e.target.value as Produto["tipo"] }))
+                  }
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                >
                   <option value="próprio">Próprio</option>
                   <option value="consignado">Consignado</option>
                 </select>
               </Field>
-              <Field label="Fornecedor (opcional)"><input value={novo.fornecedor} onChange={e=>setNovo(s=>({...s, fornecedor: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
-              <Field label="Estoque atual"><input type="number" value={novo.estoque} onChange={e=>setNovo(s=>({...s, estoque: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
-              <Field label="Estoque mínimo"><input type="number" value={novo.minimo} onChange={e=>setNovo(s=>({...s, minimo: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
-              <Field label="Preço de compra"><input type="number" step="0.01" value={novo.precoCompra} onChange={e=>setNovo(s=>({...s, precoCompra: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
-              <Field label="Preço de venda"><input type="number" step="0.01" value={novo.preco} onChange={e=>setNovo(s=>({...s, preco: e.target.value}))} className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30" /></Field>
+              <Field label="Fornecedor (opcional)">
+                <input
+                  value={novo.fornecedor}
+                  onChange={(e) => setNovo((s) => ({ ...s, fornecedor: e.target.value }))}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Estoque atual">
+                <input
+                  type="number"
+                  value={novo.estoque}
+                  onChange={(e) => setNovo((s) => ({ ...s, estoque: e.target.value }))}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Estoque mínimo">
+                <input
+                  type="number"
+                  value={novo.minimo}
+                  onChange={(e) => setNovo((s) => ({ ...s, minimo: e.target.value }))}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Preço de compra">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={novo.precoCompra}
+                  onChange={(e) => setNovo((s) => ({ ...s, precoCompra: e.target.value }))}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Preço de venda">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={novo.preco}
+                  onChange={(e) => setNovo((s) => ({ ...s, preco: e.target.value }))}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
             </div>
+            <ProdutoDetalhesFields
+              detalhes={novo.detalhesTecnicos}
+              onChange={(key, value) =>
+                setNovo((s) => ({
+                  ...s,
+                  detalhesTecnicos: { ...s.detalhesTecnicos, [key]: value },
+                }))
+              }
+            />
             {novaMargem && (
-              <div className={`rounded-xl p-3 ${novaMargem.pct < 0 ? "bg-destructive/10" : novaMargem.pct < 20 ? "bg-accent/10" : "bg-success/10"}`}>
-                <div className="text-xs text-muted-foreground">Margem prevista ({novo.tipo === "consignado" ? "líquida consignado" : "bruta"})</div>
-                <div className={`text-2xl font-bold tabular-nums ${novaMargem.pct < 0 ? "text-destructive" : novaMargem.pct < 20 ? "text-accent" : "text-success"}`}>
+              <div
+                className={`rounded-xl p-3 ${novaMargem.pct < 0 ? "bg-destructive/10" : novaMargem.pct < 20 ? "bg-accent/10" : "bg-success/10"}`}
+              >
+                <div className="text-xs text-muted-foreground">
+                  Margem prevista ({novo.tipo === "consignado" ? "líquida consignado" : "bruta"})
+                </div>
+                <div
+                  className={`text-2xl font-bold tabular-nums ${novaMargem.pct < 0 ? "text-destructive" : novaMargem.pct < 20 ? "text-accent" : "text-success"}`}
+                >
                   {novaMargem.pct.toFixed(1)}% · {brl(novaMargem.lucro)}/un.
                 </div>
               </div>
             )}
             <div className="flex gap-2">
-              <button onClick={()=>setShowNovo(false)} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold">Cancelar</button>
-              <button onClick={salvarNovo} className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold">Adicionar</button>
+              <button
+                onClick={() => setShowNovo(false)}
+                className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvarNovo}
+                className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold"
+              >
+                Adicionar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {produtoEditando && editForm && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50"
+          onClick={fecharEdicao}
+        >
+          <div
+            className="card-soft p-5 w-full max-w-lg space-y-4 max-h-[92vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <h3 className="font-semibold inline-flex items-center gap-2">
+                <Pencil className="size-4 text-primary" /> Editar produto
+              </h3>
+              <button onClick={fecharEdicao} className="p-1 rounded-lg hover:bg-secondary">
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="SKU">
+                <input
+                  value={editForm.sku}
+                  onChange={(e) =>
+                    setEditForm((s) => s && { ...s, sku: e.target.value.toUpperCase() })
+                  }
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Categoria">
+                <select
+                  value={editForm.categoria}
+                  onChange={(e) => setEditForm((s) => s && { ...s, categoria: e.target.value })}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                >
+                  {CATEGORIAS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                  {!CATEGORIAS.includes(editForm.categoria) && (
+                    <option value={editForm.categoria}>{editForm.categoria}</option>
+                  )}
+                </select>
+              </Field>
+              <Field label="Nome" full>
+                <input
+                  value={editForm.nome}
+                  onChange={(e) => setEditForm((s) => s && { ...s, nome: e.target.value })}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Tipo">
+                <select
+                  value={editForm.tipo}
+                  onChange={(e) =>
+                    setEditForm((s) => s && { ...s, tipo: e.target.value as Produto["tipo"] })
+                  }
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                >
+                  <option value="próprio">Próprio</option>
+                  <option value="consignado">Consignado</option>
+                </select>
+              </Field>
+              <Field label="Giro">
+                <select
+                  value={editForm.giro}
+                  onChange={(e) =>
+                    setEditForm((s) => s && { ...s, giro: e.target.value as Produto["giro"] })
+                  }
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                >
+                  {GIROS.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Fornecedor">
+                <input
+                  value={editForm.fornecedor}
+                  onChange={(e) => setEditForm((s) => s && { ...s, fornecedor: e.target.value })}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Estoque atual">
+                <input
+                  type="number"
+                  value={editForm.estoque}
+                  onChange={(e) => setEditForm((s) => s && { ...s, estoque: e.target.value })}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Estoque mínimo">
+                <input
+                  type="number"
+                  value={editForm.minimo}
+                  onChange={(e) => setEditForm((s) => s && { ...s, minimo: e.target.value })}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Preço de compra">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editForm.precoCompra}
+                  onChange={(e) => setEditForm((s) => s && { ...s, precoCompra: e.target.value })}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+              <Field label="Preço de venda">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editForm.preco}
+                  onChange={(e) => setEditForm((s) => s && { ...s, preco: e.target.value })}
+                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+                />
+              </Field>
+            </div>
+            <ProdutoDetalhesFields
+              detalhes={editForm.detalhesTecnicos}
+              onChange={(key, value) =>
+                setEditForm(
+                  (s) => s && { ...s, detalhesTecnicos: { ...s.detalhesTecnicos, [key]: value } },
+                )
+              }
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={fecharEdicao}
+                disabled={salvando}
+                className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvarEdicao}
+                disabled={salvando}
+                className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold disabled:opacity-60"
+              >
+                {salvando ? "Salvando..." : "Salvar alterações"}
+              </button>
             </div>
           </div>
         </div>
@@ -268,17 +1001,141 @@ export function Estoque() {
   );
 }
 
-function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
+function ProdutoFotoControl({
+  produto,
+  salvando,
+  onUpload,
+  onRemove,
+}: {
+  produto: Produto;
+  salvando: boolean;
+  onUpload: (produto: Produto, file: File) => Promise<void>;
+  onRemove: (produto: Produto) => Promise<void>;
+}) {
+  const label = produto.fotoUrl ? "Trocar foto" : "Adicionar foto";
+
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <div className="relative size-14 overflow-hidden rounded-lg border border-border bg-secondary">
+        {produto.fotoUrl ? (
+          <img src={produto.fotoUrl} alt={produto.nome} className="size-full object-cover" />
+        ) : (
+          <div className="grid size-full place-items-center text-muted-foreground">
+            <ImageIcon className="size-5" />
+          </div>
+        )}
+        {salvando && (
+          <div className="absolute inset-0 grid place-items-center bg-background/80">
+            <Loader2 className="size-4 animate-spin text-primary" />
+          </div>
+        )}
+      </div>
+      <div className="flex w-28 flex-col gap-1">
+        <label
+          className={`inline-flex h-7 cursor-pointer items-center justify-center gap-1.5 rounded-md bg-secondary px-2 text-[10px] font-bold hover:bg-secondary/70 ${salvando ? "pointer-events-none opacity-60" : ""}`}
+        >
+          <Upload className="size-3" />
+          <span className="truncate">{label}</span>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            disabled={salvando}
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (file) void onUpload(produto, file);
+            }}
+          />
+        </label>
+        {produto.fotoUrl && (
+          <button
+            type="button"
+            disabled={salvando}
+            onClick={() => void onRemove(produto)}
+            className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-destructive/10 px-2 text-[10px] font-bold text-destructive hover:bg-destructive/15 disabled:opacity-60"
+          >
+            <Trash2 className="size-3" />
+            Remover
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+  full,
+}: {
+  label: string;
+  children: React.ReactNode;
+  full?: boolean;
+}) {
   return (
     <label className={`block ${full ? "col-span-2" : ""}`}>
-      <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-1 block">{label}</span>
+      <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-1 block">
+        {label}
+      </span>
       {children}
     </label>
   );
 }
 
-function KCard({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: "primary"|"destructive"|"success"|"accent" }) {
-  const cls = { primary: "bg-primary/15 text-primary", destructive: "bg-destructive/10 text-destructive", success: "bg-success/15 text-success", accent: "bg-accent/15 text-accent" }[tone];
+function ProdutoDetalhesFields({
+  detalhes,
+  onChange,
+}: {
+  detalhes: Record<keyof ProdutoDetalhesTecnicos, string>;
+  onChange: (key: keyof ProdutoDetalhesTecnicos, value: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="pt-2 border-t border-border">
+        <div className="text-xs font-bold text-foreground">Informações da planilha técnica</div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {DETALHE_FIELDS.map(({ key, label, full }) => (
+          <Field key={key} label={label} full={full}>
+            {full ? (
+              <textarea
+                value={detalhes[key]}
+                onChange={(e) => onChange(key, e.target.value)}
+                rows={2}
+                className="min-h-16 w-full px-3 py-2 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30 resize-y"
+              />
+            ) : (
+              <input
+                value={detalhes[key]}
+                onChange={(e) => onChange(key, e.target.value)}
+                className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+              />
+            )}
+          </Field>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KCard({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  tone: "primary" | "destructive" | "success" | "accent";
+}) {
+  const cls = {
+    primary: "bg-primary/15 text-primary",
+    destructive: "bg-destructive/10 text-destructive",
+    success: "bg-success/15 text-success",
+    accent: "bg-accent/15 text-accent",
+  }[tone];
   return (
     <div className="card-soft p-4 flex items-center gap-4">
       <div className={`size-11 rounded-xl grid place-items-center ${cls}`}>{icon}</div>

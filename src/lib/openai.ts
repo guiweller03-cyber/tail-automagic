@@ -15,6 +15,10 @@ export type Mensagem = {
   source?: "whatsapp" | "crm";
   fromMe?: boolean;
   messageType?: string;
+  mediaUrl?: string;
+  mimeType?: string;
+  fileName?: string;
+  mediaKey?: string;
 };
 
 export type IaRegraCustomizada = {
@@ -110,6 +114,9 @@ Nunca invente produto, preço ou estoque fora dessa lista.
 
 Quando o cliente informar nome, endereço, bairro ou pets, inclua em linha separada:
 [SALVAR_CLIENTE nome="..."; endereco="..."; bairro="..."; pets="..."]
+
+Quando o cliente informar fatos uteis para recompra, consumo, quantidade de pets, porte, apetite ou duracao de produto, inclua em linha separada:
+[DADOS_OBSERVADOS pets="ex: 3 cachorros"; produto="ex: racao 15kg"; consumo="ex: comem bastante"; duracao="ex: dura 30 dias"]
 
 Quando o pedido estiver confirmado com produto, quantidade, endereço e pagamento:
 [PEDIDO] produto="nome exato"; quantidade=1; pagamento="Pix/cartão/dinheiro"; total="R$0,00"
@@ -394,6 +401,27 @@ export type PerfilClienteExtraido = {
   especies?: Array<"cachorro" | "gato">;
   observacoes?: string;
   followUpMensagem?: string;
+  dadosObservados?: {
+    pets?: Array<{
+      nome?: string;
+      especie?: "cachorro" | "gato";
+      porte?: "pequeno" | "medio" | "grande";
+      pesoKg?: number;
+      apetite?: "baixo" | "normal" | "alto";
+    }>;
+    produtosUsoContinuo?: Array<{
+      nome?: string;
+      categoria?: string;
+      pesoKg?: number;
+      frequenciaDias?: number;
+      observacao?: string;
+    }>;
+    rotinaConsumo?: {
+      quantidadePets?: number;
+      consumoDescrito?: string;
+      compraDescrita?: string;
+    };
+  };
 };
 
 function safeJsonObject(text: string): Record<string, unknown> {
@@ -422,6 +450,84 @@ function stringArray(value: unknown, maxItems = 6): string[] | undefined {
     .slice(0, maxItems);
 
   return items.length > 0 ? items : undefined;
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
+function dadosObservadosFromJson(data: Record<string, unknown>): PerfilClienteExtraido["dadosObservados"] {
+  const observed = data.dadosObservados;
+  if (!observed || typeof observed !== "object" || Array.isArray(observed)) return undefined;
+
+  const object = observed as Record<string, unknown>;
+  const pets = Array.isArray(object.pets)
+    ? object.pets.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const pet = item as Record<string, unknown>;
+        const especie: "cachorro" | "gato" | undefined =
+          pet.especie === "cachorro" || pet.especie === "gato" ? (pet.especie as "cachorro" | "gato") : undefined;
+        const porte: "pequeno" | "medio" | "grande" | undefined =
+          pet.porte === "pequeno" || pet.porte === "medio" || pet.porte === "grande"
+            ? (pet.porte as "pequeno" | "medio" | "grande")
+            : undefined;
+
+        return [{
+          nome: typeof pet.nome === "string" ? pet.nome.trim() || undefined : undefined,
+          especie,
+          porte,
+          pesoKg: numberOrUndefined(pet.pesoKg),
+          apetite:
+            pet.apetite === "baixo" || pet.apetite === "normal" || pet.apetite === "alto"
+              ? (pet.apetite as "baixo" | "normal" | "alto")
+              : undefined,
+        }];
+      }).slice(0, 10)
+    : undefined;
+
+  const produtosUsoContinuo = Array.isArray(object.produtosUsoContinuo)
+    ? object.produtosUsoContinuo.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const product = item as Record<string, unknown>;
+
+        return [{
+          nome: typeof product.nome === "string" ? product.nome.trim() || undefined : undefined,
+          categoria: typeof product.categoria === "string" ? product.categoria.trim() || undefined : undefined,
+          pesoKg: numberOrUndefined(product.pesoKg),
+          frequenciaDias: numberOrUndefined(product.frequenciaDias),
+          observacao: typeof product.observacao === "string" ? product.observacao.trim().slice(0, 300) || undefined : undefined,
+        }];
+      }).slice(0, 10)
+    : undefined;
+
+  const rotinaConsumo =
+    object.rotinaConsumo && typeof object.rotinaConsumo === "object" && !Array.isArray(object.rotinaConsumo)
+      ? object.rotinaConsumo as Record<string, unknown>
+      : undefined;
+
+  const result: PerfilClienteExtraido["dadosObservados"] = {
+    pets: pets?.length ? pets : undefined,
+    produtosUsoContinuo: produtosUsoContinuo?.length ? produtosUsoContinuo : undefined,
+    rotinaConsumo: rotinaConsumo
+      ? {
+          quantidadePets: numberOrUndefined(rotinaConsumo.quantidadePets),
+          consumoDescrito:
+            typeof rotinaConsumo.consumoDescrito === "string"
+              ? rotinaConsumo.consumoDescrito.trim().slice(0, 300) || undefined
+              : undefined,
+          compraDescrita:
+            typeof rotinaConsumo.compraDescrita === "string"
+              ? rotinaConsumo.compraDescrita.trim().slice(0, 300) || undefined
+              : undefined,
+        }
+      : undefined,
+  };
+
+  if (result.pets || result.produtosUsoContinuo || result.rotinaConsumo) {
+    return result;
+  }
+  return undefined;
 }
 
 export async function extrairPerfilClienteDaConversa(
@@ -463,7 +569,12 @@ Schema:
   "pets": ["nomes dos pets, se informados"],
   "especies": ["cachorro" ou "gato"],
   "observacoes": "resumo factual curto de preferencias, restricoes, produto de interesse, pagamento ou entrega",
-  "followUpMensagem": "proxima acao manual objetiva, se houver"
+  "followUpMensagem": "proxima acao manual objetiva, se houver",
+  "dadosObservados": {
+    "pets": [{"nome": "nome", "especie": "cachorro/gato", "porte": "pequeno/medio/grande", "pesoKg": 0, "apetite": "baixo/normal/alto"}],
+    "produtosUsoContinuo": [{"nome": "produto citado", "categoria": "racao/areia/medicamento/etc", "pesoKg": 0, "frequenciaDias": 0, "observacao": "fato citado"}],
+    "rotinaConsumo": {"quantidadePets": 0, "consumoDescrito": "ex: 3 cachorros comem bastante", "compraDescrita": "ex: saco de 15kg dura um mes"}
+  }
 }`,
         },
         { role: "user", content: conversa },
@@ -493,6 +604,7 @@ Schema:
       typeof data.observacoes === "string" ? data.observacoes.trim().slice(0, 1000) || undefined : undefined,
     followUpMensagem:
       typeof data.followUpMensagem === "string" ? data.followUpMensagem.trim().slice(0, 500) || undefined : undefined,
+    dadosObservados: dadosObservadosFromJson(data),
   };
 }
 

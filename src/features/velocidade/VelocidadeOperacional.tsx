@@ -26,38 +26,8 @@ type Jornada = {
   respostaWppMin: number;    // tempo médio resposta no WhatsApp
 };
 
-// ---------- Mock determinístico ----------
-const ATENDENTES = ["Ana", "Bruno", "Carla", "Diego"];
-const PRODUTOS = ["Golden 15kg", "Areia 4kg", "Petisco Natural", "Royal Canin", "Premier Cat"];
-const REGIOES: Jornada["regiao"][] = ["Centro", "Zona Sul", "Zona Norte", "Zona Leste", "Zona Oeste"];
-const PAGS: Jornada["pagamento"][] = ["Pix", "Cartão", "Dinheiro"];
-
-function seedJornadas(): Jornada[] {
-  const arr: Jornada[] = [];
-  let s = 7;
-  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
-  for (let d = 0; d < 30; d++) {
-    const n = 4 + Math.floor(rnd() * 5);
-    for (let i = 0; i < n; i++) {
-      const hora = 8 + Math.floor(rnd() * 12);
-      arr.push({
-        id: `J-${d}-${i}`,
-        cliente: ["Marina Costa","Pedro Alves","Júlia Ramos","Lucas Pereira","Helena Souza","Roberto Lima","Sofia Almeida"][Math.floor(rnd() * 7)],
-        produto: PRODUTOS[Math.floor(rnd() * PRODUTOS.length)],
-        atendente: ATENDENTES[Math.floor(rnd() * ATENDENTES.length)],
-        regiao: REGIOES[Math.floor(rnd() * REGIOES.length)],
-        pagamento: PAGS[Math.floor(rnd() * PAGS.length)],
-        hora, diaIdx: d,
-        tAtendimentoMin: Math.round(2 + rnd() * 18),
-        tConfirmacaoMin: Math.round(3 + rnd() * 40),
-        tPagamentoMin: Math.round(1 + rnd() * 25),
-        tSeparacaoMin: Math.round(5 + rnd() * 30),
-        tEntregaMin: Math.round(20 + rnd() * 90),
-        respostaWppMin: Math.round(1 + rnd() * 14),
-      });
-    }
-  }
-  return arr;
+function jornadasOperacionais(): Jornada[] {
+  return [];
 }
 
 const fmtMin = (m: number) => {
@@ -69,11 +39,12 @@ const fmtMin = (m: number) => {
 const avg = (xs: number[]) => xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0;
 const jornadaTotal = (j: Jornada) =>
   j.tAtendimentoMin + j.tConfirmacaoMin + j.tPagamentoMin + j.tSeparacaoMin + j.tEntregaMin;
+const unique = <T,>(values: T[]) => Array.from(new Set(values));
 
 // ---------- Componente ----------
 export function VelocidadeOperacional() {
   const [periodo, setPeriodo] = useState<"dia" | "semana" | "mes">("dia");
-  const todas = useMemo(seedJornadas, []);
+  const todas = useMemo(jornadasOperacionais, []);
 
   const periodoDias = periodo === "dia" ? 1 : periodo === "semana" ? 7 : 30;
   const atuais = useMemo(() => todas.filter(j => j.diaIdx < periodoDias), [todas, periodoDias]);
@@ -156,19 +127,19 @@ export function VelocidadeOperacional() {
 
   // IA — por atendente / região / pagamento
   const porAtendente = useMemo(() =>
-    ATENDENTES.map(a => {
+    unique(atuais.map(j => j.atendente)).map(a => {
       const list = atuais.filter(j => j.atendente === a);
       return { atendente: a, total: avg(list.map(jornadaTotal)), n: list.length };
     }).sort((a, b) => a.total - b.total), [atuais]);
 
   const porRegiao = useMemo(() =>
-    REGIOES.map(r => {
+    unique(atuais.map(j => j.regiao)).map(r => {
       const list = atuais.filter(j => j.regiao === r);
       return { regiao: r, entrega: avg(list.map(j => j.tEntregaMin)) };
     }).sort((a, b) => a.entrega - b.entrega), [atuais]);
 
   const porPagamento = useMemo(() =>
-    PAGS.map(p => {
+    unique(atuais.map(j => j.pagamento)).map(p => {
       const list = atuais.filter(j => j.pagamento === p);
       return { pag: p, ate_pag: avg(list.map(j => j.tAtendimentoMin + j.tConfirmacaoMin + j.tPagamentoMin)) };
     }).sort((a, b) => a.ate_pag - b.ate_pag), [atuais]);

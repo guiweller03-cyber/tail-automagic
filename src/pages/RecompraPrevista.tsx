@@ -1,14 +1,12 @@
-import {
-  recomprasPrevistas,
-  produtosPrevistos,
-  demandaBairros,
-  iaRecompraAlertas,
-  type RecompraPrevista,
-  type RecompraStatus,
-  type ComportamentoIA,
-  type TendenciaIA,
-} from "@/lib/mock";
-import { useMemo, useState } from "react";
+import type {
+  DemandaBairro,
+  ProdutoPrevisto,
+  RecompraPrevista,
+  RecompraStatus,
+  ComportamentoIA,
+  TendenciaIA,
+} from "@/lib/crm-types";
+import { useEffect, useMemo, useState } from "react";
 import {
   MessageCircle,
   ShoppingBag,
@@ -40,6 +38,17 @@ import {
 } from "lucide-react";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const recomprasPrevistas: RecompraPrevista[] = [];
+const produtosPrevistos: ProdutoPrevisto[] = [];
+const demandaBairros: DemandaBairro[] = [];
+const iaRecompraAlertas: { tipo: string; cliente: string; msg: string }[] = [];
+
+type RecompraApiData = {
+  recompras: RecompraPrevista[];
+  produtos: ProdutoPrevisto[];
+  bairros: DemandaBairro[];
+  alertas: { tipo: string; cliente: string; msg: string }[];
+};
 
 const statusMap: Record<RecompraStatus, { label: string; cls: string; dot: string }> = {
   ok: { label: "OK", cls: "bg-success/10 text-success border-success/30", dot: "bg-success" },
@@ -89,6 +98,10 @@ const filtros: Filtro[] = [
 
 export function RecompraPrevista() {
   const [items, setItems] = useState<RecompraPrevista[]>(recomprasPrevistas);
+  const [produtos, setProdutos] = useState<ProdutoPrevisto[]>(produtosPrevistos);
+  const [bairrosDemanda, setBairrosDemanda] = useState<DemandaBairro[]>(demandaBairros);
+  const [alertasIa, setAlertasIa] = useState<{ tipo: string; cliente: string; msg: string }[]>(iaRecompraAlertas);
+  const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<Filtro>("Todos");
   const [busca, setBusca] = useState("");
   const [cidade, setCidade] = useState("Todas");
@@ -111,6 +124,36 @@ export function RecompraPrevista() {
     () => ["Todos", ...Array.from(new Set(items.map((r) => r.bairro)))],
     [items],
   );
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        setLoading(true);
+        const response = await fetch("/api/crm/recompra-prevista", { cache: "no-store" });
+        const data = (await response.json()) as RecompraApiData | { erro?: string };
+        if (!alive) return;
+        if (!response.ok) throw new Error("erro" in data ? data.erro : "Nao foi possivel carregar recompra");
+        setItems(data.recompras ?? []);
+        setProdutos(data.produtos ?? []);
+        setBairrosDemanda(data.bairros ?? []);
+        setAlertasIa(data.alertas ?? []);
+      } catch {
+        if (alive) {
+          setItems([]);
+          setProdutos([]);
+          setBairrosDemanda([]);
+          setAlertasIa([]);
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const filtrados = useMemo(() => {
     return items.filter((r) => {
@@ -146,26 +189,38 @@ export function RecompraPrevista() {
   }, [items, filtro, busca, cidade, bairro]);
 
   // KPIs do topo
-  const valorPrevistoProdutos = produtosPrevistos.reduce(
+  const valorPrevistoProdutos = produtos.reduce(
     (s, p) => s + p.unidadesPrevistas * p.precoUnit * (p.taxaRecompra / 100),
     0,
   );
   const clientesEmRecompra = items.length;
-  const taxaPrevista = produtosPrevistos.length
+  const taxaPrevista = produtos.length
     ? Math.round(
-        produtosPrevistos.reduce((s, p) => s + p.taxaRecompra, 0) / produtosPrevistos.length,
+        produtos.reduce((s, p) => s + p.taxaRecompra, 0) / produtos.length,
       )
     : 0;
   const atrasados = items.filter((r) => r.diasRestantes < 0).length;
   const urgentes = items.filter((r) => r.diasRestantes >= 0 && r.diasRestantes <= 3).length;
 
-  const maxUnidades = Math.max(...produtosPrevistos.map((p) => p.unidadesPrevistas), 1);
-
   function marcarContatado(id: string) {
-    setItems((arr) => arr.map((r) => (r.id === id ? { ...r, contatado: !r.contatado } : r)));
+    const atual = items.find((r) => r.id === id);
+    const contatado = !atual?.contatado;
+    setItems((arr) => arr.map((r) => (r.id === id ? { ...r, contatado } : r)));
+    void fetch("/api/crm/recompra-prevista", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "contatado", id, contatado }),
+    }).catch(() => undefined);
   }
   function toggleTravado(id: string) {
-    setItems((arr) => arr.map((r) => (r.id === id ? { ...r, travado: !r.travado } : r)));
+    const atual = items.find((r) => r.id === id);
+    const travado = !atual?.travado;
+    setItems((arr) => arr.map((r) => (r.id === id ? { ...r, travado } : r)));
+    void fetch("/api/crm/recompra-prevista", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "travado", id, travado }),
+    }).catch(() => undefined);
   }
 
   // ── IA stats ──
@@ -297,7 +352,12 @@ export function RecompraPrevista() {
             <Sparkles className="size-3 text-accent" /> Alertas da IA
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-            {iaRecompraAlertas.map((a, i) => {
+            {alertasIa.length === 0 && (
+              <div className="rounded-lg border border-border px-3 py-2 text-[11px] text-muted-foreground">
+                {loading ? "Carregando previsoes..." : "Nenhum alerta de recompra no momento."}
+              </div>
+            )}
+            {alertasIa.map((a, i) => {
               const tone =
                 a.tipo === "antecipou"
                   ? "border-success/30 bg-success/5 text-success"
@@ -372,13 +432,13 @@ export function RecompraPrevista() {
       </section>
 
       {/* PRODUTOS PREVISTOS — PAINEL OPERACIONAL */}
-      <PrevisaoProdutos semana={semana} setSemana={setSemana} />
+      <PrevisaoProdutos produtosPrevistos={produtos} semana={semana} setSemana={setSemana} />
 
       {/* LOGÍSTICA + COMPRAS */}
-      <PrevisaoLogistica semana={semana} />
+      <PrevisaoLogistica demandaBairros={bairrosDemanda} semana={semana} />
 
       {/* AUTOMAÇÕES POR CATEGORIA DE PRODUTO */}
-      <AutomacoesCategoria />
+      <AutomacoesCategoria produtosPrevistos={produtos} />
 
       {/* FILTROS */}
 
@@ -955,14 +1015,16 @@ function brl2(n: number) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function unidadesNaSemana(p: (typeof produtosPrevistos)[number], s: 0 | 1 | 2 | 3 | 4) {
+function unidadesNaSemana(p: ProdutoPrevisto, s: 0 | 1 | 2 | 3 | 4) {
   return s === 0 ? p.semanas.reduce((a, b) => a + b, 0) : p.semanas[s - 1];
 }
 
 function PrevisaoProdutos({
+  produtosPrevistos,
   semana,
   setSemana,
 }: {
+  produtosPrevistos: ProdutoPrevisto[];
   semana: 0 | 1 | 2 | 3 | 4;
   setSemana: (s: 0 | 1 | 2 | 3 | 4) => void;
 }) {
@@ -980,7 +1042,7 @@ function PrevisaoProdutos({
       necessario += Math.max(0, u - livre);
     });
     return { unidades, receita, margem: receita - custo, necessario };
-  }, [semana]);
+  }, [produtosPrevistos, semana]);
 
   const rupturas = produtosPrevistos.filter(
     (p) => p.rupturaSemana && (semana === 0 || p.rupturaSemana <= semana),
@@ -1166,7 +1228,7 @@ function PrevisaoProdutos({
             </h3>
             <span className="text-[11px] text-muted-foreground">unidades previstas</span>
           </div>
-          <DemandaSemanas />
+          <DemandaSemanas produtosPrevistos={produtosPrevistos} />
         </div>
 
         <div className="card-soft p-4 lg:col-span-2">
@@ -1207,7 +1269,7 @@ function PrevisaoProdutos({
   );
 }
 
-function DemandaSemanas() {
+function DemandaSemanas({ produtosPrevistos }: { produtosPrevistos: ProdutoPrevisto[] }) {
   const totals: [number, number, number, number] = [0, 0, 0, 0];
   produtosPrevistos.forEach((p) => p.semanas.forEach((u, i) => (totals[i] += u)));
   const max = Math.max(...totals, 1);
@@ -1230,7 +1292,13 @@ function DemandaSemanas() {
 }
 
 // ───────────────────────── LOGÍSTICA / DEMANDA ─────────────────────────
-function PrevisaoLogistica({ semana }: { semana: 0 | 1 | 2 | 3 | 4 }) {
+function PrevisaoLogistica({
+  demandaBairros,
+  semana,
+}: {
+  demandaBairros: DemandaBairro[];
+  semana: 0 | 1 | 2 | 3 | 4;
+}) {
   const bairros = useMemo(() => {
     return demandaBairros
       .map((b) => {
@@ -1238,7 +1306,7 @@ function PrevisaoLogistica({ semana }: { semana: 0 | 1 | 2 | 3 | 4 }) {
         return { ...b, entregas, faturamento: entregas * b.ticketMedio };
       })
       .sort((a, b) => b.entregas - a.entregas);
-  }, [semana]);
+  }, [demandaBairros, semana]);
 
   const totalEntregas = bairros.reduce((s, b) => s + b.entregas, 0);
   const totalFat = bairros.reduce((s, b) => s + b.faturamento, 0);
@@ -1353,7 +1421,7 @@ function loadRegras(): RegraCategoria[] {
   } catch { return REGRAS_DEFAULT; }
 }
 
-function AutomacoesCategoria() {
+function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: ProdutoPrevisto[] }) {
   const [regras, setRegras] = useState<RegraCategoria[]>(loadRegras);
   const [editandoId, setEditandoId] = useState<string | null>(null);
 
@@ -1379,7 +1447,7 @@ function AutomacoesCategoria() {
       map.set(p.categoria, cur);
     });
     return Array.from(map.entries()).map(([cat, v]) => ({ cat, ...v })).sort((a, b) => b.receita - a.receita);
-  }, []);
+  }, [produtosPrevistos]);
 
   const totalRecorrente = recorrentePorCat.reduce((s, c) => s + c.receita, 0);
   const ativos = regras.filter((r) => r.ativo).length;

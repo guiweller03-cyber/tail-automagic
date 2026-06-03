@@ -14,7 +14,7 @@ import {
   salvarIaPromptConfig,
   listarPedidos,
   listarConversas,
-  upsertConversa,
+  upsertConversas,
   type Conversa,
 } from "@/lib/supabase";
 import {
@@ -23,6 +23,7 @@ import {
   listarClientes,
   type ClienteCrmInput,
 } from "@/lib/crm-supabase";
+import { salvarDadosObservadosCliente } from "@/lib/recompra-supabase";
 import { BASE_SYSTEM_PROMPT, type IaRegraCustomizada } from "@/lib/openai";
 import {
   buscarMensagensChatWhatsApp,
@@ -56,7 +57,11 @@ function chatIdFromChat(chat: ChatWhatsApp): string | undefined {
 }
 
 function nomeFromChat(chat: ChatWhatsApp): string | undefined {
-  return nomeClienteSeguro(chat.wa_contactName) ?? nomeClienteSeguro(chat.name) ?? nomeClienteSeguro(chat.wa_name);
+  return (
+    nomeClienteSeguro(chat.wa_contactName) ??
+    nomeClienteSeguro(chat.name) ??
+    nomeClienteSeguro(chat.wa_name)
+  );
 }
 
 function isoFromTimestamp(timestamp?: number): string | undefined {
@@ -70,6 +75,14 @@ function isoFromTimestamp(timestamp?: number): string | undefined {
 
 function textoMensagemWhatsapp(message: MensagemWhatsApp): string | undefined {
   if (typeof message.text === "string" && message.text.trim()) return message.text;
+
+  const nestedContent = stringFromContent(message.message, [
+    "text",
+    "body",
+    "caption",
+    "conversation",
+  ]);
+  if (nestedContent) return nestedContent;
 
   if (message.content && typeof message.content === "object") {
     const content = message.content as {
@@ -90,38 +103,116 @@ function textoMensagemWhatsapp(message: MensagemWhatsApp): string | undefined {
   if (tipo.includes("audio")) return message.fromMe ? "[Audio enviado]" : "[Audio recebido]";
   if (tipo.includes("image")) return message.fromMe ? "[Imagem enviada]" : "[Imagem recebida]";
   if (tipo.includes("video")) return message.fromMe ? "[Video enviado]" : "[Video recebido]";
-  if (tipo.includes("document")) return message.fromMe ? "[Documento enviado]" : "[Documento recebido]";
-  if (tipo.includes("sticker")) return message.fromMe ? "[Figurinha enviada]" : "[Figurinha recebida]";
-  if (tipo.includes("location")) return message.fromMe ? "[Localizacao enviada]" : "[Localizacao recebida]";
+  if (tipo.includes("document"))
+    return message.fromMe ? "[Documento enviado]" : "[Documento recebido]";
+  if (tipo.includes("sticker"))
+    return message.fromMe ? "[Figurinha enviada]" : "[Figurinha recebida]";
+  if (tipo.includes("location"))
+    return message.fromMe ? "[Localizacao enviada]" : "[Localizacao recebida]";
   if (tipo.includes("contact")) return message.fromMe ? "[Contato enviado]" : "[Contato recebido]";
 
   return undefined;
 }
 
+function stringFromContent(content: unknown, keys: string[]): string | undefined {
+  if (!content || typeof content !== "object") return undefined;
+
+  const record = content as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+
+  for (const value of Object.values(record)) {
+    if (value && typeof value === "object") {
+      const nested = stringFromContent(value, keys);
+      if (nested) return nested;
+    }
+  }
+
+  return undefined;
+}
+
+function mediaUrlMensagemWhatsapp(message: MensagemWhatsApp): string | undefined {
+  if (typeof message.fileURL === "string" && message.fileURL.trim()) return message.fileURL.trim();
+  if (typeof message.fileUrl === "string" && message.fileUrl.trim()) return message.fileUrl.trim();
+  if (typeof message.mediaUrl === "string" && message.mediaUrl.trim())
+    return message.mediaUrl.trim();
+  if (typeof message.mediaURL === "string" && message.mediaURL.trim())
+    return message.mediaURL.trim();
+
+  const keys = [
+    "fileURL",
+    "fileUrl",
+    "mediaUrl",
+    "mediaURL",
+    "URL",
+    "url",
+    "downloadUrl",
+    "downloadURL",
+  ];
+
+  return stringFromContent(message.content, keys) ?? stringFromContent(message.message, keys);
+}
+
+function mimeTypeMensagemWhatsapp(message: MensagemWhatsApp): string | undefined {
+  return (
+    message.mimeType ??
+    message.mimetype ??
+    stringFromContent(message.content, ["mimetype", "mimeType", "mediaType"]) ??
+    stringFromContent(message.message, ["mimetype", "mimeType", "mediaType"])
+  );
+}
+
+function fileNameMensagemWhatsapp(message: MensagemWhatsApp): string | undefined {
+  return (
+    message.fileName ??
+    stringFromContent(message.content, ["fileName", "filename", "title"]) ??
+    stringFromContent(message.message, ["fileName", "filename", "title"])
+  );
+}
+
+function mediaKeyMensagemWhatsapp(message: MensagemWhatsApp): string | undefined {
+  return (
+    message.mediaKey ??
+    stringFromContent(message.content, ["mediaKey"]) ??
+    stringFromContent(message.message, ["mediaKey"])
+  );
+}
+
 function mapMensagemWhatsapp(message: MensagemWhatsApp): Conversa["historico"][number] | null {
   if (message.isGroup) return null;
 
+  const mediaUrl = mediaUrlMensagemWhatsapp(message);
   const content = textoMensagemWhatsapp(message)?.trim();
-  if (!content) return null;
+  if (!content && !mediaUrl) return null;
 
   return {
     role: message.fromMe ? "assistant" : "user",
-    content,
+    content:
+      content ??
+      (message.messageType?.toLowerCase().includes("audio")
+        ? message.fromMe
+          ? "[Audio enviado]"
+          : "[Audio recebido]"
+        : message.fromMe
+          ? "[Midia enviada]"
+          : "[Midia recebida]"),
     id: message.messageid ?? message.id,
     at: isoFromTimestamp(message.messageTimestamp),
     source: "whatsapp",
     fromMe: Boolean(message.fromMe),
     messageType: message.messageType,
+    mediaUrl,
+    mimeType: mimeTypeMensagemWhatsapp(message),
+    fileName: fileNameMensagemWhatsapp(message),
+    mediaKey: mediaKeyMensagemWhatsapp(message),
   };
 }
 
 function chaveMensagem(message: Conversa["historico"][number]): string {
   if (message.id) return `id:${message.id}`;
-  return [
-    message.role,
-    message.at ?? "",
-    message.content.trim(),
-  ].join("|");
+  return [message.role, message.at ?? "", message.content.trim()].join("|");
 }
 
 function mergeHistorico(
@@ -161,13 +252,22 @@ function ultimoHorarioHistorico(historico: Conversa["historico"]): string {
 }
 
 async function sincronizarWhatsapp({
-  chatsLimite = 50,
-  mensagensLimite = 80,
+  chatsLimite = 12,
+  mensagensLimite = 40,
 }: {
   chatsLimite?: number;
   mensagensLimite?: number;
 }) {
-  const chats = await listarChatsWhatsApp({ limit: Math.min(Math.max(chatsLimite, 1), 100), offset: 0 });
+  const limiteChatsSeguro = Math.min(Math.max(chatsLimite, 1), 12);
+  const limiteMensagensSeguro = Math.min(Math.max(mensagensLimite, 1), 40);
+  const [chats, conversasExistentes] = await Promise.all([
+    listarChatsWhatsApp({ limit: limiteChatsSeguro, offset: 0 }),
+    listarConversas(),
+  ]);
+  const conversasPorTelefone = new Map(
+    conversasExistentes.map((conversa) => [normalizarTelefone(conversa.telefone), conversa]),
+  );
+  const payloads: Parameters<typeof upsertConversas>[0] = [];
   let sincronizadas = 0;
   let mensagensImportadas = 0;
   let ignoradas = 0;
@@ -180,23 +280,23 @@ async function sincronizarWhatsapp({
       continue;
     }
 
-    const mensagens = await buscarMensagensChatWhatsApp(
-      chatid,
-      Math.min(Math.max(mensagensLimite, 1), 100),
-    );
+    const mensagens = await buscarMensagensChatWhatsApp(chatid, limiteMensagensSeguro);
     const historicoImportado = mensagens
       .map(mapMensagemWhatsapp)
       .filter((mensagem): mensagem is Conversa["historico"][number] => Boolean(mensagem));
 
-    const existente = await buscarConversaPorTelefone(telefone);
-    const { historico, adicionadas } = mergeHistorico(existente?.historico ?? [], historicoImportado);
+    const existente = conversasPorTelefone.get(telefone);
+    const { historico, adicionadas } = mergeHistorico(
+      existente?.historico ?? [],
+      historicoImportado,
+    );
 
     if (!existente && historico.length === 0) {
       ignoradas += 1;
       continue;
     }
 
-    await upsertConversa({
+    payloads.push({
       telefone,
       historico,
       nome_cliente: existente?.nome_cliente ?? nomeFromChat(chat),
@@ -209,6 +309,8 @@ async function sincronizarWhatsapp({
     sincronizadas += 1;
     mensagensImportadas += adicionadas;
   }
+
+  await upsertConversas(payloads);
 
   return {
     ok: true,
@@ -254,9 +356,15 @@ async function salvarPerfilExtraidoCliente({
 
   const extraido = await extrairPerfilClienteDaConversa(historico);
   const clientes = await listarClientes();
-  const existente = clientes.find((cliente) => normalizarTelefone(cliente.telefone) === telefoneNormalizado);
+  const existente = clientes.find(
+    (cliente) => normalizarTelefone(cliente.telefone) === telefoneNormalizado,
+  );
   const input: ClienteCrmInput = {
-    nome: extraido.nome ?? existente?.nome ?? nomeClienteSeguro(nomeCliente) ?? `Cliente ${telefoneNormalizado.slice(-4)}`,
+    nome:
+      extraido.nome ??
+      existente?.nome ??
+      nomeClienteSeguro(nomeCliente) ??
+      `Cliente ${telefoneNormalizado.slice(-4)}`,
     telefone: telefoneNormalizado,
     endereco: extraido.endereco ?? existente?.endereco,
     bairro: extraido.bairro ?? existente?.bairro,
@@ -268,8 +376,12 @@ async function salvarPerfilExtraidoCliente({
       ? {
           mensagem: extraido.followUpMensagem,
           data: existente?.followUpManual?.data ?? "",
+          hora: existente?.followUpManual?.hora ?? "",
           canal: existente?.followUpManual?.canal ?? "WhatsApp",
           status: existente?.followUpManual?.status ?? "pendente",
+          midiaUrl: existente?.followUpManual?.midiaUrl ?? "",
+          midiaNome: existente?.followUpManual?.midiaNome ?? "",
+          midiaTipo: existente?.followUpManual?.midiaTipo ?? "",
           atualizadoEm: new Date().toISOString(),
         }
       : existente?.followUpManual,
@@ -278,6 +390,18 @@ async function salvarPerfilExtraidoCliente({
   const cliente = existente
     ? await atualizarClienteCrm(existente.id, input)
     : await criarClienteCrm(input);
+
+  if (extraido.dadosObservados) {
+    await salvarDadosObservadosCliente({
+      clienteId: cliente.id,
+      telefone: telefoneNormalizado,
+      dados: extraido.dadosObservados,
+      resumo: extraido.observacoes,
+      confianca: 0.75,
+    }).catch((error) => {
+      console.error("[recompra] erro_salvar_dados_observados", error);
+    });
+  }
 
   return { ok: true, cliente, extraido };
 }
@@ -345,10 +469,12 @@ export const Route = createFileRoute("/api/crm/conversas")({
           }
 
           if (body.tipo === "ia_config") {
-            return json(await salvarIaPromptConfig({
-              systemPrompt: body.systemPrompt,
-              regras: body.regras,
-            }));
+            return json(
+              await salvarIaPromptConfig({
+                systemPrompt: body.systemPrompt,
+                regras: body.regras,
+              }),
+            );
           }
 
           if (body.tipo === "pipeline") {
@@ -436,15 +562,30 @@ export const Route = createFileRoute("/api/crm/conversas")({
           }
 
           if (body.tipo === "midia") {
-            if (!body.base64?.trim()) return json({ ok: false, erro: "Midia vazia" }, { status: 400 });
+            if (!body.base64?.trim())
+              return json({ ok: false, erro: "Midia vazia" }, { status: 400 });
 
             const legenda = body.legenda?.trim();
             const telefone = normalizarTelefone(body.telefone);
-            await enviarMidiaBase64(`${telefone}@s.whatsapp.net`, body.base64, legenda, {
-              fileName: body.nomeArquivo,
-              mimetype: body.mimeType,
-              ptt: body.audio,
-            });
+            const envio = await enviarMidiaBase64(
+              `${telefone}@s.whatsapp.net`,
+              body.base64,
+              legenda,
+              {
+                fileName: body.nomeArquivo,
+                mimetype: body.mimeType,
+                ptt: body.audio,
+              },
+            );
+            const mediaUrl = stringFromContent(envio, [
+              "fileURL",
+              "fileUrl",
+              "mediaUrl",
+              "mediaURL",
+              "url",
+              "downloadUrl",
+              "downloadURL",
+            ]);
 
             const conteudo = body.audio
               ? "[Audio enviado]"
@@ -455,7 +596,16 @@ export const Route = createFileRoute("/api/crm/conversas")({
             return json(
               await adicionarMensagemConversa({
                 id: body.id,
-                mensagem: { role: "assistant", content: conteudo },
+                mensagem: {
+                  role: "assistant",
+                  content: conteudo,
+                  source: "crm",
+                  fromMe: true,
+                  messageType: body.audio ? "audio" : body.mimeType,
+                  mediaUrl,
+                  mimeType: body.mimeType,
+                  fileName: body.nomeArquivo,
+                },
               }),
             );
           }

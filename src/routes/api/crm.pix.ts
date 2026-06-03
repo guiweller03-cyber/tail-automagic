@@ -8,7 +8,7 @@ import {
   listarPedidos,
   salvarCadastroCliente,
 } from "@/lib/supabase";
-import { enviarMensagem } from "@/lib/uazapi";
+import { enviarMensagem, enviarMensagemLonga } from "@/lib/uazapi";
 import { erroLog, logPix, telefoneLog } from "@/lib/pix-log";
 
 type PixRequest = {
@@ -79,7 +79,7 @@ export const Route = createFileRoute("/api/crm/pix")({
               "warn",
             );
             if (body.enviarMensagem !== false) {
-              await enviarMensagem(
+              await enviarMensagemLonga(
                 `${telefone}@s.whatsapp.net`,
                 "Nao encontrei um pedido pendente com valor para gerar o Pix. Me confirma o produto e a quantidade para eu fechar certinho.",
               );
@@ -109,7 +109,7 @@ export const Route = createFileRoute("/api/crm/pix")({
               "warn",
             );
             if (body.enviarMensagem !== false) {
-              await enviarMensagem(
+              await enviarMensagemLonga(
                 `${telefone}@s.whatsapp.net`,
                 "Antes do Pix, me passa o endereco completo com rua, numero e bairro para finalizar a entrega.",
               );
@@ -169,7 +169,7 @@ export const Route = createFileRoute("/api/crm/pix")({
           if (body.enviarMensagem !== false) {
             const chatid = `${telefone}@s.whatsapp.net`;
 
-            await enviarMensagem(
+            await enviarMensagemLonga(
               chatid,
               `Segue a chave Pix do pedido. O total e ${valorFormatado}.`,
             );

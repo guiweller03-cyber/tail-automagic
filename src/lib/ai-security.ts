@@ -31,7 +31,7 @@ const outputLeakPatterns = [
   /\b(?:api\s*key|bearer\s+|sb_secret_|service_role|senha|token\s+secreto)\b/i,
 ];
 
-function limparTextoNaoConfiavel(value: string, maxLength: number): string {
+export function limparTextoNaoConfiavel(value: string, maxLength: number): string {
   return value
     .replaceAll(/./gs, (character) =>
       character.charCodeAt(0) < 32 && !/[\t\n\r]/.test(character) ? " " : character,

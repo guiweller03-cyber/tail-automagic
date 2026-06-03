@@ -1,15 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
-import { buscarPagamentoMercadoPago } from "@/lib/mercadopago";
-import { confirmarPagamentoPixPedido } from "@/lib/pagamento-confirmado";
-
-type MercadoPagoWebhook = {
-  type?: string;
-  action?: string;
-  data?: {
-    id?: string;
-  };
-};
+import { processarWebhookMercadoPago } from "./webhook.pagamento";
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
@@ -20,19 +11,7 @@ export const Route = createFileRoute("/api/mercadopago/webhook")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          const event = (await request.json()) as MercadoPagoWebhook;
-
-          if (event.type !== "payment" || !event.data?.id) {
-            return json({ received: true });
-          }
-
-          const pagamento = await buscarPagamentoMercadoPago(event.data.id);
-
-          if (pagamento.status === "approved" && pagamento.external_reference) {
-            await confirmarPagamentoPixPedido(pagamento.external_reference);
-          }
-
-          return json({ received: true });
+          return await processarWebhookMercadoPago(await request.json());
         } catch (error) {
           const message = error instanceof Error ? error.message : "Erro desconhecido";
 

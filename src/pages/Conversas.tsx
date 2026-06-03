@@ -1,10 +1,45 @@
-import type { Cliente, Conversa, ConversaFiltro, KanbanStage } from "@/lib/crm-types";
+import type {
+  Cliente,
+  Conversa,
+  ConversaFiltro,
+  KanbanStage,
+  Produto,
+  ProdutoDetalhesTecnicos,
+} from "@/lib/crm-types";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
-  Send, Sparkles, Phone, MoreVertical, Search, Bot, User,
-  LayoutGrid, MessageSquare, MapPin, Wallet, Paperclip,
-  Image as ImageIcon, CheckCheck, TrendingUp, Target,
-  DollarSign, Tag, Users, PawPrint, Zap, Settings2, Plus, Trash2, Save, RotateCcw, Pencil,
+  Send,
+  Sparkles,
+  Phone,
+  MoreVertical,
+  Search,
+  Bot,
+  User,
+  LayoutGrid,
+  MessageSquare,
+  MapPin,
+  Wallet,
+  Paperclip,
+  Image as ImageIcon,
+  CheckCheck,
+  TrendingUp,
+  Target,
+  DollarSign,
+  Tag,
+  Users,
+  PawPrint,
+  Zap,
+  Settings2,
+  Plus,
+  Trash2,
+  Save,
+  RotateCcw,
+  Pencil,
+  X as XIcon,
+  Package,
+  SlidersHorizontal,
+  Clock,
+  Link,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SpeciePill } from "@/pages/RecompraPrevista";
@@ -30,7 +65,109 @@ type IaConfigPayload = {
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const onlyDigits = (value: unknown) => String(value ?? "").replace(/\D/g, "");
-const normalizeName = (value: unknown) => String(value ?? "").trim().toLowerCase();
+const normalizeName = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase();
+type EstoqueInfoKey =
+  | "preco"
+  | "disponibilidade"
+  | "foto"
+  | "marcaLinha"
+  | "indicacao"
+  | "beneficios"
+  | "ingredientes"
+  | "nutricional";
+
+const ESTOQUE_INFO_LABELS: Array<{ key: EstoqueInfoKey; label: string }> = [
+  { key: "preco", label: "Preco" },
+  { key: "disponibilidade", label: "Disponibilidade" },
+  { key: "foto", label: "Foto" },
+  { key: "marcaLinha", label: "Marca/linha" },
+  { key: "indicacao", label: "Indicacao" },
+  { key: "beneficios", label: "Beneficios" },
+  { key: "ingredientes", label: "Ingredientes" },
+  { key: "nutricional", label: "Nutricao" },
+];
+
+const DEFAULT_ESTOQUE_INFO: Record<EstoqueInfoKey, boolean> = {
+  preco: true,
+  disponibilidade: true,
+  foto: true,
+  marcaLinha: true,
+  indicacao: true,
+  beneficios: true,
+  ingredientes: false,
+  nutricional: false,
+};
+
+function normalizarTextoBusca(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function detalhesProdutoTexto(
+  detalhes: ProdutoDetalhesTecnicos | undefined,
+  keys: Array<keyof ProdutoDetalhesTecnicos>,
+) {
+  return keys
+    .map((key) => detalhes?.[key])
+    .filter((value): value is string => Boolean(value && String(value).trim()))
+    .join(" | ");
+}
+
+function montarMensagemProduto(
+  produto: Produto,
+  info: Record<EstoqueInfoKey, boolean>,
+  incluirLinkFoto = true,
+) {
+  const detalhes = produto.detalhesTecnicos;
+  const linhas = [`Tenho essa opcao aqui: ${produto.nome}`];
+
+  if (info.preco) linhas.push(`Valor: ${brl(produto.preco)}`);
+  if (info.disponibilidade) {
+    linhas.push(
+      produto.estoque > 0
+        ? "Disponivel no estoque."
+        : "Vou confirmar a disponibilidade certinha para voce.",
+    );
+  }
+  if (info.marcaLinha) {
+    const marcaLinha = detalhesProdutoTexto(detalhes, [
+      "marca",
+      "linha",
+      "peso",
+      "especie",
+      "idade",
+      "porte",
+    ]);
+    if (marcaLinha) linhas.push(marcaLinha);
+  }
+  if (info.indicacao && detalhes?.indicacao) linhas.push(`Indicacao: ${detalhes.indicacao}`);
+  if (info.beneficios && detalhes?.beneficios) linhas.push(`Beneficios: ${detalhes.beneficios}`);
+  if (info.ingredientes && detalhes?.principaisIngredientes) {
+    linhas.push(`Ingredientes principais: ${detalhes.principaisIngredientes}`);
+  }
+  if (info.nutricional) {
+    const nutricional = detalhesProdutoTexto(detalhes, [
+      "proteinaBruta",
+      "gordura",
+      "fibra",
+      "umidade",
+      "calcio",
+      "fosforo",
+      "omega3",
+      "omega6",
+    ]);
+    if (nutricional) linhas.push(`Info nutricional: ${nutricional}`);
+  }
+  if (incluirLinkFoto && info.foto && produto.fotoUrl) linhas.push(`Foto: ${produto.fotoUrl}`);
+
+  return linhas.join("\n");
+}
 const filtrosConversa: ("Todos" | ConversaFiltro)[] = [
   "Todos",
   "Novos leads",
@@ -42,7 +179,14 @@ const filtrosConversa: ("Todos" | ConversaFiltro)[] = [
   "Upsell",
   "Pedido hoje",
 ];
-const kanbanStages: KanbanStage[] = ["Hoje", "Recompra", "Follow-up", "Aguardando pagamento", "Upsell", "Risco"];
+const kanbanStages: KanbanStage[] = [
+  "Hoje",
+  "Recompra",
+  "Follow-up",
+  "Aguardando pagamento",
+  "Upsell",
+  "Risco",
+];
 
 type ConversaView = Conversa & {
   telefone: string;
@@ -111,7 +255,10 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function applyConversationAIState<T extends Record<string, any>>(conversation: T, aguardandoHumano: boolean): T {
+function applyConversationAIState<T extends Record<string, any>>(
+  conversation: T,
+  aguardandoHumano: boolean,
+): T {
   return {
     ...conversation,
     aguardandoHumano,
@@ -154,8 +301,12 @@ function findClienteForConversation(active: any, clientes: Cliente[]) {
   const activeName = normalizeName(active?.cliente);
 
   return (
-    (activePhone ? clientes.find((cliente) => onlyDigits(cliente.telefone) === activePhone) : undefined) ??
-    (activeName ? clientes.find((cliente) => normalizeName(cliente.nome) === activeName) : undefined) ??
+    (activePhone
+      ? clientes.find((cliente) => onlyDigits(cliente.telefone) === activePhone)
+      : undefined) ??
+    (activeName
+      ? clientes.find((cliente) => normalizeName(cliente.nome) === activeName)
+      : undefined) ??
     clienteFromConversa(active)
   );
 }
@@ -224,7 +375,7 @@ export function Conversas({
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshConversations();
-    }, 5000);
+    }, 2000);
     const onVisible = () => {
       if (document.visibilityState === "visible") void refreshConversations();
     };
@@ -248,7 +399,9 @@ export function Conversas({
       if (
         termo &&
         !c.cliente.toLowerCase().includes(termo) &&
-        !String(c.ultima ?? "").toLowerCase().includes(termo) &&
+        !String(c.ultima ?? "")
+          .toLowerCase()
+          .includes(termo) &&
         !(termoNumerico && onlyDigits(c.telefone).includes(termoNumerico))
       ) {
         return false;
@@ -267,8 +420,8 @@ export function Conversas({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tipo: "sincronizar_whatsapp",
-          chatsLimite: 50,
-          mensagensLimite: 80,
+          chatsLimite: 12,
+          mensagensLimite: 40,
         }),
       });
       const data = await response.json();
@@ -330,7 +483,9 @@ export function Conversas({
     setConversationAiSaving(true);
     setActive(optimistic);
     setItems((current) =>
-      current.map((item) => (item.id === conversation.id ? applyConversationAIState(item, nextAguardandoHumano) : item)),
+      current.map((item) =>
+        item.id === conversation.id ? applyConversationAIState(item, nextAguardandoHumano) : item,
+      ),
     );
 
     try {
@@ -355,7 +510,9 @@ export function Conversas({
 
       setActive(savedActive);
       setItems((current) =>
-        current.map((item) => (item.id === conversation.id ? applyConversationAIState(item, savedState) : item)),
+        current.map((item) =>
+          item.id === conversation.id ? applyConversationAIState(item, savedState) : item,
+        ),
       );
     } catch (error) {
       console.error(error);
@@ -389,7 +546,9 @@ export function Conversas({
             title="Sincronizar historico do WhatsApp"
             aria-label="Sincronizar historico do WhatsApp"
           >
-            <RotateCcw className={`size-4 ${syncingWhatsapp || refreshing ? "animate-spin" : ""}`} />
+            <RotateCcw
+              className={`size-4 ${syncingWhatsapp || refreshing ? "animate-spin" : ""}`}
+            />
           </button>
           <AIAssistantToggle
             enabled={!globalAiDisabled}
@@ -433,7 +592,9 @@ export function Conversas({
         <div className="flex items-center gap-2 overflow-x-auto pb-1 shrink-0 scrollbar-thin">
           {filtrosConversa.map((f) => {
             const count =
-              f === "Todos" ? items.length : items.filter((c) => c.filtros.includes(f as ConversaFiltro)).length;
+              f === "Todos"
+                ? items.length
+                : items.filter((c) => c.filtros.includes(f as ConversaFiltro)).length;
             const ativo = filtro === f;
             return (
               <button
@@ -475,7 +636,9 @@ export function Conversas({
             onToggleConversationAI={toggleConversationAI}
           />
         ) : (
-          <div className="card-soft grid flex-1 place-items-center text-sm text-muted-foreground">Nenhuma conversa real encontrada.</div>
+          <div className="card-soft grid flex-1 place-items-center text-sm text-muted-foreground">
+            Nenhuma conversa real encontrada.
+          </div>
         )
       ) : view === "kanban" ? (
         <KanbanView items={items} setItems={setItems} />
@@ -530,13 +693,18 @@ function ChatView({
       ...conversa,
       ultima: String(ultimaMsg?.content ?? active.ultima ?? ""),
       hora: conversa.atualizado_em
-        ? new Date(String(conversa.atualizado_em)).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+        ? new Date(String(conversa.atualizado_em)).toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })
         : active.hora,
       historico: Array.isArray(conversa.historico) ? conversa.historico : active.historico,
     };
 
     setActive(updated);
-    setItems((current) => current.map((item) => (item.id === active.id ? { ...item, ...updated } : item)));
+    setItems((current) =>
+      current.map((item) => (item.id === active.id ? { ...item, ...updated } : item)),
+    );
   }
 
   async function postConversation(body: Record<string, unknown>) {
@@ -555,7 +723,8 @@ function ChatView({
           }
         })()
       : {};
-    if (!response.ok) throw new Error(data.erro || data.mensagem || responseText || "Falha ao enviar mensagem");
+    if (!response.ok)
+      throw new Error(data.erro || data.mensagem || responseText || "Falha ao enviar mensagem");
     updateConversation(data);
     return data;
   }
@@ -576,6 +745,57 @@ function ChatView({
     }
   }
 
+  async function sendProductMessage(text: string, fotoUrl?: string | null) {
+    const texto = text.trim();
+    if (!texto || sending) return;
+
+    setSending(true);
+    try {
+      if (fotoUrl) {
+        try {
+          const imageResponse = await fetch(fotoUrl);
+          if (!imageResponse.ok) throw new Error("Foto indisponivel");
+          const blob = await imageResponse.blob();
+          const type = blob.type || "image/jpeg";
+          const extension = type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg";
+          const file = new File([blob], `produto.${extension}`, { type });
+          const base64 = await fileToBase64(file);
+
+          await postConversation({
+            tipo: "midia",
+            id: active.id,
+            telefone: active.telefone,
+            base64,
+            legenda: texto,
+            nomeArquivo: file.name,
+            mimeType: file.type,
+          });
+          setMessageText("");
+          toast.success("Produto enviado com foto");
+          return;
+        } catch {
+          await postConversation({
+            tipo: "mensagem",
+            id: active.id,
+            telefone: active.telefone,
+            texto: `${texto}\nFoto: ${fotoUrl}`,
+          });
+          setMessageText("");
+          toast.success("Produto enviado com link da foto");
+          return;
+        }
+      }
+
+      await postConversation({ tipo: "mensagem", id: active.id, telefone: active.telefone, texto });
+      setMessageText("");
+      toast.success("Produto enviado");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel enviar o produto");
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function moveConversationToStage(stage: KanbanStage) {
     try {
       const response = await fetch("/api/crm/conversas", {
@@ -586,9 +806,15 @@ function ChatView({
       const data = await response.json();
       if (!response.ok) throw new Error(data.erro || "Falha ao mover conversa");
 
-      const updated = { ...active, estagio: stage, aguardandoHumano: Boolean(data.aguardando_humano) };
+      const updated = {
+        ...active,
+        estagio: stage,
+        aguardandoHumano: Boolean(data.aguardando_humano),
+      };
       setActive(updated);
-      setItems((current) => current.map((item) => (item.id === active.id ? { ...item, ...updated } : item)));
+      setItems((current) =>
+        current.map((item) => (item.id === active.id ? { ...item, ...updated } : item)),
+      );
       toast.success(`Conversa movida para ${stage}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Nao foi possivel mover a conversa");
@@ -668,7 +894,9 @@ function ChatView({
                 <span className="font-semibold text-xs truncate">{item.cliente}</span>
                 <span className="text-[10px] text-muted-foreground shrink-0">{item.hora}</span>
               </div>
-              <p className="text-[11px] text-muted-foreground truncate mt-1">{item.ultima || "Sem mensagens"}</p>
+              <p className="text-[11px] text-muted-foreground truncate mt-1">
+                {item.ultima || "Sem mensagens"}
+              </p>
             </button>
           ))}
         </div>
@@ -707,6 +935,7 @@ function ChatView({
                 side={mensagem.role === "assistant" || mensagem.role === "ai" ? "me" : "them"}
                 ai={mensagem.role === "assistant" || mensagem.role === "ai"}
                 hora={horaMensagem(mensagem)}
+                message={mensagem}
               >
                 {mensagem.content}
               </Bubble>
@@ -721,7 +950,14 @@ function ChatView({
 
         <div className="p-3 border-t border-border bg-card space-y-2">
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
-            <QuickReply label="Confirmar pedido" onClick={() => void sendMessage("Pedido confirmado. Vou seguir com a separacao e ja te aviso o proximo passo.")} />
+            <QuickReply
+              label="Confirmar pedido"
+              onClick={() =>
+                void sendMessage(
+                  "Pedido confirmado. Vou seguir com a separacao e ja te aviso o proximo passo.",
+                )
+              }
+            />
             <QuickReply
               label="Enviar Pix"
               onClick={async () => {
@@ -747,22 +983,56 @@ function ChatView({
                 });
               }}
             />
-            <QuickReply label="Status entrega" onClick={() => void sendMessage("Vou verificar o status da entrega e ja te retorno por aqui.")} />
-            <QuickReply label="Sugerir upsell" icon={<Sparkles className="size-3" />} onClick={sendAiSuggestion} />
+            <QuickReply
+              label="Status entrega"
+              onClick={() =>
+                void sendMessage("Vou verificar o status da entrega e ja te retorno por aqui.")
+              }
+            />
+            <QuickReply
+              label="Sugerir upsell"
+              icon={<Sparkles className="size-3" />}
+              onClick={sendAiSuggestion}
+            />
           </div>
           <div className="flex items-end gap-2">
-            <input ref={fileInputRef} type="file" className="hidden" onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void sendFile(file);
-            }} />
-            <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void sendFile(file);
-            }} />
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={sending} className="p-2 rounded-xl hover:bg-secondary text-muted-foreground disabled:opacity-50"><Paperclip className="size-5" /></button>
-            <button type="button" onClick={() => imageInputRef.current?.click()} disabled={sending} className="p-2 rounded-xl hover:bg-secondary text-muted-foreground disabled:opacity-50"><ImageIcon className="size-5" /></button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void sendFile(file);
+              }}
+            />
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void sendFile(file);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending}
+              className="p-2 rounded-xl hover:bg-secondary text-muted-foreground disabled:opacity-50"
+            >
+              <Paperclip className="size-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={sending}
+              className="p-2 rounded-xl hover:bg-secondary text-muted-foreground disabled:opacity-50"
+            >
+              <ImageIcon className="size-5" />
+            </button>
             <textarea
               value={messageText}
               onChange={(event) => setMessageText(event.target.value)}
@@ -776,10 +1046,22 @@ function ChatView({
               placeholder="Mensagem ou /comando IA..."
               className="flex-1 resize-none px-4 py-2.5 rounded-xl bg-secondary outline-none text-sm focus:bg-card focus:ring-2 ring-primary/30 max-h-32"
             />
-            <button type="button" onClick={sendAiSuggestion} disabled={sending} className="p-2.5 rounded-xl bg-primary/15 text-primary hover:bg-primary/25 transition disabled:opacity-50" title="Resposta IA">
+            <button
+              type="button"
+              onClick={sendAiSuggestion}
+              disabled={sending}
+              className="p-2.5 rounded-xl bg-primary/15 text-primary hover:bg-primary/25 transition disabled:opacity-50"
+              title="Resposta IA"
+            >
               <Sparkles className="size-5" />
             </button>
-            <button type="button" onClick={() => void sendMessage()} disabled={sending || !messageText.trim()} className="p-3 rounded-xl bg-success text-success-foreground shadow hover:bg-success/90 disabled:opacity-50" title="Enviar mensagem">
+            <button
+              type="button"
+              onClick={() => void sendMessage()}
+              disabled={sending || !messageText.trim()}
+              className="p-3 rounded-xl bg-success text-success-foreground shadow hover:bg-success/90 disabled:opacity-50"
+              title="Enviar mensagem"
+            >
               <Send className="size-5" />
             </button>
           </div>
@@ -793,7 +1075,11 @@ function ChatView({
         active={active}
         onClienteSaved={(cliente) => {
           setClientes((current) => {
-            const index = current.findIndex((item) => item.id === cliente.id || onlyDigits(item.telefone) === onlyDigits(cliente.telefone));
+            const index = current.findIndex(
+              (item) =>
+                item.id === cliente.id ||
+                onlyDigits(item.telefone) === onlyDigits(cliente.telefone),
+            );
             if (index < 0) return [cliente, ...current];
             return current.map((item, itemIndex) => (itemIndex === index ? cliente : item));
           });
@@ -805,19 +1091,29 @@ function ChatView({
           setItems((current) =>
             current.map((item) =>
               item.id === active.id
-                ? { ...item, cliente: cliente.nome || item.cliente, telefone: cliente.telefone || item.telefone }
+                ? {
+                    ...item,
+                    cliente: cliente.nome || item.cliente,
+                    telefone: cliente.telefone || item.telefone,
+                  }
                 : item,
             ),
           );
         }}
         onSendMessage={(text) => void sendMessage(text)}
+        onSendProduct={(text, fotoUrl) => void sendProductMessage(text, fotoUrl)}
         onMoveKanban={() => void moveConversationToStage("Follow-up")}
         onOpenHistory={() => {
           const resumo = mensagens
             .slice(-6)
-            .map((mensagem: any) => `${mensagem.role === "user" ? "Cliente" : "CRM"}: ${mensagem.content}`)
+            .map(
+              (mensagem: any) =>
+                `${mensagem.role === "user" ? "Cliente" : "CRM"}: ${mensagem.content}`,
+            )
             .join("\n");
-          setMessageText(resumo ? `Historico recente:\n${resumo}` : "Ainda nao ha historico nesta conversa.");
+          setMessageText(
+            resumo ? `Historico recente:\n${resumo}` : "Ainda nao ha historico nesta conversa.",
+          );
           toast.info("Historico carregado no campo de mensagem");
         }}
       />
@@ -907,7 +1203,11 @@ function IaRulesView() {
   }
 
   if (loading) {
-    return <div className="card-soft grid flex-1 place-items-center text-sm text-muted-foreground">Carregando regras da IA...</div>;
+    return (
+      <div className="card-soft grid flex-1 place-items-center text-sm text-muted-foreground">
+        Carregando regras da IA...
+      </div>
+    );
   }
 
   return (
@@ -941,7 +1241,9 @@ function IaRulesView() {
 
         <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
           <label className="block">
-            <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">System prompt editavel</span>
+            <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
+              System prompt editavel
+            </span>
             <textarea
               value={systemPrompt}
               onChange={(event) => setSystemPrompt(event.target.value)}
@@ -953,7 +1255,9 @@ function IaRulesView() {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-bold">Regras complementares</h3>
-                <p className="text-xs text-muted-foreground">Entram no system prompt junto com o texto acima.</p>
+                <p className="text-xs text-muted-foreground">
+                  Entram no system prompt junto com o texto acima.
+                </p>
               </div>
               <button
                 type="button"
@@ -971,14 +1275,21 @@ function IaRulesView() {
             ) : (
               <div className="space-y-2">
                 {regras.map((regra) => (
-                  <div key={regra.id} className="rounded-xl border border-border bg-card p-3 space-y-2">
+                  <div
+                    key={regra.id}
+                    className="rounded-xl border border-border bg-card p-3 space-y-2"
+                  >
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
                         checked={regra.ativa}
                         onChange={(event) =>
                           setRegras((current) =>
-                            current.map((item) => item.id === regra.id ? { ...item, ativa: event.target.checked } : item),
+                            current.map((item) =>
+                              item.id === regra.id
+                                ? { ...item, ativa: event.target.checked }
+                                : item,
+                            ),
                           )
                         }
                         className="size-4 accent-primary"
@@ -987,14 +1298,18 @@ function IaRulesView() {
                         value={regra.titulo}
                         onChange={(event) =>
                           setRegras((current) =>
-                            current.map((item) => item.id === regra.id ? { ...item, titulo: event.target.value } : item),
+                            current.map((item) =>
+                              item.id === regra.id ? { ...item, titulo: event.target.value } : item,
+                            ),
                           )
                         }
                         className="h-9 flex-1 rounded-lg bg-secondary px-3 text-sm font-semibold outline-none focus:ring-2 ring-primary/30"
                       />
                       <button
                         type="button"
-                        onClick={() => setRegras((current) => current.filter((item) => item.id !== regra.id))}
+                        onClick={() =>
+                          setRegras((current) => current.filter((item) => item.id !== regra.id))
+                        }
                         className="grid size-9 place-items-center rounded-lg bg-secondary text-muted-foreground hover:text-destructive"
                       >
                         <Trash2 className="size-4" />
@@ -1004,7 +1319,11 @@ function IaRulesView() {
                       value={regra.instrucao}
                       onChange={(event) =>
                         setRegras((current) =>
-                          current.map((item) => item.id === regra.id ? { ...item, instrucao: event.target.value } : item),
+                          current.map((item) =>
+                            item.id === regra.id
+                              ? { ...item, instrucao: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                       className="min-h-20 w-full resize-y rounded-lg bg-secondary p-3 text-sm outline-none focus:ring-2 ring-primary/30"
@@ -1022,10 +1341,15 @@ function IaRulesView() {
           <div className="text-xs text-muted-foreground">Pontuacao de aprendizado</div>
           <div className="mt-1 flex items-end justify-between gap-3">
             <div className="text-4xl font-bold tabular-nums">{aprendizado.pontuacao}</div>
-            <div className="rounded-lg bg-primary/15 px-2.5 py-1 text-xs font-bold text-primary">{aprendizado.nivel}</div>
+            <div className="rounded-lg bg-primary/15 px-2.5 py-1 text-xs font-bold text-primary">
+              {aprendizado.nivel}
+            </div>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
-            <div className="h-full bg-primary" style={{ width: `${Math.min(aprendizado.pontuacao, 100)}%` }} />
+            <div
+              className="h-full bg-primary"
+              style={{ width: `${Math.min(aprendizado.pontuacao, 100)}%` }}
+            />
           </div>
         </div>
 
@@ -1044,7 +1368,9 @@ function IaRulesView() {
                     <tr key={criterio.nome} className="border-t border-border first:border-t-0">
                       <td className="px-3 py-2 text-muted-foreground">{criterio.nome}</td>
                       <td className="px-3 py-2 font-semibold">{criterio.valor}</td>
-                      <td className="px-3 py-2 text-right font-bold text-primary">+{criterio.pontos}</td>
+                      <td className="px-3 py-2 text-right font-bold text-primary">
+                        +{criterio.pontos}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1083,6 +1409,7 @@ function CrmPanel({
   active,
   onClienteSaved,
   onSendMessage,
+  onSendProduct,
   onMoveKanban,
   onOpenHistory,
 }: {
@@ -1091,6 +1418,7 @@ function CrmPanel({
   active: any;
   onClienteSaved: (cliente: Cliente) => void;
   onSendMessage: (text: string) => void;
+  onSendProduct: (text: string, fotoUrl?: string | null) => void;
   onMoveKanban: () => void;
   onOpenHistory: () => void;
 }) {
@@ -1104,12 +1432,16 @@ function CrmPanel({
     cli.observacoes ? cli.observacoes : null,
     cli.followUpManual?.mensagem ? `Follow-up: ${cli.followUpManual.mensagem}` : null,
     textoCliente.includes("pix") ? "Cliente citou Pix na conversa." : null,
-    textoCliente.includes("cartao") || textoCliente.includes("cartão") ? "Cliente citou cartao na conversa." : null,
+    textoCliente.includes("cartao") || textoCliente.includes("cartão")
+      ? "Cliente citou cartao na conversa."
+      : null,
     textoCliente.includes("dinheiro") ? "Cliente citou dinheiro na conversa." : null,
     ...mensagens
       .filter((mensagem) => mensagem.role === "user")
       .map((mensagem) => String(mensagem.content ?? ""))
-      .filter((texto) => /ra[cç][aã]o|golden|formula|f[oó]rmula|simparic|pet|gato|cachorro/i.test(texto))
+      .filter((texto) =>
+        /ra[cç][aã]o|golden|formula|f[oó]rmula|simparic|pet|gato|cachorro/i.test(texto),
+      )
       .slice(-2)
       .map((texto) => `Interesse citado: ${texto}`),
   ].filter((item): item is string => Boolean(item));
@@ -1122,6 +1454,12 @@ function CrmPanel({
   const [loadingIa, setLoadingIa] = useState(false);
   const [editing, setEditing] = useState(false);
   const [savingManual, setSavingManual] = useState(false);
+  const [produtosEstoque, setProdutosEstoque] = useState<Produto[]>([]);
+  const [loadingEstoque, setLoadingEstoque] = useState(false);
+  const [buscaEstoque, setBuscaEstoque] = useState("");
+  const [estoqueInfo, setEstoqueInfo] =
+    useState<Record<EstoqueInfoKey, boolean>>(DEFAULT_ESTOQUE_INFO);
+  const [showEstoquePopup, setShowEstoquePopup] = useState(false);
   const [manual, setManual] = useState({
     nome: cli.nome,
     telefone: cli.telefone,
@@ -1132,6 +1470,11 @@ function CrmPanel({
     origem: cli.origem || "WhatsApp IA",
     observacoes: cli.observacoes ?? "",
     followUpMensagem: cli.followUpManual?.mensagem ?? "",
+    followUpData: cli.followUpManual?.data ?? "",
+    followUpHora: cli.followUpManual?.hora ?? "",
+    followUpMidiaUrl: cli.followUpManual?.midiaUrl ?? "",
+    followUpMidiaNome: cli.followUpManual?.midiaNome ?? "",
+    followUpMidiaTipo: cli.followUpManual?.midiaTipo ?? "",
   });
 
   useEffect(() => {
@@ -1145,8 +1488,86 @@ function CrmPanel({
       origem: cli.origem || "WhatsApp IA",
       observacoes: cli.observacoes ?? "",
       followUpMensagem: cli.followUpManual?.mensagem ?? "",
+      followUpData: cli.followUpManual?.data ?? "",
+      followUpHora: cli.followUpManual?.hora ?? "",
+      followUpMidiaUrl: cli.followUpManual?.midiaUrl ?? "",
+      followUpMidiaNome: cli.followUpManual?.midiaNome ?? "",
+      followUpMidiaTipo: cli.followUpManual?.midiaTipo ?? "",
     });
-  }, [cli.id, cli.nome, cli.telefone]);
+  }, [
+    cli.bairro,
+    cli.endereco,
+    cli.followUpManual?.data,
+    cli.followUpManual?.hora,
+    cli.followUpManual?.mensagem,
+    cli.followUpManual?.midiaNome,
+    cli.followUpManual?.midiaTipo,
+    cli.followUpManual?.midiaUrl,
+    cli.id,
+    cli.nome,
+    cli.observacoes,
+    cli.origem,
+    cli.perfil,
+    cli.pets,
+    cli.telefone,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function carregarEstoque() {
+      setLoadingEstoque(true);
+      try {
+        const response = await fetch("/api/crm/produtos", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.erro || "Falha ao carregar estoque");
+        if (!cancelled && Array.isArray(data)) setProdutosEstoque(data);
+      } catch (error) {
+        if (!cancelled)
+          toast.error(
+            error instanceof Error ? error.message : "Nao foi possivel carregar o estoque",
+          );
+      } finally {
+        if (!cancelled) setLoadingEstoque(false);
+      }
+    }
+
+    void carregarEstoque();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const produtosFiltrados = useMemo(() => {
+    const termo = normalizarTextoBusca(buscaEstoque);
+    return produtosEstoque
+      .filter((produto) => produto.estoque > 0 || termo)
+      .filter((produto) => {
+        if (!termo) return true;
+        return normalizarTextoBusca(
+          [
+            produto.nome,
+            produto.sku,
+            produto.categoria,
+            produto.fornecedor,
+            ...Object.values(produto.detalhesTecnicos ?? {}),
+          ].join(" "),
+        ).includes(termo);
+      })
+      .slice(0, 12);
+  }, [produtosEstoque, buscaEstoque]);
+
+  function toggleEstoqueInfo(key: EstoqueInfoKey) {
+    setEstoqueInfo((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function enviarProdutoEstoque(produto: Produto) {
+    const fotoUrl = estoqueInfo.foto ? produto.fotoUrl : null;
+    const mensagem = montarMensagemProduto(produto, estoqueInfo, !fotoUrl);
+    onSendProduct(mensagem, fotoUrl);
+    setShowEstoquePopup(false);
+  }
 
   async function atualizarComIa() {
     if (loadingIa) return;
@@ -1164,7 +1585,8 @@ function CrmPanel({
         }),
       });
       const data = (await response.json()) as { cliente?: Cliente; erro?: string };
-      if (!response.ok || !data.cliente) throw new Error(data.erro || "Nao foi possivel atualizar o contexto");
+      if (!response.ok || !data.cliente)
+        throw new Error(data.erro || "Nao foi possivel atualizar o contexto");
 
       onClienteSaved(data.cliente);
       toast.success("Contexto do cliente atualizado pela IA");
@@ -1203,9 +1625,13 @@ function CrmPanel({
           observacoes: manual.observacoes,
           followUpManual: {
             mensagem: manual.followUpMensagem,
-            data: cli.followUpManual?.data ?? "",
+            data: manual.followUpData,
+            hora: manual.followUpHora,
             canal: cli.followUpManual?.canal ?? "WhatsApp",
             status: cli.followUpManual?.status ?? "pendente",
+            midiaUrl: manual.followUpMidiaUrl,
+            midiaNome: manual.followUpMidiaNome,
+            midiaTipo: manual.followUpMidiaTipo,
             atualizadoEm: new Date().toISOString(),
           },
         }),
@@ -1228,7 +1654,11 @@ function CrmPanel({
       <div className="p-4 border-b border-border bg-gradient-to-br from-primary/5 to-accent/5">
         <div className="flex items-center gap-3">
           <div className="size-12 rounded-2xl bg-gradient-to-br from-primary to-accent grid place-items-center font-bold text-primary-foreground">
-            {cli.nome.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+            {cli.nome
+              .split(" ")
+              .map((n) => n[0])
+              .slice(0, 2)
+              .join("")}
           </div>
           <div className="flex-1 min-w-0">
             <div className="font-bold text-sm truncate">{cli.nome}</div>
@@ -1238,7 +1668,8 @@ function CrmPanel({
         {/* Etiquetas visuais: cidade + espécie */}
         <div className="mt-3 flex items-center gap-1.5 flex-wrap">
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border bg-card text-foreground">
-            <MapPin className="size-3" /> {[cli.cidade, cli.bairro].filter(Boolean).join(" - ") || "Endereco nao identificado"}
+            <MapPin className="size-3" />{" "}
+            {[cli.cidade, cli.bairro].filter(Boolean).join(" - ") || "Endereco nao identificado"}
           </span>
           {especiesContexto.map((e) => (
             <SpeciePill key={e} especie={e} />
@@ -1277,7 +1708,9 @@ function CrmPanel({
               />
               <input
                 value={manual.telefone}
-                onChange={(event) => setManual((state) => ({ ...state, telefone: event.target.value }))}
+                onChange={(event) =>
+                  setManual((state) => ({ ...state, telefone: event.target.value }))
+                }
                 placeholder="Telefone"
                 className="h-9 w-full rounded-lg bg-secondary px-3 text-xs outline-none"
               />
@@ -1290,31 +1723,103 @@ function CrmPanel({
               <div className="grid grid-cols-2 gap-2">
                 <input
                   value={manual.endereco}
-                  onChange={(event) => setManual((state) => ({ ...state, endereco: event.target.value }))}
+                  onChange={(event) =>
+                    setManual((state) => ({ ...state, endereco: event.target.value }))
+                  }
                   placeholder="Endereco"
                   className="h-9 w-full rounded-lg bg-secondary px-3 text-xs outline-none"
                 />
                 <input
                   value={manual.bairro}
-                  onChange={(event) => setManual((state) => ({ ...state, bairro: event.target.value }))}
+                  onChange={(event) =>
+                    setManual((state) => ({ ...state, bairro: event.target.value }))
+                  }
                   placeholder="Bairro"
                   className="h-9 w-full rounded-lg bg-secondary px-3 text-xs outline-none"
                 />
               </div>
               <textarea
                 value={manual.observacoes}
-                onChange={(event) => setManual((state) => ({ ...state, observacoes: event.target.value }))}
+                onChange={(event) =>
+                  setManual((state) => ({ ...state, observacoes: event.target.value }))
+                }
                 placeholder="Observacoes do cliente"
                 rows={3}
                 className="w-full resize-y rounded-lg bg-secondary px-3 py-2 text-xs outline-none"
               />
               <textarea
                 value={manual.followUpMensagem}
-                onChange={(event) => setManual((state) => ({ ...state, followUpMensagem: event.target.value }))}
+                onChange={(event) =>
+                  setManual((state) => ({ ...state, followUpMensagem: event.target.value }))
+                }
                 placeholder="Follow-up manual"
                 rows={2}
                 className="w-full resize-y rounded-lg bg-secondary px-3 py-2 text-xs outline-none"
               />
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                    <Clock className="size-3" /> Data
+                  </span>
+                  <input
+                    type="date"
+                    value={manual.followUpData}
+                    onChange={(event) =>
+                      setManual((state) => ({ ...state, followUpData: event.target.value }))
+                    }
+                    className="h-9 w-full rounded-lg bg-secondary px-3 text-xs outline-none"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                    <Clock className="size-3" /> Horario
+                  </span>
+                  <input
+                    type="time"
+                    value={manual.followUpHora}
+                    onChange={(event) =>
+                      setManual((state) => ({ ...state, followUpHora: event.target.value }))
+                    }
+                    className="h-9 w-full rounded-lg bg-secondary px-3 text-xs outline-none"
+                  />
+                </label>
+              </div>
+              <div className="rounded-lg border border-border p-2 space-y-2">
+                <div className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  <Link className="size-3" /> Midia agendada
+                </div>
+                <input
+                  value={manual.followUpMidiaUrl}
+                  onChange={(event) =>
+                    setManual((state) => ({ ...state, followUpMidiaUrl: event.target.value }))
+                  }
+                  placeholder="URL da midia"
+                  className="h-9 w-full rounded-lg bg-secondary px-3 text-xs outline-none"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    value={manual.followUpMidiaNome}
+                    onChange={(event) =>
+                      setManual((state) => ({ ...state, followUpMidiaNome: event.target.value }))
+                    }
+                    placeholder="Nome do arquivo"
+                    className="h-9 w-full rounded-lg bg-secondary px-3 text-xs outline-none"
+                  />
+                  <select
+                    value={manual.followUpMidiaTipo}
+                    onChange={(event) =>
+                      setManual((state) => ({ ...state, followUpMidiaTipo: event.target.value }))
+                    }
+                    className="h-9 w-full rounded-lg bg-secondary px-3 text-xs outline-none"
+                  >
+                    <option value="">Tipo</option>
+                    <option value="image">Imagem</option>
+                    <option value="video">Video</option>
+                    <option value="audio">Audio</option>
+                    <option value="document">Documento</option>
+                  </select>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => void salvarManual()}
@@ -1373,11 +1878,15 @@ function CrmPanel({
                 </div>
                 <div className="rounded-lg bg-primary/10 p-2 flex items-center justify-between">
                   <div>
-                    <div className="text-[9px] uppercase font-bold text-primary tracking-wide">CAC individual</div>
+                    <div className="text-[9px] uppercase font-bold text-primary tracking-wide">
+                      CAC individual
+                    </div>
                     <div className="text-base font-bold text-primary">{brl(cli.cac)}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-[9px] uppercase text-muted-foreground tracking-wide">ROI</div>
+                    <div className="text-[9px] uppercase text-muted-foreground tracking-wide">
+                      ROI
+                    </div>
                     <div className="text-sm font-bold text-success">{cacRoi}x</div>
                   </div>
                 </div>
@@ -1408,7 +1917,10 @@ function CrmPanel({
             <Behavior label="Aceita upsell" value={cli.perfil !== "Econômico"} />
             <Behavior label="Ignora promoções" value={cli.perfil === "Premium"} invert />
             <Behavior label="Sensível a preço" value={cli.perfil === "Econômico"} invert />
-            <Behavior label="Cliente VIP" value={cli.perfil === "VIP" || cli.perfil === "Premium"} />
+            <Behavior
+              label="Cliente VIP"
+              value={cli.perfil === "VIP" || cli.perfil === "Premium"}
+            />
             <Behavior label="Risco de perder" value={cli.perfil === "Risco"} invert />
             <Behavior label="Bom pagador" value={cli.totalDescontos < cli.totalGasto * 0.1} />
           </div>
@@ -1426,7 +1938,8 @@ function CrmPanel({
             </ul>
           ) : (
             <div className="rounded-xl bg-secondary/50 p-3 text-[11px] text-muted-foreground">
-              Nenhum contexto confiavel identificado ainda. Use "Atualizar com IA" ou edite manualmente.
+              Nenhum contexto confiavel identificado ainda. Use "Atualizar com IA" ou edite
+              manualmente.
             </div>
           )}
         </Section>
@@ -1437,7 +1950,11 @@ function CrmPanel({
             <ActionBtn
               icon="📋"
               label="Abrir pedido"
-              onClick={() => onSendMessage("Vou abrir seu pedido por aqui e ja confirmo os itens, valores e entrega.")}
+              onClick={() =>
+                onSendMessage(
+                  "Vou abrir seu pedido por aqui e ja confirmo os itens, valores e entrega.",
+                )
+              }
             />
             <ActionBtn
               icon="💸"
@@ -1469,30 +1986,171 @@ function CrmPanel({
             <ActionBtn
               icon="🏷️"
               label="Aplicar desconto"
-              onClick={() => onSendMessage("Consegui aplicar uma condicao especial para voce. Quer que eu te envie os valores atualizados?")}
+              onClick={() =>
+                onSendMessage(
+                  "Consegui aplicar uma condicao especial para voce. Quer que eu te envie os valores atualizados?",
+                )
+              }
             />
             <ActionBtn
               icon="🔔"
               label="Follow-up"
-              onClick={() => onSendMessage("Oi, tudo bem? Passando para saber se posso te ajudar com seu pedido ou alguma duvida.")}
+              onClick={() =>
+                onSendMessage(
+                  "Oi, tudo bem? Passando para saber se posso te ajudar com seu pedido ou alguma duvida.",
+                )
+              }
             />
             <ActionBtn icon="📊" label="Mover kanban" onClick={onMoveKanban} />
             <ActionBtn icon="📜" label="Histórico" onClick={onOpenHistory} />
+            <button
+              type="button"
+              onClick={() => setShowEstoquePopup(true)}
+              className="h-9 px-2 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition bg-secondary hover:bg-secondary/70"
+            >
+              <Package className="size-3.5" /> Estoque
+            </button>
             <a
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cli.endereco + " " + cli.bairro)}`}
-              target="_blank" rel="noreferrer"
+              target="_blank"
+              rel="noreferrer"
               className="col-span-2 inline-flex items-center justify-center gap-1.5 h-9 rounded-lg bg-secondary hover:bg-secondary/70 text-xs font-semibold transition"
             >
               📍 Abrir endereço no Maps
             </a>
           </div>
         </Section>
+        {showEstoquePopup && (
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-foreground/50 p-4"
+            onClick={() => setShowEstoquePopup(false)}
+          >
+            <div
+              className="w-full max-w-lg rounded-lg border border-border bg-card shadow-xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-border p-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-bold">
+                    <Package className="size-4 text-primary" /> Estoque
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Escolha o produto e as informacoes para enviar.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowEstoquePopup(false)}
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  aria-label="Fechar estoque"
+                >
+                  <XIcon />
+                </button>
+              </div>
+
+              <div className="space-y-3 p-3">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                  <input
+                    value={buscaEstoque}
+                    onChange={(event) => setBuscaEstoque(event.target.value)}
+                    placeholder="Buscar produto do estoque"
+                    className="w-full h-10 pl-8 pr-3 rounded-lg bg-secondary outline-none text-sm"
+                  />
+                </div>
+
+                <div className="rounded-lg border border-border p-2">
+                  <div className="mb-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                    <SlidersHorizontal className="size-3" /> Enviar junto
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+                    {ESTOQUE_INFO_LABELS.map((item) => (
+                      <label
+                        key={item.key}
+                        className="flex items-center gap-1.5 rounded-md bg-secondary/50 px-2 py-1.5 text-[10px] font-semibold"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={estoqueInfo[item.key]}
+                          onChange={() => toggleEstoqueInfo(item.key)}
+                          className="size-3 accent-primary"
+                        />
+                        <span className="truncate">{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="max-h-[55vh] overflow-y-auto pr-1 scrollbar-thin space-y-2">
+                  {loadingEstoque ? (
+                    <div className="rounded-lg bg-secondary/50 p-3 text-sm text-muted-foreground">
+                      Carregando estoque...
+                    </div>
+                  ) : produtosFiltrados.length === 0 ? (
+                    <div className="rounded-lg bg-secondary/50 p-3 text-sm text-muted-foreground">
+                      Nenhum produto encontrado.
+                    </div>
+                  ) : (
+                    produtosFiltrados.map((produto) => (
+                      <div
+                        key={produto.sku}
+                        className="rounded-lg border border-border bg-card p-2"
+                      >
+                        <div className="flex gap-3">
+                          <div className="size-14 shrink-0 overflow-hidden rounded-md bg-secondary">
+                            {produto.fotoUrl ? (
+                              <img
+                                src={produto.fotoUrl}
+                                alt={produto.nome}
+                                className="size-full object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="grid size-full place-items-center text-muted-foreground">
+                                <Package className="size-5" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-bold leading-snug line-clamp-2">
+                              {produto.nome}
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                              <span>{brl(produto.preco)}</span>
+                              <span>-</span>
+                              <span>{produto.estoque > 0 ? "Disponivel" : "Sem estoque"}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => enviarProdutoEstoque(produto)}
+                          className="mt-2 h-9 w-full rounded-md bg-primary text-xs font-semibold text-primary-foreground hover:opacity-90"
+                        >
+                          Enviar produto
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Section({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-1.5 px-1">
@@ -1507,39 +2165,71 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   return (
     <div className="rounded-lg bg-secondary/60 p-2">
       <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</div>
-      <div className={`font-bold text-xs mt-0.5 truncate ${accent === "success" ? "text-success" : ""}`}>{value}</div>
+      <div
+        className={`font-bold text-xs mt-0.5 truncate ${accent === "success" ? "text-success" : ""}`}
+      >
+        {value}
+      </div>
     </div>
   );
 }
 
 function Behavior({ label, value, invert }: { label: string; value: boolean; invert?: boolean }) {
   return (
-    <div className={`rounded-lg p-2 border ${value ? (invert ? "bg-destructive/10 border-destructive/20" : "bg-success/10 border-success/20") : "bg-secondary/40 border-transparent"}`}>
-      <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">{label}</div>
-      <div className={`font-bold text-xs mt-0.5 ${value ? (invert ? "text-destructive" : "text-success") : "text-muted-foreground"}`}>
+    <div
+      className={`rounded-lg p-2 border ${value ? (invert ? "bg-destructive/10 border-destructive/20" : "bg-success/10 border-success/20") : "bg-secondary/40 border-transparent"}`}
+    >
+      <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">
+        {label}
+      </div>
+      <div
+        className={`font-bold text-xs mt-0.5 ${value ? (invert ? "text-destructive" : "text-success") : "text-muted-foreground"}`}
+      >
         {value ? "Sim" : "Não"}
       </div>
     </div>
   );
 }
 
-function ActionBtn({ icon, label, primary, onClick }: { icon: string; label: string; primary?: boolean; onClick?: () => void }) {
+function ActionBtn({
+  icon,
+  label,
+  primary,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  primary?: boolean;
+  onClick?: () => void;
+}) {
   return (
     <button
       onClick={onClick}
       className={`h-9 px-2 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition ${
-      primary ? "bg-success text-success-foreground hover:opacity-90" : "bg-secondary hover:bg-secondary/70"
-    }`}>
+        primary
+          ? "bg-success text-success-foreground hover:opacity-90"
+          : "bg-secondary hover:bg-secondary/70"
+      }`}
+    >
       <span>{icon}</span> {label}
     </button>
   );
 }
 
-function QuickReply({ label, icon, onClick }: { label: string; icon?: React.ReactNode; onClick?: () => void }) {
+function QuickReply({
+  label,
+  icon,
+  onClick,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  onClick?: () => void;
+}) {
   return (
     <button
       onClick={onClick}
-      className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20 inline-flex items-center gap-1 transition">
+      className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20 inline-flex items-center gap-1 transition"
+    >
       {icon} {label}
     </button>
   );
@@ -1555,13 +2245,118 @@ function DateChip({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Bubble({ side, children, ai, hora }: { side: "me" | "them"; children: React.ReactNode; ai?: boolean; hora?: string }) {
+function mediaUrlValida(value: unknown): string | undefined {
+  const url = typeof value === "string" ? value.trim() : "";
+  if (!url) return undefined;
+  if (/^(https?:|data:|blob:)/i.test(url)) return url;
+  return undefined;
+}
+
+function tipoMidiaMensagem(message: any): "image" | "audio" | "video" | "document" | null {
+  const type = `${message?.mimeType ?? ""} ${message?.messageType ?? ""}`.toLowerCase();
+  if (type.includes("image")) return "image";
+  if (type.includes("audio") || type.includes("ptt")) return "audio";
+  if (type.includes("video")) return "video";
+  if (mediaUrlValida(message?.mediaUrl)) return "document";
+  return null;
+}
+
+function mediaSrcMensagem(message: any): string | undefined {
+  const mediaUrl = mediaUrlValida(message?.mediaUrl);
+  if (!mediaUrl) return undefined;
+  if (!/^https?:/i.test(mediaUrl)) return mediaUrl;
+
+  const mediaKey = typeof message?.mediaKey === "string" ? message.mediaKey.trim() : "";
+  const params = new URLSearchParams({
+    url: mediaUrl,
+    messageType: String(message?.messageType ?? ""),
+    mimeType: String(message?.mimeType ?? ""),
+  });
+  if (mediaKey) params.set("mediaKey", mediaKey);
+
+  return `/api/crm/media?${params}`;
+}
+
+function MediaPreview({ message, me }: { message: any; me: boolean }) {
+  const mediaUrl = mediaSrcMensagem(message);
+  if (!mediaUrl) return null;
+
+  const tipo = tipoMidiaMensagem(message);
+  const label = String(message?.fileName ?? "Abrir midia");
+
+  if (tipo === "image") {
+    return (
+      <a
+        href={mediaUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 block overflow-hidden rounded-lg border border-black/10 bg-black/5"
+      >
+        <img src={mediaUrl} alt={label} className="max-h-72 w-full object-contain" loading="lazy" />
+      </a>
+    );
+  }
+
+  if (tipo === "audio") {
+    return (
+      <audio
+        controls
+        src={mediaUrl}
+        className={`mt-2 h-10 w-64 max-w-full ${me ? "accent-success" : ""}`}
+      >
+        <a href={mediaUrl} target="_blank" rel="noreferrer">
+          Abrir audio
+        </a>
+      </audio>
+    );
+  }
+
+  if (tipo === "video") {
+    return (
+      <video controls src={mediaUrl} className="mt-2 max-h-72 w-72 max-w-full rounded-lg bg-black">
+        <a href={mediaUrl} target="_blank" rel="noreferrer">
+          Abrir video
+        </a>
+      </video>
+    );
+  }
+
+  return (
+    <a
+      href={mediaUrl}
+      target="_blank"
+      rel="noreferrer"
+      className={`mt-2 inline-flex max-w-full items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold ${
+        me ? "bg-white/15 hover:bg-white/25" : "bg-secondary hover:bg-secondary/70"
+      }`}
+    >
+      <Paperclip className="size-3.5 shrink-0" />
+      <span className="truncate">{label}</span>
+    </a>
+  );
+}
+
+function Bubble({
+  side,
+  children,
+  ai,
+  hora,
+  message,
+}: {
+  side: "me" | "them";
+  children: React.ReactNode;
+  ai?: boolean;
+  hora?: string;
+  message?: any;
+}) {
   const me = side === "me";
   return (
     <div className={`flex ${me ? "justify-end" : "justify-start"}`}>
       <div
         className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-sm shadow-sm ${
-          me ? "bg-success text-success-foreground rounded-br-sm" : "bg-card border border-border rounded-bl-sm"
+          me
+            ? "bg-success text-success-foreground rounded-br-sm"
+            : "bg-card border border-border rounded-bl-sm"
         }`}
       >
         {ai && (
@@ -1574,9 +2369,12 @@ function Bubble({ side, children, ai, hora }: { side: "me" | "them"; children: R
             <User className="size-3" /> Cliente
           </div>
         )}
-        <div className="leading-snug">{children}</div>
+        <div className="whitespace-pre-wrap leading-snug">{children}</div>
+        <MediaPreview message={message} me={me} />
         {hora && (
-          <div className={`text-[9px] mt-1 flex items-center justify-end gap-0.5 ${me ? "opacity-80" : "text-muted-foreground"}`}>
+          <div
+            className={`text-[9px] mt-1 flex items-center justify-end gap-0.5 ${me ? "opacity-80" : "text-muted-foreground"}`}
+          >
             {hora} {me && <CheckCheck className="size-3" />}
           </div>
         )}
@@ -1625,13 +2423,21 @@ function KanbanView({ items, setItems }: { items: Conversa[]; setItems: (i: Conv
                 >
                   <div className="flex items-center gap-2">
                     <div className="size-7 rounded-full bg-primary/15 grid place-items-center text-primary font-semibold text-[10px]">
-                      {c.cliente.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                      {c.cliente
+                        .split(" ")
+                        .map((n) => n[0])
+                        .slice(0, 2)
+                        .join("")}
                     </div>
                     <div className="font-semibold text-xs truncate">{c.cliente}</div>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1.5 line-clamp-2">{c.ultima}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1.5 line-clamp-2">
+                    {c.ultima}
+                  </p>
                   <div className="mt-2 flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-success">{brl(c.valorPotencial)}</span>
+                    <span className="text-[10px] font-bold text-success">
+                      {brl(c.valorPotencial)}
+                    </span>
                     <span className="text-[10px] text-muted-foreground">{c.hora}</span>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-import type { Cliente, Produto } from "@/lib/mock";
+import type { Cliente, Produto, ProdutoDetalhesTecnicos } from "@/lib/crm-types";
 
 export type DashboardData = {
   kpis: {
@@ -58,6 +58,8 @@ type ClienteRow = {
   prox_recompra: string | null;
   cidade: string | null;
   especies: Cliente["especies"] | null;
+  observacoes: string | null;
+  follow_up_manual: Cliente["followUpManual"] | null;
 };
 
 type ProdutoRow = {
@@ -71,6 +73,9 @@ type ProdutoRow = {
   preco_compra: number | null;
   tipo: Produto["tipo"] | null;
   fornecedor: string | null;
+  foto_url?: string | null;
+  foto_path?: string | null;
+  detalhes_tecnicos?: ProdutoDetalhesTecnicos | null;
 };
 
 type VendaRow = {
@@ -99,6 +104,14 @@ type ClienteDashboardRow = Pick<
 type ProdutoDashboardRow = Pick<ProdutoRow, "estoque" | "minimo">;
 
 const DASHBOARD_CACHE_MS = 15_000;
+const PRODUTO_FOTOS_BUCKET = "produto-fotos";
+const PRODUTO_FOTO_MAX_BYTES = 5 * 1024 * 1024;
+const PRODUTO_FOTO_MIME_EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
 let dashboardCache: { expiresAt: number; data: DashboardData } | null = null;
 let dashboardPromise: Promise<DashboardData> | null = null;
 
@@ -117,6 +130,15 @@ function supabaseUrl(path: string): string {
   return `${baseUrl}/rest/v1${path}`;
 }
 
+function supabaseStorageUrl(path: string): string {
+  const baseUrl = requireEnv("SUPABASE_URL").replace(/\/$/, "");
+  return `${baseUrl}/storage/v1${path}`;
+}
+
+function supabasePublicObjectUrl(bucket: string, path: string): string {
+  return supabaseStorageUrl(`/object/public/${bucket}/${encodeStoragePath(path)}`);
+}
+
 function supabaseHeaders(): HeadersInit {
   const anonKey = requireEnv("SUPABASE_ANON_KEY");
 
@@ -125,6 +147,20 @@ function supabaseHeaders(): HeadersInit {
     authorization: `Bearer ${anonKey}`,
     "content-type": "application/json",
   };
+}
+
+function supabaseStorageHeaders(contentType?: string): HeadersInit {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || requireEnv("SUPABASE_ANON_KEY");
+
+  return {
+    apikey: key,
+    authorization: `Bearer ${key}`,
+    ...(contentType ? { "content-type": contentType } : {}),
+  };
+}
+
+function encodeStoragePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
 }
 
 async function selectFromSupabase<T>(path: string): Promise<T[]> {
@@ -138,6 +174,32 @@ async function selectFromSupabase<T>(path: string): Promise<T[]> {
   }
 
   return (await response.json()) as T[];
+}
+
+async function selectAllFromSupabase<T>(path: string, pageSize = 1000): Promise<T[]> {
+  const rows: T[] = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await fetch(supabaseUrl(path), {
+      headers: {
+        ...supabaseHeaders(),
+        Range: `${offset}-${offset + pageSize - 1}`,
+        "Range-Unit": "items",
+      },
+    });
+
+    if (!page.ok) {
+      const errorBody = await page.text();
+      throw new Error(`Supabase select failed (${page.status}): ${errorBody}`);
+    }
+
+    const pageRows = (await page.json()) as T[];
+    rows.push(...pageRows);
+
+    if (pageRows.length < pageSize) break;
+  }
+
+  return rows;
 }
 
 async function selectOptional<T>(path: string): Promise<T[]> {
@@ -175,6 +237,8 @@ function mapCliente(row: ClienteRow): Cliente {
     proxRecompra: row.prox_recompra ?? "",
     cidade: row.cidade ?? undefined,
     especies: row.especies ?? undefined,
+    observacoes: row.observacoes ?? "",
+    followUpManual: row.follow_up_manual ?? undefined,
   };
 }
 
@@ -190,11 +254,14 @@ function mapProduto(row: ProdutoRow): Produto {
     precoCompra: row.preco_compra ?? 0,
     tipo: row.tipo ?? "próprio",
     fornecedor: row.fornecedor ?? undefined,
+    fotoUrl: row.foto_url ?? null,
+    fotoPath: row.foto_path ?? null,
+    detalhesTecnicos: row.detalhes_tecnicos ?? undefined,
   };
 }
 
 export async function listarClientes(): Promise<Cliente[]> {
-  const rows = await selectFromSupabase<ClienteRow>("/clientes?select=*&order=nome.asc");
+  const rows = await selectAllFromSupabase<ClienteRow>("/clientes?select=*&order=nome.asc");
   return rows.map(mapCliente);
 }
 
@@ -206,6 +273,8 @@ export type ClienteCrmInput = {
   pets?: string[];
   perfil?: Cliente["perfil"];
   origem?: string;
+  observacoes?: string;
+  followUpManual?: Cliente["followUpManual"];
 };
 
 function clientePayload(input: ClienteCrmInput): Record<string, unknown> {
@@ -217,6 +286,8 @@ function clientePayload(input: ClienteCrmInput): Record<string, unknown> {
     pets: input.pets?.map((pet) => pet.trim()).filter(Boolean) ?? [],
     perfil: input.perfil ?? "Novo",
     origem: input.origem?.trim() || "CRM manual",
+    ...(input.observacoes !== undefined ? { observacoes: input.observacoes.trim() || null } : {}),
+    ...(input.followUpManual !== undefined ? { follow_up_manual: input.followUpManual ?? {} } : {}),
     atualizado_em: new Date().toISOString(),
   };
 }
@@ -225,12 +296,13 @@ async function writeCliente(
   path: string,
   method: "POST" | "PATCH",
   body: unknown,
+  prefer = "return=representation",
 ): Promise<Cliente> {
   const response = await fetch(supabaseUrl(path), {
     method,
     headers: {
       ...supabaseHeaders(),
-      Prefer: "return=representation",
+      Prefer: prefer,
     },
     body: JSON.stringify(body),
   });
@@ -247,11 +319,28 @@ async function writeCliente(
 }
 
 export async function criarClienteCrm(input: ClienteCrmInput): Promise<Cliente> {
-  return writeCliente("/clientes", "POST", clientePayload(input));
+  return writeCliente(
+    "/clientes?on_conflict=telefone",
+    "POST",
+    clientePayload(input),
+    "resolution=merge-duplicates,return=representation",
+  );
 }
 
 export async function atualizarClienteCrm(id: string, input: ClienteCrmInput): Promise<Cliente> {
   return writeCliente(`/clientes?id=eq.${encodeURIComponent(id)}`, "PATCH", clientePayload(input));
+}
+
+export async function excluirClienteCrm(id: string): Promise<void> {
+  const response = await fetch(supabaseUrl(`/clientes?id=eq.${encodeURIComponent(id)}`), {
+    method: "DELETE",
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase cliente delete failed (${response.status}): ${errorBody}`);
+  }
 }
 
 export async function listarProdutos(): Promise<Produto[]> {
@@ -270,10 +359,16 @@ export type ProdutoCrmInput = {
   precoCompra: number;
   tipo: Produto["tipo"];
   fornecedor?: string;
+  fotoUrl?: string | null;
+  fotoPath?: string | null;
+  detalhesTecnicos?: ProdutoDetalhesTecnicos;
 };
 
-function produtoPayload(input: ProdutoCrmInput): Record<string, unknown> {
-  return {
+function produtoPayload(
+  input: ProdutoCrmInput,
+  includeDetalhesTecnicos = true,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
     sku: input.sku.trim().toUpperCase(),
     nome: input.nome.trim(),
     categoria: input.categoria.trim(),
@@ -286,6 +381,20 @@ function produtoPayload(input: ProdutoCrmInput): Record<string, unknown> {
     fornecedor: input.fornecedor?.trim() || null,
     atualizado_em: new Date().toISOString(),
   };
+
+  if (includeDetalhesTecnicos) {
+    payload.detalhes_tecnicos = input.detalhesTecnicos ?? {};
+  }
+
+  if ("fotoUrl" in input) {
+    payload.foto_url = input.fotoUrl || null;
+  }
+
+  if ("fotoPath" in input) {
+    payload.foto_path = input.fotoPath || null;
+  }
+
+  return payload;
 }
 
 async function writeProduto(
@@ -293,7 +402,7 @@ async function writeProduto(
   method: "POST" | "PATCH",
   input: ProdutoCrmInput,
 ): Promise<Produto> {
-  const response = await fetch(supabaseUrl(path), {
+  let response = await fetch(supabaseUrl(path), {
     method,
     headers: {
       ...supabaseHeaders(),
@@ -304,6 +413,24 @@ async function writeProduto(
 
   if (!response.ok) {
     const errorBody = await response.text();
+    if (errorBody.includes("detalhes_tecnicos")) {
+      response = await fetch(supabaseUrl(path), {
+        method,
+        headers: {
+          ...supabaseHeaders(),
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify(produtoPayload(input, false)),
+      });
+
+      if (response.ok) {
+        const rows = (await response.json()) as ProdutoRow[];
+        if (!rows[0]) throw new Error("Produto nao retornado pelo Supabase");
+
+        return mapProduto(rows[0]);
+      }
+    }
+
     throw new Error(`Supabase produto write failed (${response.status}): ${errorBody}`);
   }
 
@@ -319,6 +446,177 @@ export async function criarProdutoCrm(input: ProdutoCrmInput): Promise<Produto> 
 
 export async function atualizarProdutoCrm(sku: string, input: ProdutoCrmInput): Promise<Produto> {
   return writeProduto(`/produtos?sku=eq.${encodeURIComponent(sku)}`, "PATCH", input);
+}
+
+export type ProdutoFotoArquivo = {
+  name?: string;
+  type: string;
+  size: number;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+};
+
+function produtoFotoPath(sku: string, contentType: string): string {
+  const skuPath = sku
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const ext = PRODUTO_FOTO_MIME_EXT[contentType];
+  const id =
+    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return `${skuPath || "produto"}/${id}.${ext}`;
+}
+
+function validarProdutoFoto(file: ProdutoFotoArquivo): string {
+  const contentType = file.type.toLowerCase();
+
+  if (!PRODUTO_FOTO_MIME_EXT[contentType]) {
+    throw new Error("Envie uma imagem JPG, PNG, WEBP ou GIF");
+  }
+
+  if (file.size <= 0) {
+    throw new Error("Arquivo de imagem vazio");
+  }
+
+  if (file.size > PRODUTO_FOTO_MAX_BYTES) {
+    throw new Error("A foto deve ter no maximo 5MB");
+  }
+
+  return contentType;
+}
+
+async function buscarProdutoPorSku(sku: string): Promise<Produto | null> {
+  const params = new URLSearchParams({
+    sku: `eq.${sku.trim().toUpperCase()}`,
+    select: "*",
+    limit: "1",
+  });
+  const rows = await selectFromSupabase<ProdutoRow>(`/produtos?${params}`);
+
+  return rows[0] ? mapProduto(rows[0]) : null;
+}
+
+async function atualizarProdutoFotoCampos({
+  sku,
+  fotoUrl,
+  fotoPath,
+}: {
+  sku: string;
+  fotoUrl: string | null;
+  fotoPath: string | null;
+}): Promise<Produto> {
+  const response = await fetch(supabaseUrl(`/produtos?sku=eq.${encodeURIComponent(sku)}`), {
+    method: "PATCH",
+    headers: {
+      ...supabaseHeaders(),
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify({
+      foto_url: fotoUrl,
+      foto_path: fotoPath,
+      atualizado_em: new Date().toISOString(),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase produto foto update failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as ProdutoRow[];
+  if (!rows[0]) throw new Error("Produto nao retornado pelo Supabase");
+
+  return mapProduto(rows[0]);
+}
+
+async function uploadProdutoFotoStorage({
+  path,
+  file,
+  contentType,
+}: {
+  path: string;
+  file: ProdutoFotoArquivo;
+  contentType: string;
+}): Promise<void> {
+  const response = await fetch(
+    supabaseStorageUrl(`/object/${PRODUTO_FOTOS_BUCKET}/${encodeStoragePath(path)}`),
+    {
+      method: "POST",
+      headers: {
+        ...supabaseStorageHeaders(contentType),
+        "cache-control": "3600",
+        "x-upsert": "true",
+      },
+      body: await file.arrayBuffer(),
+    },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase storage upload failed (${response.status}): ${errorBody}`);
+  }
+}
+
+async function removerProdutoFotoStorage(path: string | null | undefined): Promise<void> {
+  if (!path) return;
+
+  const response = await fetch(
+    supabaseStorageUrl(`/object/${PRODUTO_FOTOS_BUCKET}/${encodeStoragePath(path)}`),
+    {
+      method: "DELETE",
+      headers: supabaseStorageHeaders(),
+    },
+  );
+
+  if (!response.ok && response.status !== 404) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase storage delete failed (${response.status}): ${errorBody}`);
+  }
+}
+
+export async function salvarProdutoFotoCrm(
+  sku: string,
+  file: ProdutoFotoArquivo,
+): Promise<Produto> {
+  const produto = await buscarProdutoPorSku(sku);
+  if (!produto) throw new Error("Produto nao encontrado");
+
+  const contentType = validarProdutoFoto(file);
+  const path = produtoFotoPath(produto.sku, contentType);
+  const fotoUrl = supabasePublicObjectUrl(PRODUTO_FOTOS_BUCKET, path);
+
+  await uploadProdutoFotoStorage({ path, file, contentType });
+
+  try {
+    const atualizado = await atualizarProdutoFotoCampos({
+      sku: produto.sku,
+      fotoUrl,
+      fotoPath: path,
+    });
+
+    void removerProdutoFotoStorage(produto.fotoPath).catch(() => undefined);
+
+    return atualizado;
+  } catch (error) {
+    void removerProdutoFotoStorage(path).catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function removerProdutoFotoCrm(sku: string): Promise<Produto> {
+  const produto = await buscarProdutoPorSku(sku);
+  if (!produto) throw new Error("Produto nao encontrado");
+
+  const atualizado = await atualizarProdutoFotoCampos({
+    sku: produto.sku,
+    fotoUrl: null,
+    fotoPath: null,
+  });
+
+  void removerProdutoFotoStorage(produto.fotoPath).catch(() => undefined);
+
+  return atualizado;
 }
 
 async function listarClientesDashboard(): Promise<ClienteDashboardRow[]> {
@@ -396,6 +694,11 @@ export async function carregarDashboard(): Promise<DashboardData> {
     });
 
   return dashboardPromise;
+}
+
+export function invalidarDashboardCache(): void {
+  dashboardCache = null;
+  dashboardPromise = null;
 }
 
 async function carregarDashboardSemCache(): Promise<DashboardData> {

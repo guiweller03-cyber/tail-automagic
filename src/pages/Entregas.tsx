@@ -8,6 +8,17 @@ import { StatusBadge } from "@/components/StatusBadge";
 
 type Mensagem = { hora: string; texto: string; enviado: boolean };
 type StatusEntrega = "aguardando" | "em rota" | "concluída" | "problema";
+type PedidoEntrega = {
+  id: string;
+  cliente: string;
+  telefone: string;
+  pet: string;
+  bairro: string;
+  total: number;
+  hora: string;
+  status: "novo" | "pago" | "separando" | "em rota" | "entregue" | "cancelado";
+  observacao?: string;
+};
 type EntregaAtiva = {
   id: string; cliente: string; telefone: string;
   endereco: string; bairro: string; eta: string;
@@ -16,39 +27,7 @@ type EntregaAtiva = {
   historicoMensagens: Mensagem[];
 };
 
-const entregasIniciais: EntregaAtiva[] = [
-  {
-    id: "#10238", cliente: "Marina Costa", telefone: "11998123344",
-    endereco: "R. Vergueiro, 1240", bairro: "Vila Mariana",
-    eta: "15 min", status: "em rota", pedido: "#10238", total: 289.9,
-    itens: ["Golden Adultos 15kg"], ordem: 1,
-    historicoMensagens: [
-      { hora: "14:20", texto: "Olá Marina! Seu pedido saiu para entrega 🚗", enviado: true },
-      { hora: "14:21", texto: "Ótimo! Tô esperando 😊", enviado: false },
-    ],
-  },
-  {
-    id: "#10233", cliente: "Roberto Lima", telefone: "11982346677",
-    endereco: "Av. Berrini, 880", bairro: "Brooklin",
-    eta: "28 min", status: "em rota", pedido: "#10233", total: 540.7,
-    itens: ["Golden Raças Grandes 20kg", "Petisco Natural 90g"],
-    ordem: 2, historicoMensagens: [],
-  },
-  {
-    id: "#10236", cliente: "Júlia Ramos", telefone: "11980112231",
-    endereco: "R. dos Pinheiros, 412", bairro: "Pinheiros",
-    eta: "44 min", status: "aguardando", pedido: "#10236", total: 264.0,
-    itens: ["Premier Gourmet 10kg", "Shampoo Hipoalergênico"],
-    ordem: 3, historicoMensagens: [],
-  },
-  {
-    id: "#10234", cliente: "Ana Beatriz", telefone: "11999881144",
-    endereco: "R. Funchal, 200", bairro: "Vila Olímpia",
-    eta: "1h 02min", status: "aguardando", pedido: "#10234", total: 320.0,
-    itens: ["Premier Gourmet 10kg"], ordem: 4,
-    historicoMensagens: [],
-  },
-];
+const entregasIniciais: EntregaAtiva[] = [];
 
 const ETAS = ["15 min", "30 min", "50 min", "1h 10min", "1h 30min", "1h 50min"];
 const POSITIONS = [
@@ -70,6 +49,39 @@ export function Entregas() {
   const [conversaAberta, setConversaAberta] = useState<EntregaAtiva | null>(null);
   const [avisoAberto, setAvisoAberto] = useState<EntregaAtiva | null>(null);
   const [avisoAuto, setAvisoAuto] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadEntregas() {
+      const res = await fetch("/api/crm/pedidos", { cache: "no-store" });
+      if (!alive) return;
+      if (!res.ok) {
+        setListaEntregas([]);
+        return;
+      }
+      const pedidos = (await res.json()) as PedidoEntrega[];
+      setListaEntregas(pedidos
+        .filter((pedido) => pedido.status !== "cancelado" && pedido.status !== "entregue")
+        .map((pedido, index) => ({
+          id: pedido.id,
+          cliente: pedido.cliente,
+          telefone: pedido.telefone,
+          endereco: pedido.bairro || "Endereco a confirmar",
+          bairro: pedido.bairro || "A confirmar",
+          eta: ETAS[index] ?? `${30 + index * 18}min`,
+          status: pedido.status === "em rota" ? "em rota" : "aguardando",
+          pedido: pedido.id,
+          total: pedido.total,
+          itens: [pedido.pet || pedido.observacao || "Pedido registrado"],
+          ordem: index + 1,
+          historicoMensagens: [],
+        })));
+    }
+    void loadEntregas();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const v = typeof window !== "undefined" ? localStorage.getItem("avisos_auto") : null;

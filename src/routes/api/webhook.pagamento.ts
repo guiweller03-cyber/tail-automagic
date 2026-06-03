@@ -5,7 +5,11 @@ import { confirmarPagamentoPixPedido } from "@/lib/pagamento-confirmado";
 
 type MercadoPagoWebhook = {
   type?: string;
+  topic?: string;
   action?: string;
+  id?: string;
+  "data.id"?: string;
+  resource?: string;
   data?: {
     id?: string;
   };
@@ -16,11 +20,29 @@ function json(data: unknown, init?: ResponseInit): Response {
 }
 
 export async function processarWebhookMercadoPago(event: MercadoPagoWebhook): Promise<Response> {
-  if (event.type !== "payment" || !event.data?.id) {
+  const paymentId =
+    event.data?.id ??
+    event["data.id"] ??
+    (event.topic === "payment" ? event.id : undefined) ??
+    event.resource?.match(/\/payments\/([^/?#]+)/i)?.[1];
+  const isPayment =
+    event.type === "payment" ||
+    event.topic === "payment" ||
+    event.action?.startsWith("payment.") ||
+    Boolean(paymentId);
+
+  if (!isPayment || !paymentId) {
+    console.info("[mercadopago] webhook_ignorado", {
+      eventKeys: Object.keys(event ?? {}),
+      type: event.type,
+      topic: event.topic,
+      action: event.action,
+    });
+
     return json({ received: true, ignored: true });
   }
 
-  const pagamento = await buscarPagamentoMercadoPago(event.data.id);
+  const pagamento = await buscarPagamentoMercadoPago(paymentId);
 
   if (pagamento.status === "approved" && pagamento.external_reference) {
     await confirmarPagamentoPixPedido(pagamento.external_reference);

@@ -19,6 +19,16 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function webhookUrlMercadoPago(): string {
+  const url = new URL(requireEnv("MP_WEBHOOK_URL"));
+
+  if (!url.searchParams.has("source_news")) {
+    url.searchParams.set("source_news", "webhooks");
+  }
+
+  return url.toString();
+}
+
 function paymentClient(): Payment {
   const client = new MercadoPagoConfig({
     accessToken: requireEnv("MP_ACCESS_TOKEN"),
@@ -38,36 +48,47 @@ export async function gerarPixPedido(pedido: PedidoPix): Promise<{
   id: string;
   status: string;
 }> {
-  const payment = paymentClient();
-  const response = await payment.create({
-    body: {
-      payment_method_id: "pix",
-      transaction_amount: pedido.valor,
-      description: pedido.descricao,
-      payer: {
-        email: pedido.email,
+  try {
+    const payment = paymentClient();
+    const response = await payment.create({
+      body: {
+        payment_method_id: "pix",
+        transaction_amount: pedido.valor,
+        description: pedido.descricao,
+        payer: {
+          email: pedido.email,
+        },
+        external_reference: pedido.id,
+        notification_url: webhookUrlMercadoPago(),
       },
-      external_reference: pedido.id,
-      notification_url: requireEnv("MP_WEBHOOK_URL"),
-    },
-    requestOptions: {
-      idempotencyKey: pedido.id,
-    },
-  });
+      requestOptions: {
+        idempotencyKey: pedido.id,
+      },
+    });
 
-  const qrCode = response.point_of_interaction?.transaction_data?.qr_code;
-  const qrCodeBase64 = response.point_of_interaction?.transaction_data?.qr_code_base64;
+    const qrCode = response.point_of_interaction?.transaction_data?.qr_code;
+    const qrCodeBase64 = response.point_of_interaction?.transaction_data?.qr_code_base64;
 
-  if (!response.id || !qrCode || !qrCodeBase64) {
-    throw new Error("Mercado Pago nao retornou dados do Pix");
+    if (!response.id || !qrCode || !qrCodeBase64) {
+      console.error("[mercadopago] Resposta incompleta:", response);
+      throw new Error(
+        "O Mercado Pago nao retornou os dados do Pix. Verifique se sua conta esta configurada para aceitar Pix e se o token e valido.",
+      );
+    }
+
+    return {
+      qr_code: qrCode,
+      qr_code_base64: qrCodeBase64,
+      id: String(response.id),
+      status: response.status ?? "pending",
+    };
+  } catch (error) {
+    console.error("[mercadopago] Erro ao criar pagamento:", error);
+    // Tenta extrair mensagem detalhada da API do Mercado Pago se disponivel
+    const mpError = error as any;
+    const details = mpError.message || mpError.cause?.[0]?.description || "Erro desconhecido";
+    throw new Error(`Mercado Pago falhou: ${details}`);
   }
-
-  return {
-    qr_code: qrCode,
-    qr_code_base64: qrCodeBase64,
-    id: String(response.id),
-    status: response.status ?? "pending",
-  };
 }
 
 export async function buscarPagamentoMercadoPago(paymentId: string): Promise<{

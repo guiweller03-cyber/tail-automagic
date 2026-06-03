@@ -16,7 +16,7 @@ async function fetchDashboard(): Promise<DashboardData | null> {
 }
 
 export const Route = createFileRoute("/")({
-  component: Dashboard,
+  component: DashboardRoute,
   loader: ({ context }) => {
     return context.queryClient.ensureQueryData({
       queryKey: dashboardQueryKey,
@@ -25,3 +25,8 @@ export const Route = createFileRoute("/")({
     });
   },
 });
+
+function DashboardRoute() {
+  const data = Route.useLoaderData();
+  return <Dashboard data={data} />;
+}

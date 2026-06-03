@@ -1,9 +1,10 @@
-import { automacoes } from "@/lib/mock";
 import { Zap, Play, Pause, Shield, MessageCircle, Plus, Trash2, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 type Aba = "fluxos" | "vermifugo" | "posvenda";
+
+const automacoes: { nome: string; desc: string; ativo: boolean; execHoje: number }[] = [];
 
 type VermifugoCfg = {
   duracaoDias: number;
@@ -23,34 +24,9 @@ const VERM_DEFAULT: VermifugoCfg = {
 };
 
 type PetEmProtecao = { id: string; cliente: string; pet: string; produto: string; venceEm: number; status: "ok" | "aviso" | "vencido" };
-const PETS_MOCK: PetEmProtecao[] = [
-  { id: "p1", cliente: "Marina Costa",   pet: "Thor",   produto: "Drontal Plus", venceEm: 5,  status: "aviso" },
-  { id: "p2", cliente: "Júlia Ramos",    pet: "Bento",  produto: "Endogard",     venceEm: 30, status: "ok" },
-  { id: "p3", cliente: "Carlos Mendes",  pet: "Luna",   produto: "Milbemax",     venceEm: -3, status: "vencido" },
-  { id: "p4", cliente: "Ana Beatriz",    pet: "Nina",   produto: "Drontal Plus", venceEm: 12, status: "ok" },
-  { id: "p5", cliente: "Roberto Lima",   pet: "Zeus",   produto: "Endogard",     venceEm: 2,  status: "aviso" },
-];
+const petsProtecao: PetEmProtecao[] = [];
 
-type Pergunta = { id: string; texto: string; aposDias: number };
-type PosVendaCfg = { marca: string; categoria: string; perguntas: Pergunta[] };
-const POSVENDA_KEY = "posvenda_cfg";
-const POSVENDA_DEFAULT: PosVendaCfg[] = [
-  {
-    marca: "Golden", categoria: "Ração",
-    perguntas: [
-      { id: "g1", texto: "Seu pet gostou da ração Golden? 🐶", aposDias: 3 },
-      { id: "g2", texto: "Como está a adaptação? Teve algum problema?", aposDias: 7 },
-      { id: "g3", texto: "As fezes estão normais?", aposDias: 10 },
-    ],
-  },
-  {
-    marca: "Premier", categoria: "Ração",
-    perguntas: [
-      { id: "p1", texto: "Tudo certo com a Premier? Pet gostou?", aposDias: 4 },
-      { id: "p2", texto: "Já podemos agendar a próxima compra?", aposDias: 25 },
-    ],
-  },
-];
+const POSVENDA_DEFAULT: PosVendaCfg[] = [];
 
 function loadJSON<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -162,7 +138,7 @@ function FluxoVermifugo() {
       <div className="card-soft p-5">
         <h3 className="font-bold flex items-center gap-2"><Shield className="size-4 text-primary" /> Pets em proteção</h3>
         <div className="mt-3 space-y-2">
-          {PETS_MOCK.map((p) => {
+          {petsProtecao.map((p) => {
             const tone = p.status === "vencido" ? "border-destructive/30 bg-destructive/5" : p.status === "aviso" ? "border-accent/30 bg-accent/5" : "border-success/20 bg-success/5";
             return (
               <div key={p.id} className={`p-3 rounded-lg border ${tone}`}>

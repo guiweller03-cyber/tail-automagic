@@ -1,4 +1,9 @@
-import type { Mensagem } from "./openai";
+import {
+  BASE_SYSTEM_PROMPT,
+  type IaPromptConfig,
+  type IaRegraCustomizada,
+  type Mensagem,
+} from "./openai";
 import {
   cancelarComissoesVenda,
   extrairCupomTexto,
@@ -7,6 +12,7 @@ import {
   validarCupom,
   type CupomAplicado,
 } from "./indicacoes-supabase";
+import { recalcularRecompraVenda } from "./recompra-supabase";
 
 export type Conversa = {
   id: string;
@@ -14,6 +20,7 @@ export type Conversa = {
   nome_cliente: string | null;
   historico: Mensagem[];
   aguardando_humano: boolean;
+  ia_ativa: boolean | null;
   estagio: "novo" | "qualificando" | "vendendo" | "pos_venda" | "inativo";
   criado_em: string;
   atualizado_em: string;
@@ -21,6 +28,15 @@ export type Conversa = {
 
 export type IaStatus = {
   globalDesativada: boolean;
+};
+
+export type IaAprendizadoResumo = {
+  total: number;
+  recentes7d: number;
+  pontuacao: number;
+  nivel: "Inicial" | "Aprendendo" | "Avancada" | "Madura";
+  aprendizados: Array<{ licao: string; criadoEm: string }>;
+  criterios: Array<{ nome: string; valor: string; pontos: number }>;
 };
 
 export type ProdutoPedido = {
@@ -66,6 +82,7 @@ type ConversaUpsert = {
   historico: Mensagem[];
   nome_cliente?: string | null;
   aguardando_humano?: boolean;
+  ia_ativa?: boolean | null;
   estagio?: Conversa["estagio"];
   atualizado_em?: string;
 };
@@ -132,6 +149,23 @@ export async function upsertConversa(payload: ConversaUpsert): Promise<Conversa>
   return rows[0];
 }
 
+export async function upsertConversas(payloads: ConversaUpsert[]): Promise<Conversa[]> {
+  if (payloads.length === 0) return [];
+
+  const response = await fetch(supabaseUrl("/conversas?on_conflict=telefone"), {
+    method: "POST",
+    headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
+    body: JSON.stringify(payloads),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase bulk upsert failed (${response.status}): ${errorBody}`);
+  }
+
+  return (await response.json()) as Conversa[];
+}
+
 export async function listarConversas(): Promise<Conversa[]> {
   const response = await fetch(supabaseUrl("/conversas?select=*&order=atualizado_em.desc"), {
     headers: supabaseHeaders(),
@@ -148,15 +182,18 @@ export async function listarConversas(): Promise<Conversa[]> {
 export async function atualizarConversaAguardandoHumano({
   id,
   aguardandoHumano,
+  iaAtiva,
 }: {
   id: string;
   aguardandoHumano: boolean;
+  iaAtiva?: boolean;
 }): Promise<Conversa> {
   const response = await fetch(supabaseUrl(`/conversas?id=eq.${encodeURIComponent(id)}`), {
     method: "PATCH",
     headers: supabaseHeaders("return=representation"),
     body: JSON.stringify({
       aguardando_humano: aguardandoHumano,
+      ...(typeof iaAtiva === "boolean" ? { ia_ativa: iaAtiva } : {}),
       atualizado_em: new Date().toISOString(),
     }),
   });
@@ -209,6 +246,25 @@ export async function adicionarMensagemConversa({
   id: string;
   mensagem: Mensagem;
 }): Promise<Conversa> {
+  const rpcResponse = await fetch(supabaseUrl("/rpc/append_conversa_mensagem"), {
+    method: "POST",
+    headers: supabaseHeaders(),
+    body: JSON.stringify({
+      conversa_id: id,
+      nova_mensagem: mensagem,
+    }),
+  });
+
+  if (rpcResponse.ok) {
+    const rows = (await rpcResponse.json()) as Conversa[];
+    if (rows[0]) return rows[0];
+  }
+
+  const rpcError = await rpcResponse.text().catch(() => "");
+  if (rpcResponse.status !== 404 && !rpcError.includes("append_conversa_mensagem")) {
+    throw new Error(`Supabase conversa message append failed (${rpcResponse.status}): ${rpcError}`);
+  }
+
   const params = new URLSearchParams({
     id: `eq.${id}`,
     select: "*",
@@ -234,7 +290,7 @@ export async function adicionarMensagemConversa({
     headers: supabaseHeaders("return=representation"),
     body: JSON.stringify({
       historico: [...historico, mensagem],
-      aguardando_humano: mensagem.role === "assistant" ? false : conversa.aguardando_humano,
+      aguardando_humano: conversa.aguardando_humano,
       atualizado_em: new Date().toISOString(),
     }),
   });
@@ -282,6 +338,98 @@ export async function definirIaGlobalDesativada(desativada: boolean): Promise<Ia
   }
 
   return { globalDesativada: desativada };
+}
+
+function isRegraCustomizada(value: unknown): value is IaRegraCustomizada {
+  const regra = value as Partial<IaRegraCustomizada>;
+  return (
+    Boolean(regra) &&
+    typeof regra.id === "string" &&
+    typeof regra.titulo === "string" &&
+    typeof regra.instrucao === "string" &&
+    typeof regra.ativa === "boolean"
+  );
+}
+
+function normalizeIaConfigRow(
+  rows: Array<{ chave: string; valor: unknown; atualizado_em?: string | null }>,
+): IaPromptConfig {
+  const promptRow = rows.find((row) => row.chave === "ia_system_prompt");
+  const regrasRow = rows.find((row) => row.chave === "ia_regras_customizadas");
+  const systemPrompt =
+    typeof promptRow?.valor === "string" && promptRow.valor.trim()
+      ? promptRow.valor
+      : BASE_SYSTEM_PROMPT;
+  const regras = Array.isArray(regrasRow?.valor) ? regrasRow.valor.filter(isRegraCustomizada) : [];
+
+  return {
+    systemPrompt,
+    regras,
+    atualizadoEm: promptRow?.atualizado_em ?? regrasRow?.atualizado_em ?? undefined,
+  };
+}
+
+export async function buscarIaPromptConfig(): Promise<IaPromptConfig> {
+  const params = new URLSearchParams({
+    chave: "in.(ia_system_prompt,ia_regras_customizadas)",
+    select: "chave,valor,atualizado_em",
+  });
+
+  const response = await fetch(supabaseUrl(`/crm_configuracoes?${params}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    return { systemPrompt: BASE_SYSTEM_PROMPT, regras: [] };
+  }
+
+  const rows = (await response.json()) as Array<{
+    chave: string;
+    valor: unknown;
+    atualizado_em?: string | null;
+  }>;
+  return normalizeIaConfigRow(rows);
+}
+
+export async function salvarIaPromptConfig(
+  input: Pick<IaPromptConfig, "systemPrompt" | "regras">,
+): Promise<IaPromptConfig> {
+  const regras = input.regras.filter(isRegraCustomizada).map((regra) => ({
+    id: regra.id,
+    titulo: regra.titulo.slice(0, 80),
+    instrucao: regra.instrucao.slice(0, 1000),
+    ativa: regra.ativa,
+  }));
+  const atualizadoEm = new Date().toISOString();
+
+  const response = await fetch(supabaseUrl("/crm_configuracoes?on_conflict=chave"), {
+    method: "POST",
+    headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
+    body: JSON.stringify([
+      {
+        chave: "ia_system_prompt",
+        valor: input.systemPrompt.trim() || BASE_SYSTEM_PROMPT,
+        atualizado_em: atualizadoEm,
+      },
+      {
+        chave: "ia_regras_customizadas",
+        valor: regras,
+        atualizado_em: atualizadoEm,
+      },
+    ]),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase IA prompt config upsert failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as Array<{
+    chave: string;
+    valor: unknown;
+    atualizado_em?: string | null;
+  }>;
+  return normalizeIaConfigRow(rows);
 }
 
 export async function buscarClientePorTelefone(telefone: string): Promise<ClienteCadastro | null> {
@@ -350,14 +498,15 @@ export async function salvarCadastroCliente({
     return rows[0] ?? { ...cliente, ...payload };
   }
 
-  const response = await fetch(supabaseUrl("/clientes"), {
+  const response = await fetch(supabaseUrl("/clientes?on_conflict=telefone"), {
     method: "POST",
-    headers: supabaseHeaders("return=representation"),
+    headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
     body: JSON.stringify({
       nome: nome || `Cliente ${telefone.slice(-4)}`,
       telefone,
       origem,
       ultima: "hoje",
+      atualizado_em: new Date().toISOString(),
       ...(endereco ? { endereco } : {}),
       ...(bairro ? { bairro } : {}),
       ...(pets && pets.length > 0 ? { pets } : {}),
@@ -559,6 +708,7 @@ export async function listarPedidos(): Promise<PedidoCrm[]> {
 export async function atualizarProcessoPedido(
   id: string,
   processo: PedidoProcesso,
+  options: { formaPagamento?: string | null } = {},
 ): Promise<PedidoCrm> {
   if (processo === "cancelado") {
     await cancelarVendaComEstorno(id);
@@ -576,6 +726,10 @@ export async function atualizarProcessoPedido(
   };
 
   payload.status = "concluida";
+  if (options.formaPagamento !== undefined) {
+    payload.forma_pagamento = options.formaPagamento?.trim() || null;
+  }
+
   if (processo === "pago") {
     await registrarFaturamentoPedidoPago(id);
   }
@@ -622,13 +776,20 @@ export async function criarPedidoManual({
   cupomCodigo?: string | null;
 }): Promise<PedidoCrm> {
   const telefoneLimpo = telefone.replace(/\D/g, "");
+  const itensValidos = itens.filter(
+    (item) =>
+      item.sku.trim().toLowerCase() !== "avulso" &&
+      item.nome.trim().length > 0 &&
+      item.quantidade > 0 &&
+      Number.isFinite(item.preco) &&
+      Number.isFinite(item.precoCompra),
+  );
   const cliente = await buscarOuCriarCliente(telefoneLimpo, nome, "CRM manual");
   const cupomAplicado = cupomCodigo ? await validarCupom(cupomCodigo, total) : null;
   const totalFinal = cupomAplicado?.totalFinal ?? total;
-  const lucro = Math.max(
-    0,
-    totalFinal - itens.reduce((custo, item) => custo + item.precoCompra * item.quantidade, 0),
-  );
+  const lucro =
+    totalFinal -
+    itensValidos.reduce((custo, item) => custo + item.precoCompra * item.quantidade, 0);
 
   if (bairro?.trim() || pet?.trim() || (nome.trim() && cliente.nome !== nome.trim())) {
     await salvarCadastroCliente({
@@ -672,9 +833,26 @@ export async function criarPedidoManual({
   const vendaId = rows[0]?.id;
   if (!vendaId) throw new Error("Pedido manual criado sem id");
 
-  await salvarItensVenda(vendaId, itens);
-  if (cupomAplicado) await registrarUsoCupom(cupomAplicado.cupom);
-  if (pago) await registrarFaturamentoPedidoPago(vendaId);
+  try {
+    await salvarItensVenda(vendaId, itensValidos);
+    await recalcularRecompraVenda(vendaId).catch((error) => {
+      console.error("[recompra] erro_recalcular_pedido_manual", error);
+    });
+    if (cupomAplicado) {
+      await registrarUsoCupom(cupomAplicado.cupom);
+      await registrarComissaoVenda(vendaId);
+    }
+    if (pago) await registrarFaturamentoPedidoPago(vendaId);
+  } catch (error) {
+    await requestSupabase(`/venda_itens?venda_id=eq.${encodeURIComponent(vendaId)}`, {
+      method: "DELETE",
+    }).catch(() => undefined);
+    await requestSupabase(`/vendas?id=eq.${encodeURIComponent(vendaId)}`, {
+      method: "DELETE",
+    }).catch(() => undefined);
+
+    throw error;
+  }
 
   const pedido = (await listarPedidos()).find((item) => item.id === vendaId);
   if (!pedido) throw new Error("Pedido manual nao encontrado apos criacao");
@@ -914,14 +1092,15 @@ async function buscarOuCriarCliente(
   const rows = (await selectResponse.json()) as ClienteRow[];
   if (rows[0]) return rows[0];
 
-  const createResponse = await fetch(supabaseUrl("/clientes"), {
+  const createResponse = await fetch(supabaseUrl("/clientes?on_conflict=telefone"), {
     method: "POST",
-    headers: supabaseHeaders("return=representation"),
+    headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
     body: JSON.stringify({
       nome: nomeCliente?.trim() || `Cliente ${telefone.slice(-4)}`,
       telefone,
       origem,
       ultima: "hoje",
+      atualizado_em: new Date().toISOString(),
     }),
   });
 
@@ -1278,6 +1457,33 @@ async function buscarVendaParaFaturamento(vendaId: string): Promise<VendaFaturam
 
   if (!response.ok) {
     const errorBody = await response.text();
+    if (errorBody.includes("faturado_em")) {
+      const fallbackParams = new URLSearchParams({
+        id: `eq.${vendaId}`,
+        select: "id,cliente_id,cliente_nome,telefone,total,lucro,status_pagamento",
+        limit: "1",
+      });
+      const fallbackResponse = await fetch(supabaseUrl(`/vendas?${fallbackParams}`), {
+        headers: supabaseHeaders(),
+      });
+
+      if (!fallbackResponse.ok) {
+        const fallbackError = await fallbackResponse.text();
+        throw new Error(
+          `Supabase venda faturamento select failed (${fallbackResponse.status}): ${fallbackError}`,
+        );
+      }
+
+      const rows = (await fallbackResponse.json()) as Omit<VendaFaturamentoRow, "faturado_em">[];
+      const row = rows[0];
+      return row
+        ? {
+            ...row,
+            faturado_em: row.status_pagamento === "pago" ? new Date(0).toISOString() : null,
+          }
+        : null;
+    }
+
     throw new Error(`Supabase venda faturamento select failed (${response.status}): ${errorBody}`);
   }
 
@@ -1302,6 +1508,32 @@ async function reservarVendaParaFaturamento(vendaId: string): Promise<VendaFatur
 
   if (!response.ok) {
     const errorBody = await response.text();
+    if (errorBody.includes("faturado_em")) {
+      const fallbackResponse = await fetch(
+        supabaseUrl(`/vendas?id=eq.${encodeURIComponent(vendaId)}&status_pagamento=neq.pago`),
+        {
+          method: "PATCH",
+          headers: supabaseHeaders("return=representation"),
+          body: JSON.stringify({
+            status_pagamento: "pago",
+            processo: "pago",
+            atualizado_em: new Date().toISOString(),
+          }),
+        },
+      );
+
+      if (!fallbackResponse.ok) {
+        const fallbackError = await fallbackResponse.text();
+        throw new Error(
+          `Supabase venda faturamento update failed (${fallbackResponse.status}): ${fallbackError}`,
+        );
+      }
+
+      const rows = (await fallbackResponse.json()) as Omit<VendaFaturamentoRow, "faturado_em">[];
+      const row = rows[0];
+      return row ? { ...row, faturado_em: new Date().toISOString() } : null;
+    }
+
     throw new Error(`Supabase venda faturamento update failed (${response.status}): ${errorBody}`);
   }
 
@@ -1358,6 +1590,47 @@ export async function confirmarPagamentoVenda(vendaId: string): Promise<number> 
   return resultado.estoqueBaixado;
 }
 
+async function requestSupabase(path: string, init: RequestInit): Promise<void> {
+  const response = await fetch(supabaseUrl(path), {
+    ...init,
+    headers: {
+      ...supabaseHeaders("return=minimal"),
+      ...(init.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase write failed (${response.status}): ${errorBody}`);
+  }
+}
+
+export async function zerarFinanceiroCrm(): Promise<{
+  vendasRemovidas: boolean;
+  acumuladosClientesZerados: boolean;
+}> {
+  await requestSupabase("/venda_itens?id=not.is.null", { method: "DELETE" });
+  await requestSupabase("/pedidos?id=not.is.null", { method: "DELETE" });
+  await requestSupabase("/vendas?id=not.is.null", { method: "DELETE" });
+  await requestSupabase("/clientes?id=not.is.null", {
+    method: "PATCH",
+    body: JSON.stringify({
+      ticket: 0,
+      total_gasto: 0,
+      total_descontos: 0,
+      lucro_liquido: 0,
+      pedidos: 0,
+      cac: 0,
+      atualizado_em: new Date().toISOString(),
+    }),
+  });
+
+  return {
+    vendasRemovidas: true,
+    acumuladosClientesZerados: true,
+  };
+}
+
 export async function buscarAprendizados(limite = 10): Promise<string[]> {
   try {
     const params = new URLSearchParams({
@@ -1376,6 +1649,76 @@ export async function buscarAprendizados(limite = 10): Promise<string[]> {
     return rows.map((r) => r.licao).filter(Boolean);
   } catch {
     return [];
+  }
+}
+
+export async function buscarIaAprendizadoResumo(limite = 8): Promise<IaAprendizadoResumo> {
+  try {
+    const params = new URLSearchParams({
+      select: "licao,criado_em",
+      order: "criado_em.desc",
+      limit: "100",
+    });
+
+    const response = await fetch(supabaseUrl(`/aprendizados?${params}`), {
+      headers: supabaseHeaders(),
+    });
+
+    if (!response.ok) throw new Error("aprendizados indisponiveis");
+
+    const rows = (await response.json()) as Array<{ licao: string; criado_em: string }>;
+    const agora = Date.now();
+    const semanaMs = 7 * 24 * 60 * 60 * 1000;
+    const recentes7d = rows.filter(
+      (row) => agora - new Date(row.criado_em).getTime() <= semanaMs,
+    ).length;
+    const total = rows.length;
+    const pontosBase = Math.min(45, total * 5);
+    const pontosRecentes = Math.min(25, recentes7d * 5);
+    const diversidade = new Set(
+      rows.map((row) => row.licao.split(" ").slice(0, 4).join(" ").toLowerCase()),
+    ).size;
+    const pontosDiversidade = Math.min(20, diversidade * 4);
+    const pontosUso = total > 0 ? 10 : 0;
+    const pontuacao = Math.min(100, pontosBase + pontosRecentes + pontosDiversidade + pontosUso);
+    const nivel =
+      pontuacao >= 80
+        ? "Madura"
+        : pontuacao >= 55
+          ? "Avancada"
+          : pontuacao >= 25
+            ? "Aprendendo"
+            : "Inicial";
+
+    return {
+      total,
+      recentes7d,
+      pontuacao,
+      nivel,
+      aprendizados: rows
+        .slice(0, limite)
+        .map((row) => ({ licao: row.licao, criadoEm: row.criado_em })),
+      criterios: [
+        { nome: "Licoes salvas", valor: String(total), pontos: pontosBase },
+        { nome: "Novas nos ultimos 7 dias", valor: String(recentes7d), pontos: pontosRecentes },
+        { nome: "Diversidade de padroes", valor: String(diversidade), pontos: pontosDiversidade },
+        { nome: "Uso no prompt", valor: total > 0 ? "Ativo" : "Sem dados", pontos: pontosUso },
+      ],
+    };
+  } catch {
+    return {
+      total: 0,
+      recentes7d: 0,
+      pontuacao: 0,
+      nivel: "Inicial",
+      aprendizados: [],
+      criterios: [
+        { nome: "Licoes salvas", valor: "0", pontos: 0 },
+        { nome: "Novas nos ultimos 7 dias", valor: "0", pontos: 0 },
+        { nome: "Diversidade de padroes", valor: "0", pontos: 0 },
+        { nome: "Uso no prompt", valor: "Sem dados", pontos: 0 },
+      ],
+    };
   }
 }
 
@@ -1538,15 +1881,18 @@ export async function registrarPedidoDoWhatsapp({
     return codigo ? validarCupom(codigo, total) : null;
   })();
   const totalFinal = cupomAplicado?.totalFinal ?? total;
-  const lucro = itens.reduce(
-    (sum, item) => sum + (item.preco - item.precoCompra) * item.quantidade,
-    0,
-  ) - (cupomAplicado?.desconto ?? 0);
+  const lucro =
+    itens.reduce((sum, item) => sum + (item.preco - item.precoCompra) * item.quantidade, 0) -
+    (cupomAplicado?.desconto ?? 0);
   const cliente = await buscarOuCriarCliente(telefone, nomeCliente);
   const observacao = `Pedido WhatsApp IA: ${itens
     .map((item) => `${item.quantidade}x ${item.nome}`)
     .join(", ")}`;
-  const vendaDuplicada = await buscarVendaDuplicadaRecente({ telefone, observacao, total: totalFinal });
+  const vendaDuplicada = await buscarVendaDuplicadaRecente({
+    telefone,
+    observacao,
+    total: totalFinal,
+  });
 
   if (vendaDuplicada) {
     return {
@@ -1563,7 +1909,7 @@ export async function registrarPedidoDoWhatsapp({
     cliente_nome: cliente.nome,
     telefone,
     total: totalFinal,
-    lucro: Math.max(0, lucro),
+    lucro,
     forma_pagamento: formaPagamento,
     status_pagamento: "pendente",
     status: "concluida",
@@ -1594,7 +1940,13 @@ export async function registrarPedidoDoWhatsapp({
   }
 
   await salvarItensVenda(vendaId, itens);
-  if (cupomAplicado) await registrarUsoCupom(cupomAplicado.cupom);
+  await recalcularRecompraVenda(vendaId).catch((error) => {
+    console.error("[recompra] erro_recalcular_whatsapp", error);
+  });
+  if (cupomAplicado) {
+    await registrarUsoCupom(cupomAplicado.cupom);
+    await registrarComissaoVenda(vendaId);
+  }
 
   return { registrado: true, itens, total: totalFinal, vendaId };
 }

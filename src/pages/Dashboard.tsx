@@ -1,4 +1,3 @@
-import { kpis, vendasSemana, funilDados, crescimentoMensal, conversas } from "@/lib/mock";
 import {
   TrendingUp, ShoppingBag, Wallet, RefreshCw, Crown, AlertTriangle,
   ArrowUpRight, Sparkles, Target, Users, Zap, AlertCircle, TrendingDown,
@@ -8,25 +7,62 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   LineChart, Line,
 } from "recharts";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { useVendas } from "@/contexts/VendasContext";
 import { VelocidadeOperacional } from "@/features/velocidade/VelocidadeOperacional";
+import type { DashboardData } from "@/lib/crm-supabase";
+import { onCrmReload } from "@/lib/crm-refresh";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const WEBHOOK_RELATORIO = "https://webhook.n8n.clinizap.com.br/webhook/relatorio-diario";
 const WEBHOOK_ALERTA = "https://webhook.n8n.clinizap.com.br/webhook/alerta-acao";
 
-export function Dashboard() {
-  const { vendas } = useVendas();
+const emptyDashboard: DashboardData = {
+  kpis: {
+    faturamentoHoje: 0,
+    faturamentoSemana: 0,
+    faturamentoMes: 0,
+    lucroMes: 0,
+    ticketMedio: 0,
+    pedidosHoje: 0,
+    taxaRecompra: 0,
+    taxaUpsell: 0,
+    clientesVip: 0,
+    clientesRisco: 0,
+    estoqueCritico: 0,
+    leadsHoje: 0,
+    leadsSemana: 0,
+    conversaoHoje: 0,
+    conversaoSemana: 0,
+    conversaoMes: 0,
+    recompraPrevista: 0,
+  },
+  vendasSemana: [],
+  crescimentoMensal: [],
+  funilDados: [],
+  conversas: [],
+};
+
+export function Dashboard({ data }: { data: DashboardData | null }) {
+  const [dashboard, setDashboard] = useState<DashboardData | null>(data);
+  const { kpis, vendasSemana, funilDados, crescimentoMensal, conversas } = dashboard ?? emptyDashboard;
   const [showRelatorio, setShowRelatorio] = useState(false);
   const [enviandoRel, setEnviandoRel] = useState(false);
 
-  const { pedidosHoje, faturamentoHoje } = useMemo(() => {
-    const hoje = vendas.filter(v => v.data === "hoje" && v.status === "Concluída");
-    return { pedidosHoje: hoje.length, faturamentoHoje: hoje.reduce((s, v) => s + v.total, 0) };
-  }, [vendas]);
+  useEffect(() => {
+    setDashboard(data);
+  }, [data]);
+
+  useEffect(() => {
+    return onCrmReload(() => {
+      void fetch("/api/crm/dashboard?refresh=1", { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((nextData: DashboardData | null) => {
+          if (nextData) setDashboard(nextData);
+        });
+    });
+  }, []);
 
   async function enviarRelatorio() {
     setEnviandoRel(true);
@@ -68,7 +104,7 @@ export function Dashboard() {
       {/* LINHA 1 — Receita */}
       <Section title="Receita" subtitle="visão financeira do período">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<Wallet />} label="Faturamento hoje" value={brl(faturamentoHoje)} delta="ao vivo" tone="primary" />
+          <Kpi icon={<Wallet />} label="Faturamento hoje" value={brl(kpis.faturamentoHoje)} delta="ao vivo" tone="primary" />
           <Kpi icon={<TrendingUp />} label="Faturamento semana" value={brl(kpis.faturamentoSemana)} delta="+9%" tone="primary" />
           <Kpi icon={<TrendingUp />} label="Faturamento mês" value={brl(kpis.faturamentoMes)} delta="+12%" tone="primary" />
           <Kpi icon={<Crown />} label="Lucro líquido mês" value={brl(kpis.lucroMes)} delta="+14%" tone="success" />
@@ -89,7 +125,7 @@ export function Dashboard() {
       {/* LINHA 3 — Operação */}
       <Section title="Operação" subtitle="pedidos, recompra e risco">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<ShoppingBag />} label="Pedidos hoje" value={String(pedidosHoje)} delta="ao vivo" tone="primary" />
+          <Kpi icon={<ShoppingBag />} label="Pedidos hoje" value={String(kpis.pedidosHoje)} delta="ao vivo" tone="primary" />
           <Kpi icon={<RefreshCw />} label="Recompra prevista" value={String(kpis.recompraPrevista)} delta="hoje" tone="success" />
           <Kpi icon={<AlertTriangle />} label="Clientes em risco" value={String(kpis.clientesRisco)} delta="-2" tone="destructive" />
           <Kpi icon={<Zap />} label="Taxa upsell" value={`${kpis.taxaUpsell}%`} delta="+4pp" tone="accent" />
@@ -189,20 +225,9 @@ export function Dashboard() {
               <p className="text-xs text-muted-foreground mt-0.5">Análise automática a cada 15 min</p>
             </div>
           </div>
-          <ul className="grid sm:grid-cols-2 gap-2.5">
-            <IaAlert tone="destructive" icon={<TrendingDown />} title="Queda de conversão −3pp"
-              desc="Conversão de hoje 31% vs meta 34%. Reveja respostas IA." />
-            <IaAlert tone="success" icon={<TrendingUp />} title="Recompra +18% em ração"
-              desc="Categoria premium acelera. Estoque suficiente para 9 dias." />
-            <IaAlert tone="destructive" icon={<AlertCircle />} title="Estoque crítico · 7 itens"
-              desc="Shampoo Hipoalergênico tem 1 unidade." />
-            <IaAlert tone="warning" icon={<Target />} title="Campanha ruim · Black Pet"
-              desc="ROI 1.1x. Sugiro pausar e realocar verba." />
-            <IaAlert tone="primary" icon={<Lightbulb />} title="Oportunidade · Royal Canin Renal"
-              desc="Pedido 8x sem estoque. R$ 2.560 em vendas perdidas." />
-            <IaAlert tone="primary" icon={<Crown />} title="Cliente lucrativo: Roberto Lima"
-              desc="Margem 39%, comprou +3 vezes esse mês." />
-          </ul>
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
+            Nenhum alerta real gerado no momento.
+          </div>
         </div>
 
         <div className="card-soft p-5">

@@ -1,19 +1,52 @@
-import { produtos, clientes } from "@/lib/mock";
 import {
   Search, Plus, Minus, Trash2, CreditCard, Banknote, QrCode,
   ChevronDown, ChevronUp, Zap, User, Receipt, MessageCircle,
   Check, X, History, RotateCcw, Phone, MapPin, Send,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useVendas, type Pay, type StatusPag, type Item, type Venda } from "@/contexts/VendasContext";
+import type { Cliente, Produto } from "@/lib/crm-types";
+import { toast } from "sonner";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+const normalizarBusca = (valor: string) =>
+  valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const telefoneDigits = (valor: string) => valor.replace(/\D/g, "");
+
+const clienteCombina = (c: Cliente, valorBusca: string, exact = false) => {
+  const q = normalizarBusca(valorBusca);
+  const digits = telefoneDigits(valorBusca);
+  const nome = normalizarBusca(c.nome);
+  const telefone = telefoneDigits(c.telefone);
+
+  if (exact) {
+    return nome === q || (digits.length > 0 && telefone === digits);
+  }
+
+  return (
+    (q.length > 0 && nome.includes(q)) ||
+    (digits.length > 0 && telefone.includes(digits))
+  );
+};
+
 type MsgLog = { id: string; cliente: string; telefone: string; quando: string; preview: string; vendaId?: string };
 
-export function PDV() {
+type PDVProps = {
+  initialCliente?: string;
+  initialTelefone?: string;
+};
+
+export function PDV({ initialCliente = "", initialTelefone = "" }: PDVProps) {
+  const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [expandido, setExpandido] = useState(false);
-  const [cliente, setCliente] = useState("");
+  const [cliente, setCliente] = useState(initialCliente || initialTelefone);
   const [showClienteDD, setShowClienteDD] = useState(false);
   const [valor, setValor] = useState("");
   const [pay, setPay] = useState<Pay>("Pix");
@@ -25,12 +58,32 @@ export function PDV() {
   const [frete, setFrete] = useState(0);
 
   const { vendas, addVenda, cancelarVenda } = useVendas();
-  const [msgLog, setMsgLog] = useState<MsgLog[]>([
-    { id: "m1", cliente: "Marina Costa", telefone: "(11) 99812-3344", quando: "14:33", preview: "Olá Marina 😊 seu pedido foi separado…", vendaId: "V-1042" },
-  ]);
+  const [msgLog, setMsgLog] = useState<MsgLog[]>([]);
 
   const [cancelTarget, setCancelTarget] = useState<Venda | null>(null);
   const [cancelMotivo, setCancelMotivo] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const [produtosRes, clientesRes] = await Promise.all([
+          fetch("/api/crm/produtos", { cache: "no-store" }),
+          fetch("/api/crm/clientes", { cache: "no-store" }),
+        ]);
+        if (!alive) return;
+        setProdutos(produtosRes.ok ? await produtosRes.json() : []);
+        setClientes(clientesRes.ok ? await clientesRes.json() : []);
+        if (!clientesRes.ok) toast.error("Nao foi possivel carregar os clientes");
+      } catch {
+        if (alive) toast.error("Nao foi possivel carregar os dados do PDV");
+      }
+    }
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const subtotalFull = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
   const custoFull = carrinho.reduce((s, i) => s + i.precoCompra * i.qtd, 0);
@@ -41,16 +94,29 @@ export function PDV() {
   const total = expandido ? totalFull : totalRapido;
 
   const clienteSel = useMemo(
-    () => clientes.find((c) => c.nome.toLowerCase() === cliente.toLowerCase()),
-    [cliente],
+    () => {
+      return clientes.find((c) => clienteCombina(c, cliente, true)) ?? clientes.find((c) => clienteCombina(c, cliente));
+    },
+    [cliente, clientes],
   );
+  const buscarCliente = (valorBusca: string) => {
+    return clientes.find((c) => clienteCombina(c, valorBusca, true)) ?? clientes.find((c) => clienteCombina(c, valorBusca));
+  };
   const sugestoes = useMemo(() => {
-    const q = cliente.trim().toLowerCase();
-    if (!q) return clientes.slice(0, 6);
+    const q = normalizarBusca(cliente);
+    const digits = telefoneDigits(cliente);
+    if (!q && !digits) return clientes.slice(0, 12);
     return clientes
-      .filter((c) => c.nome.toLowerCase().includes(q) || c.telefone.replace(/\D/g, "").includes(q.replace(/\D/g, "")))
-      .slice(0, 6);
-  }, [cliente]);
+      .filter((c) => clienteCombina(c, cliente))
+      .slice(0, 30);
+  }, [cliente, clientes]);
+
+  useEffect(() => {
+    if (cliente) return;
+    if (initialCliente || initialTelefone) {
+      setCliente(initialCliente || initialTelefone);
+    }
+  }, [cliente, initialCliente, initialTelefone]);
 
   const construirMensagem = (v?: Partial<Venda>) => {
     const nome = v?.cliente || cliente || "cliente";
@@ -60,7 +126,7 @@ export function PDV() {
     const t = v?.total ?? total;
     const pagamento = v?.pay ?? pay;
     const sPag = v?.statusPag ?? statusPag;
-    const c = clientes.find((x) => x.nome.toLowerCase() === nome.toLowerCase());
+    const c = buscarCliente(nome);
     const endereco = c?.endereco ? `\n📍 ${c.endereco}${c.bairro ? `, ${c.bairro}` : ""}` : "";
     const obsLinha = (v?.obs ?? obs) ? `\n📝 ${v?.obs ?? obs}` : "";
     return `Olá ${nome.split(" ")[0]} 😊 seu pedido foi separado!\n\n${itens}\n\n💰 Total: ${brl(t)}\n💳 Pagamento: ${pagamento} · ${sPag === "Pago" ? "✅ Pago" : "⏳ Pagamento pendente"}${endereco}${obsLinha}\n\nQualquer dúvida estamos por aqui 🐾`;
@@ -69,7 +135,7 @@ export function PDV() {
   const enviarWhats = (venda?: Venda) => {
     const nome = venda?.cliente || cliente;
     if (!nome) return;
-    const c = clientes.find((x) => x.nome.toLowerCase() === nome.toLowerCase());
+    const c = buscarCliente(nome);
     const fone = (venda?.telefone || c?.telefone || "").replace(/\D/g, "");
     const msg = construirMensagem(venda);
     const url = fone
@@ -82,16 +148,25 @@ export function PDV() {
     ].slice(0, 20));
   };
 
-  const finalizar = (whats = false) => {
-    const nome = cliente || "Avulso";
-    const c = clientes.find((x) => x.nome.toLowerCase() === nome.toLowerCase());
+  const finalizar = async (whats = false) => {
+    const nome = cliente.trim() || "Avulso";
+    const c = buscarCliente(nome);
     const itens = expandido ? [...carrinho] : [{ sku: "avulso", nome: obs || "Venda rápida", preco: totalRapido, precoCompra: 0, qtd: 1 }];
+    const telefone = c?.telefone || "";
+    if (expandido && carrinho.length === 0) {
+      toast.error("Adicione produtos ao carrinho");
+      return;
+    }
+    if (!expandido && !totalRapido) {
+      toast.error("Informe um valor para finalizar a venda");
+      return;
+    }
     const v: Venda = {
       id: `V-${1043 + vendas.length}`,
       hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
       data: "hoje",
       cliente: nome,
-      telefone: c?.telefone || "",
+      telefone,
       itens,
       total,
       pay,
@@ -100,8 +175,47 @@ export function PDV() {
       obs,
       whatsEnviado: whats,
     };
-    addVenda(v);
-    if (whats) enviarWhats(v);
+    const response = await fetch("/api/crm/pedidos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nome,
+        telefone,
+        total,
+        formaPagamento: pay,
+        observacao: obs || (expandido ? "Pedido do PDV" : "Venda rapida do PDV"),
+        bairro: c?.bairro ?? null,
+        pet: c?.pets?.[0] ?? null,
+        pago: statusPag === "Pago",
+        itens: expandido
+          ? itens.map((item) => ({
+              sku: item.sku,
+              nome: item.nome,
+              quantidade: item.qtd,
+              preco: item.preco,
+              precoCompra: item.precoCompra,
+            }))
+          : [],
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      toast.error(data?.erro ?? "Nao foi possivel finalizar a venda");
+      return;
+    }
+
+    const vendaFinalizada = { ...v, id: data?.id ?? v.id };
+    addVenda(vendaFinalizada);
+    toast.success("Venda finalizada");
+    if (whats) enviarWhats(vendaFinalizada);
+    if (!c) {
+      fetch("/api/crm/clientes", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((rows) => {
+          if (Array.isArray(rows)) setClientes(rows);
+        })
+        .catch(() => undefined);
+    }
     setCliente(""); setValor(""); setObs(""); setCarrinho([]); setDesconto(0); setFrete(0);
   };
 
@@ -155,9 +269,9 @@ export function PDV() {
               />
               <Search className="size-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             </div>
-            {showClienteDD && sugestoes.length > 0 && (
+            {showClienteDD && (
               <div className="absolute z-30 left-0 right-0 mt-1 card-soft p-1 max-h-72 overflow-y-auto">
-                {sugestoes.map((c) => (
+                {sugestoes.length > 0 ? sugestoes.map((c) => (
                   <button
                     key={c.id}
                     onMouseDown={(e) => { e.preventDefault(); setCliente(c.nome); setShowClienteDD(false); }}
@@ -175,7 +289,11 @@ export function PDV() {
                     </div>
                     {c.perfil === "VIP" && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-primary/15 text-primary">VIP</span>}
                   </button>
-                ))}
+                )) : (
+                  <div className="px-3 py-3 text-xs text-muted-foreground">
+                    {clientes.length === 0 ? "Nenhum cliente cadastrado." : "Nenhum cliente encontrado."}
+                  </div>
+                )}
               </div>
             )}
             {clienteSel && (
@@ -229,14 +347,13 @@ export function PDV() {
           <div className="grid grid-cols-[1fr_auto] gap-2">
             <button
               onClick={() => finalizar(false)}
-              disabled={!cliente || !totalRapido}
+              disabled={!totalRapido}
               className="h-14 rounded-xl bg-success text-success-foreground font-bold text-lg shadow hover:opacity-90 disabled:opacity-40 transition"
             >
               Finalizar · {brl(total)}
             </button>
             <button
-              onClick={() => cliente && totalRapido ? finalizar(true) : enviarWhats()}
-              disabled={!cliente}
+              onClick={() => totalRapido ? finalizar(true) : enviarWhats()}
               title="Enviar resumo no WhatsApp"
               className="h-14 px-5 rounded-xl bg-[#25D366] text-white font-semibold shadow hover:opacity-90 disabled:opacity-40 transition inline-flex items-center gap-2"
             >
@@ -328,7 +445,7 @@ export function PDV() {
                 <button onClick={() => finalizar(false)} disabled={carrinho.length === 0} className="h-12 rounded-xl bg-success text-success-foreground font-bold text-base hover:opacity-90 disabled:opacity-40 transition">
                   Finalizar · {brl(totalFull)}
                 </button>
-                <button onClick={() => carrinho.length ? finalizar(true) : enviarWhats()} disabled={!cliente} className="h-12 px-4 rounded-xl bg-[#25D366] text-white font-semibold hover:opacity-90 disabled:opacity-40 transition inline-flex items-center gap-1.5">
+                <button onClick={() => carrinho.length ? finalizar(true) : enviarWhats()} className="h-12 px-4 rounded-xl bg-[#25D366] text-white font-semibold hover:opacity-90 disabled:opacity-40 transition inline-flex items-center gap-1.5">
                   <MessageCircle className="size-4" /> WhatsApp
                 </button>
               </div>

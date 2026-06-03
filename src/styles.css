@@ -159,6 +159,53 @@
 }
 
 @layer utilities {
+  .input {
+    width: 100%;
+    min-height: 2.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-secondary);
+    padding: 0.5rem 0.75rem;
+    color: var(--color-foreground);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    outline: none;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease,
+      background-color 150ms ease;
+  }
+  .input:focus {
+    border-color: var(--color-ring);
+    background: var(--color-card);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-ring) 25%, transparent);
+  }
+  .input::placeholder {
+    color: var(--color-muted-foreground);
+  }
+  .input:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  textarea.input {
+    resize: vertical;
+  }
+  .input-soft {
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
+    background: var(--color-secondary);
+    padding-inline: 0.75rem;
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+  .input-soft:focus {
+    border-color: var(--color-primary);
+    background: var(--color-card);
+  }
+  .input-soft::placeholder {
+    color: var(--color-muted-foreground);
+  }
   .card-soft {
     background: var(--color-card);
     border: 1px solid var(--color-border);

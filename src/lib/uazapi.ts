@@ -147,9 +147,17 @@ export type MensagemWhatsApp = {
   messageTimestamp?: number;
   status?: string;
   text?: string;
+  message?: unknown;
   content?: unknown;
   wasSentByApi?: boolean;
   fileURL?: string;
+  fileUrl?: string;
+  mediaUrl?: string;
+  mediaURL?: string;
+  mimetype?: string;
+  mimeType?: string;
+  fileName?: string;
+  mediaKey?: string;
 };
 
 export async function listarChatsWhatsApp({

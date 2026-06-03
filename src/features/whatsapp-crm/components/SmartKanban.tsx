@@ -2,14 +2,14 @@ import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Sparkles, Wand2 } from "lucide-react";
 import type { KanbanTab, LeadCard, SmartColumn } from "../types";
-import { COLUMNS_BY_TAB, COLUMN_META, LEADS_MOCK, TABS } from "../data";
+import { COLUMNS_BY_TAB, COLUMN_META, TABS } from "../data";
 import { autoMoveKanbanCard, formatBRL } from "../services";
 import { KanbanCardItem } from "./KanbanCard";
 import { LeadDetailPanel } from "./LeadDetailPanel";
 
 export function SmartKanban({ aiEnabled }: { aiEnabled: boolean }) {
   const [tab, setTab] = useState<KanbanTab>("Leads");
-  const [items, setItems] = useState<LeadCard[]>(LEADS_MOCK);
+  const [items, setItems] = useState<LeadCard[]>([]);
   const [drag, setDrag] = useState<string | null>(null);
   const [open, setOpen] = useState<LeadCard | null>(null);
 

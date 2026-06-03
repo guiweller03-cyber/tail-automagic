@@ -4,6 +4,7 @@ import { gerarPixPedido } from "@/lib/mercadopago";
 import { gerarRespostaWhatsapp, limparRespostaCliente } from "@/lib/openai";
 import { buscarRacoesTecnicasPorTexto, clientePediuFichaTecnica } from "@/lib/racoes-tecnicas";
 import { buscarCupomAtivo, extrairCupomTexto } from "@/lib/indicacoes-supabase";
+import { salvarDadosObservadosCliente } from "@/lib/recompra-supabase";
 import {
   adicionarMensagemConversa,
   atualizarPedidoPixMercadoPago,
@@ -60,14 +61,22 @@ type UazapiMessage = {
         text?: string;
         conversation?: string;
         extendedTextMessage?: { text?: string };
-        imageMessage?: { caption?: string };
-        videoMessage?: { caption?: string };
-        documentMessage?: { caption?: string; fileName?: string };
-        audioMessage?: unknown;
+        imageMessage?: { caption?: string; mimetype?: string; fileName?: string; url?: string; fileURL?: string };
+        videoMessage?: { caption?: string; mimetype?: string; fileName?: string; url?: string; fileURL?: string };
+        documentMessage?: { caption?: string; fileName?: string; mimetype?: string; url?: string; fileURL?: string };
+        audioMessage?: { mimetype?: string; fileName?: string; url?: string; fileURL?: string } | unknown;
         stickerMessage?: unknown;
       };
   content?: unknown;
   caption?: string;
+  fileURL?: string;
+  fileUrl?: string;
+  mediaUrl?: string;
+  mediaURL?: string;
+  mimetype?: string;
+  mimeType?: string;
+  fileName?: string;
+  mediaKey?: string;
   senderName?: string;
   pushName?: string;
   pushname?: string;
@@ -187,6 +196,73 @@ function textoMensagem(message?: UazapiMessage): string | undefined {
   return undefined;
 }
 
+function stringFromContent(content: unknown, keys: string[], depth = 0): string | undefined {
+  if (!content || depth > 5) return undefined;
+
+  if (Array.isArray(content)) {
+    for (const item of content) {
+      const value = stringFromContent(item, keys, depth + 1);
+      if (value) return value;
+    }
+    return undefined;
+  }
+
+  if (typeof content !== "object") return undefined;
+
+  const object = content as Record<string, unknown>;
+  for (const key of keys) {
+    const value = object[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+
+  for (const value of Object.values(object)) {
+    const nested = stringFromContent(value, keys, depth + 1);
+    if (nested) return nested;
+  }
+
+  return undefined;
+}
+
+function mediaUrlMensagem(message?: UazapiMessage): string | undefined {
+  if (!message) return undefined;
+
+  return (
+    message.fileURL ??
+    message.fileUrl ??
+    message.mediaUrl ??
+    message.mediaURL ??
+    stringFromContent(message.content, ["fileURL", "fileUrl", "mediaUrl", "mediaURL", "downloadUrl", "downloadURL", "URL", "url"]) ??
+    stringFromContent(message.message, ["fileURL", "fileUrl", "mediaUrl", "mediaURL", "downloadUrl", "downloadURL", "URL", "url"])
+  )?.trim();
+}
+
+function mimeTypeMensagem(message?: UazapiMessage): string | undefined {
+  if (!message) return undefined;
+
+  return (
+    message.mimeType ??
+    message.mimetype ??
+    stringFromContent(message.content, ["mimetype", "mimeType", "mediaType"]) ??
+    stringFromContent(message.message, ["mimetype", "mimeType", "mediaType"])
+  )?.trim();
+}
+
+function fileNameMensagem(message?: UazapiMessage): string | undefined {
+  if (!message) return undefined;
+
+  return (
+    message.fileName ??
+    stringFromContent(message.content, ["fileName", "filename", "title"]) ??
+    stringFromContent(message.message, ["fileName", "filename", "title"])
+  )?.trim();
+}
+
+function mediaKeyMensagem(message?: UazapiMessage): string | undefined {
+  if (!message) return undefined;
+
+  return (message.mediaKey ?? stringFromContent(message.content, ["mediaKey"]) ?? stringFromContent(message.message, ["mediaKey"]))?.trim();
+}
+
 function normalizarMensagem(message?: UazapiMessage): UazapiMessage | undefined {
   if (!message) return undefined;
 
@@ -209,6 +285,10 @@ function normalizarMensagem(message?: UazapiMessage): UazapiMessage | undefined 
       message.key?.fromMe,
     messageType: message.messageType ?? message.type,
     text: textoMensagem(message),
+    fileURL: mediaUrlMensagem(message),
+    mimetype: mimeTypeMensagem(message),
+    fileName: fileNameMensagem(message),
+    mediaKey: mediaKeyMensagem(message),
     senderName:
       message.senderName ??
       message.pushName ??
@@ -298,6 +378,23 @@ function extrairCadastroCliente(content: string): {
   return cadastro.nome || cadastro.endereco || cadastro.bairro || cadastro.pets?.length
     ? cadastro
     : null;
+}
+
+function extrairDadosObservados(content: string): Record<string, unknown> | null {
+  const marcador = content.match(/\[DADOS_OBSERVADOS([^\]]*)\]/i)?.[1];
+  if (!marcador) return null;
+
+  const dados = {
+    pets: extrairCampoMarcador(marcador, "pets"),
+    produto: extrairCampoMarcador(marcador, "produto"),
+    consumo: extrairCampoMarcador(marcador, "consumo"),
+    duracao: extrairCampoMarcador(marcador, "duracao"),
+  };
+  const limpo = Object.fromEntries(
+    Object.entries(dados).filter(([, value]) => typeof value === "string" && value.trim()),
+  );
+
+  return Object.keys(limpo).length > 0 ? limpo : null;
 }
 
 function extrairPagamentoPedido(content: string): string | undefined {
@@ -490,6 +587,10 @@ function metadataMensagem(message: UazapiMessage): Partial<Conversa["historico"]
     source: "whatsapp",
     fromMe: Boolean(message.fromMe),
     messageType: message.messageType,
+    mediaUrl: mediaUrlMensagem(message),
+    mimeType: mimeTypeMensagem(message),
+    fileName: fileNameMensagem(message),
+    mediaKey: mediaKeyMensagem(message),
   };
 }
 
@@ -958,6 +1059,23 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
         pets: cadastro.pets,
       })
     : (cliente ?? clienteWhatsappInicial);
+  const dadosObservados = extrairDadosObservados(respostaIa);
+  if (dadosObservados) {
+    void salvarDadosObservadosCliente({
+      clienteId: clienteSalvo?.id,
+      telefone,
+      dados: {
+        ...dadosObservados,
+        mensagemAtual: texto,
+      },
+      resumo: [dadosObservados.produto, dadosObservados.pets, dadosObservados.consumo, dadosObservados.duracao]
+        .filter(Boolean)
+        .join(" | "),
+      confianca: 0.7,
+    }).catch((error) => {
+      console.error("[whatsapp] erro_salvar_dados_observados", erroLog(error));
+    });
+  }
   const cupomRecente = cupomRecenteDaConversa(conversa, texto);
   const pedidoMarcado = temPedido
     ? await registrarPedidoDoWhatsapp({

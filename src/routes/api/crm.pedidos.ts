@@ -38,13 +38,20 @@ export const Route = createFileRoute("/api/crm/pedidos")({
       },
       PATCH: async ({ request }) => {
         try {
-          const body = (await request.json()) as { id?: unknown; status?: unknown };
+          const body = (await request.json()) as {
+            id?: unknown;
+            status?: unknown;
+            formaPagamento?: unknown;
+          };
 
           if (typeof body.id !== "string" || !isPedidoProcesso(body.status)) {
             return json({ ok: false, erro: "Pedido ou status invalido" }, { status: 400 });
           }
 
-          const pedido = await atualizarProcessoPedido(body.id, body.status);
+          const pedido = await atualizarProcessoPedido(body.id, body.status, {
+            formaPagamento:
+              typeof body.formaPagamento === "string" ? body.formaPagamento : undefined,
+          });
 
           return json(pedido);
         } catch (error) {
@@ -59,6 +66,7 @@ export const Route = createFileRoute("/api/crm/pedidos")({
           const nome = typeof body.nome === "string" ? body.nome.trim() : "";
           const telefone =
             typeof body.telefone === "string" ? body.telefone.replace(/\D/g, "") : "";
+          const telefonePedido = telefone.length >= 8 ? telefone : `pdv${Date.now()}`;
           const total = typeof body.total === "number" ? body.total : Number(body.total);
           const itens = Array.isArray(body.itens)
             ? body.itens.flatMap((item) => {
@@ -91,9 +99,9 @@ export const Route = createFileRoute("/api/crm/pedidos")({
               })
             : [];
 
-          if (!nome || telefone.length < 8 || !Number.isFinite(total) || total <= 0) {
+          if (!nome || !Number.isFinite(total) || total <= 0) {
             return json(
-              { ok: false, erro: "Nome, telefone e total valido sao obrigatorios" },
+              { ok: false, erro: "Nome e total valido sao obrigatorios" },
               { status: 400 },
             );
           }
@@ -101,7 +109,7 @@ export const Route = createFileRoute("/api/crm/pedidos")({
           return json(
             await criarPedidoManual({
               nome,
-              telefone,
+              telefone: telefonePedido,
               total,
               formaPagamento: typeof body.formaPagamento === "string" ? body.formaPagamento : null,
               observacao: typeof body.observacao === "string" ? body.observacao : null,

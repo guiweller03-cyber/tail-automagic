@@ -1,10 +1,96 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Send, Bot, User, AlertTriangle, TrendingUp, Zap, CheckCircle2, XCircle, ArrowRight } from "lucide-react";
+import { Sparkles, Send, Bot, User, AlertTriangle, TrendingUp, Zap, CheckCircle2, XCircle, ArrowRight, Trash2, Plus, MessageSquare } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { gerarInsights, responderPergunta } from "@/features/ia-consultor/insights";
+import { gerarInsights } from "@/features/ia-consultor/insights";
 import { useAlertas, ALERTA_META } from "@/features/alertas/store";
 
 type Msg = { role: "user" | "ai"; content: string };
+const HISTORY_KEY = "crm_assistente_ia_historico_v1";
+const CONVERSATIONS_KEY = "crm_assistente_ia_conversas_v1";
+type Conversation = {
+  id: string;
+  title: string;
+  messages: Msg[];
+  updatedAt: string;
+};
+const INITIAL_MESSAGE: Msg = {
+  role: "ai",
+  content:
+    "Ola! Estou conectado a OpenAI e ao CRM. Posso consultar dados reais e executar acoes como atualizar pedidos, clientes e IA do atendimento.",
+};
+const INITIAL_CONVERSATION: Conversation = {
+  id: "chat-inicial",
+  title: "Nova conversa",
+  messages: [INITIAL_MESSAGE],
+  updatedAt: "",
+};
+
+function createConversation(messages: Msg[] = [INITIAL_MESSAGE], title = "Nova conversa"): Conversation {
+  return {
+    id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title,
+    messages,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function validMessages(value: unknown): Msg[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.filter(
+    (message): message is Msg =>
+      Boolean(message) &&
+      (message.role === "user" || message.role === "ai") &&
+      typeof message.content === "string" &&
+      message.content.trim().length > 0,
+  );
+}
+
+function titleFromMessages(messages: Msg[]): string {
+  const firstUserMessage = messages.find((message) => message.role === "user")?.content.trim();
+  if (!firstUserMessage) return "Nova conversa";
+
+  return firstUserMessage.length > 42 ? `${firstUserMessage.slice(0, 42)}...` : firstUserMessage;
+}
+
+function loadConversations(): Conversation[] {
+  if (typeof window === "undefined") return [INITIAL_CONVERSATION];
+
+  try {
+    const raw = window.localStorage.getItem(CONVERSATIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Conversation[];
+      const conversations = Array.isArray(parsed)
+        ? parsed
+            .map((conversation) => ({
+              id: typeof conversation.id === "string" ? conversation.id : `chat-${Date.now()}`,
+              title:
+                typeof conversation.title === "string" && conversation.title.trim()
+                  ? conversation.title.trim()
+                  : titleFromMessages(validMessages(conversation.messages)),
+              messages: validMessages(conversation.messages),
+              updatedAt:
+                typeof conversation.updatedAt === "string"
+                  ? conversation.updatedAt
+                  : new Date().toISOString(),
+            }))
+            .filter((conversation) => conversation.messages.length > 0)
+        : [];
+
+      if (conversations.length > 0) return conversations;
+    }
+
+    const oldRaw = window.localStorage.getItem(HISTORY_KEY);
+    const oldMessages = oldRaw ? validMessages(JSON.parse(oldRaw)) : [];
+    if (oldMessages.length > 0) {
+      return [createConversation(oldMessages, titleFromMessages(oldMessages))];
+    }
+  } catch {
+    // fallback abaixo
+  }
+
+  return [createConversation()];
+}
 
 const SUGESTOES = [
   "Quem está em risco de churn?",
@@ -16,23 +102,207 @@ const SUGESTOES = [
 ];
 
 export function AssistenteIA() {
-  const [messages, setMessages] = useState<Msg[]>([
-    { role: "ai", content: "Olá! Sou seu consultor operacional. Já analisei o CRM — veja os insights na lateral ou me pergunte algo." },
-  ]);
+  const [conversations, setConversations] = useState<Conversation[]>([INITIAL_CONVERSATION]);
+  const [activeConversationId, setActiveConversationId] = useState(INITIAL_CONVERSATION.id);
+  const [hydrated, setHydrated] = useState(false);
+  const activeConversation =
+    conversations.find((conversation) => conversation.id === activeConversationId) ??
+    conversations[0] ??
+    createConversation();
+  const messages = activeConversation.messages;
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
   const insights = useMemo(() => gerarInsights(), []);
   const { ativos: alertasAtivos, resolver, descartar } = useAlertas();
 
-  function send(text: string) {
-    const t = text.trim();
-    if (!t) return;
-    const reply = responderPergunta(t);
-    setMessages((m) => [...m, { role: "user", content: t }, { role: "ai", content: reply }]);
+  useEffect(() => {
+    const loaded = loadConversations();
+    setConversations(loaded);
+    setActiveConversationId(loaded[0]?.id ?? INITIAL_CONVERSATION.id);
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    try {
+      window.localStorage.setItem(
+        CONVERSATIONS_KEY,
+        JSON.stringify(
+          conversations
+            .map((conversation) => ({
+              ...conversation,
+              messages: conversation.messages.slice(-80),
+            }))
+            .slice(0, 30),
+        ),
+      );
+      window.localStorage.removeItem(HISTORY_KEY);
+    } catch {
+      // Historico local nao deve travar a conversa.
+    }
+  }, [conversations, hydrated]);
+
+  function updateActiveMessages(updater: (messages: Msg[]) => Msg[]) {
+    setConversations((current) =>
+      current.map((conversation) => {
+        if (conversation.id !== activeConversation.id) return conversation;
+        const nextMessages = updater(conversation.messages).slice(-80);
+
+        return {
+          ...conversation,
+          title: titleFromMessages(nextMessages),
+          messages: nextMessages,
+          updatedAt: new Date().toISOString(),
+        };
+      }),
+    );
+  }
+
+  function newConversation() {
+    const conversation = createConversation();
+    setConversations((current) => [conversation, ...current]);
+    setActiveConversationId(conversation.id);
     setInput("");
   }
 
+  function clearHistory() {
+    const conversation = createConversation();
+    setConversations([conversation]);
+    setActiveConversationId(conversation.id);
+    try {
+      window.localStorage.removeItem(HISTORY_KEY);
+      window.localStorage.removeItem(CONVERSATIONS_KEY);
+    } catch {
+      // noop
+    }
+  }
+
+  function deleteConversation(id: string) {
+    setConversations((current) => {
+      const next = current.filter((conversation) => conversation.id !== id);
+      if (next.length === 0) {
+        const replacement = createConversation();
+        setActiveConversationId(replacement.id);
+        return [replacement];
+      }
+
+      if (id === activeConversationId) {
+        setActiveConversationId(next[0].id);
+      }
+
+      return next;
+    });
+  }
+
+  async function send(text: string) {
+    const t = text.trim();
+    if (!t || loading) return;
+    updateActiveMessages((m) => [...m, { role: "user", content: t }]);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/crm/assistente", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: t,
+          messages: messages.slice(-8),
+        }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; resposta?: string; erro?: string };
+
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.erro || "Falha ao consultar o assistente.");
+      }
+
+      updateActiveMessages((m) => [
+        ...m,
+        { role: "ai", content: payload.resposta || "Nao recebi uma resposta do assistente." },
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      updateActiveMessages((m) => [
+        ...m,
+        { role: "ai", content: `Nao consegui consultar a OpenAI agora. ${message}` },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="h-[calc(100vh-8rem)] grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
+    <div className="h-[calc(100vh-8rem)] grid grid-cols-1 xl:grid-cols-[260px_1fr_360px] lg:grid-cols-[240px_1fr] gap-4">
+      <div className="card-soft overflow-hidden flex flex-col min-h-[220px]">
+        <div className="p-3 border-b border-border flex items-center justify-between gap-2">
+          <div className="font-semibold text-sm inline-flex items-center gap-2">
+            <MessageSquare className="size-4 text-primary" /> Conversas
+          </div>
+          <button
+            onClick={newConversation}
+            title="Nova conversa"
+            className="p-2 rounded-lg bg-secondary hover:bg-secondary/70"
+          >
+            <Plus className="size-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1">
+          {conversations.map((conversation) => {
+            const active = conversation.id === activeConversation.id;
+            return (
+              <button
+                key={conversation.id}
+                onClick={() => setActiveConversationId(conversation.id)}
+                className={`group w-full text-left p-2.5 rounded-lg border transition ${
+                  active
+                    ? "bg-primary/10 border-primary/30"
+                    : "bg-transparent border-transparent hover:bg-secondary/60"
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <MessageSquare className={`size-3.5 mt-0.5 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-semibold truncate">{conversation.title}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {hydrated && conversation.updatedAt
+                        ? new Date(conversation.updatedAt).toLocaleDateString("pt-BR", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : ""}
+                    </div>
+                  </div>
+                  {conversations.length > 1 && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      title="Excluir conversa"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteConversation(conversation.id);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          deleteConversation(conversation.id);
+                        }
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="card-soft flex flex-col overflow-hidden">
         <div className="p-4 border-b border-border flex items-center gap-3">
           <div className="size-10 rounded-xl bg-gradient-to-br from-primary to-accent grid place-items-center text-primary-foreground">
@@ -40,8 +310,15 @@ export function AssistenteIA() {
           </div>
           <div className="flex-1">
             <div className="font-semibold">Consultor IA · Mundo Pet</div>
-            <div className="text-xs text-muted-foreground">Análise contínua de funil, cupons, churn e recompra</div>
+            <div className="text-xs text-muted-foreground">OpenAI conectada a dados e acoes reais do CRM</div>
           </div>
+          <button
+            onClick={clearHistory}
+            title="Limpar historico"
+            className="p-2 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition"
+          >
+            <Trash2 className="size-4" />
+          </button>
           <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-success/15 text-success">CONECTADO AO CRM</span>
         </div>
 
@@ -59,11 +336,12 @@ export function AssistenteIA() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-            placeholder="Pergunte sobre clientes, cupons, ticket, marcas..."
+            placeholder="Pergunte sobre clientes, pedidos, estoque, faturamento..."
             rows={1}
+            disabled={loading}
             className="flex-1 resize-none px-4 py-2.5 rounded-xl bg-secondary outline-none text-sm focus:bg-card focus:border-primary border border-transparent"
           />
-          <button onClick={() => send(input)} className="p-3 rounded-xl bg-foreground text-background hover:opacity-90"><Send className="size-5" /></button>
+          <button disabled={loading} onClick={() => send(input)} className="p-3 rounded-xl bg-foreground text-background hover:opacity-90 disabled:opacity-50"><Send className="size-5" /></button>
         </div>
       </div>
 

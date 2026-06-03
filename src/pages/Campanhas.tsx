@@ -1,112 +1,291 @@
-import { origemLeads, gruposCampanhas as seedGrupos, clientes, produtos, type GrupoCampanha } from "@/lib/mock";
-import { Plus, Megaphone, Users, TrendingUp, Image as ImageIcon, Calendar, Sparkles, X, Copy, Trophy } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Copy, Edit3, Megaphone, Plus, Search, Trash2, TrendingUp, Users, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import type {
+  CampanhaManual as CampanhaLinha,
+  CampanhaManualInput,
+  CampanhaStatus,
+} from "@/lib/campanhas-supabase";
 
-const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const brl = (value: number) =>
+  value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-const campanhas = [
-  { nome: "Black Pet · Novembro", origem: "Instagram Ads", investimento: 1200, leads: 87, conv: 24, roi: "3.4x", status: "ativa" },
-  { nome: "Indica & Ganha", origem: "Indicação", investimento: 0, leads: 142, conv: 58, roi: "∞", status: "ativa" },
-  { nome: "Influencer @petlovers", origem: "Influenciador", investimento: 800, leads: 42, conv: 11, roi: "2.1x", status: "ativa" },
-  { nome: "Aniversário Mundo Pet", origem: "Orgânico", investimento: 0, leads: 31, conv: 9, roi: "—", status: "encerrada" },
-];
+const dateFormat = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" });
 
-const CANAL_EMOJI: Record<string, string> = {
-  "Instagram Orgânico": "📸", "Meta Ads": "📘", "Influenciadora Gabi Pets": "⭐",
-  "Influenciador": "⭐", "Indicação": "🤝", "Google Ads": "🔍", "TikTok": "🎵", "WhatsApp direto": "💬",
+type CampanhaForm = {
+  nome: string;
+  origem: string;
+  objetivo: string;
+  investimento: string;
+  leads: string;
+  conversoes: string;
+  receita: string;
+  status: CampanhaStatus;
+  inicio: string;
+  fim: string;
+  observacoes: string;
 };
 
-function emojiCanal(c: string) {
-  return CANAL_EMOJI[c] ?? "📊";
+const emptyForm: CampanhaForm = {
+  nome: "",
+  origem: "",
+  objetivo: "",
+  investimento: "",
+  leads: "",
+  conversoes: "",
+  receita: "",
+  status: "rascunho",
+  inicio: "",
+  fim: "",
+  observacoes: "",
+};
+
+const statusConfig: Record<CampanhaStatus, { label: string; className: string }> = {
+  rascunho: { label: "Rascunho", className: "bg-secondary text-muted-foreground" },
+  ativa: { label: "Ativa", className: "bg-success/15 text-success" },
+  pausada: { label: "Pausada", className: "bg-accent/15 text-accent" },
+  encerrada: { label: "Encerrada", className: "bg-muted text-muted-foreground" },
+};
+
+function parseNumber(value: string) {
+  const normalized = value.replace(/\./g, "").replace(",", ".").trim();
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function emojiCategoria(cat: string) {
-  if (/ração|racao|petisco/i.test(cat)) return "🥩";
-  if (/higiene|areia|shampoo/i.test(cat)) return "🧼";
-  if (/saúde|saude|antipulga/i.test(cat)) return "💊";
-  if (/brinquedo/i.test(cat)) return "🎾";
-  return "🐾";
+function numberToInput(value: number) {
+  return value > 0 ? String(value).replace(".", ",") : "";
 }
 
-function beneficiosCategoria(cat: string): [string, string] {
-  if (/ração|racao/i.test(cat)) return ["Frete grátis acima de R$ 150", "Pet bem nutrido por mais tempo"];
-  if (/petisco/i.test(cat)) return ["Receita 100% natural", "Sem corantes ou conservantes"];
-  if (/higiene/i.test(cat)) return ["Casa cheirosa e limpa", "Rende mais que a concorrência"];
-  if (/saúde|saude/i.test(cat)) return ["Recomendado por veterinários", "Proteção até 30 dias"];
-  if (/brinquedo/i.test(cat)) return ["Estimula o pet o dia todo", "Material super resistente"];
-  return ["Qualidade garantida Mundo Pet", "Entrega rápida na sua porta"];
+function formatDate(value: string) {
+  if (!value) return "-";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "-";
+  return dateFormat.format(date);
 }
 
-function plusDays(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}`;
+function roi(campanha: Pick<CampanhaLinha, "receita" | "investimento">) {
+  if (campanha.investimento <= 0) return campanha.receita > 0 ? "sem custo" : "0x";
+  return `${(campanha.receita / campanha.investimento).toFixed(1)}x`;
+}
+
+function taxaConversao(campanha: Pick<CampanhaLinha, "leads" | "conversoes">) {
+  if (campanha.leads <= 0) return "0%";
+  return `${((campanha.conversoes / campanha.leads) * 100).toFixed(1)}%`;
+}
+
+function cac(campanha: Pick<CampanhaLinha, "investimento" | "conversoes">) {
+  if (campanha.conversoes <= 0) return "-";
+  return brl(campanha.investimento / campanha.conversoes);
 }
 
 export function Campanhas() {
-  const [grupos, setGrupos] = useState<GrupoCampanha[]>(seedGrupos);
-  const [showIA, setShowIA] = useState(false);
-  const [skuSel, setSkuSel] = useState(produtos[0].sku);
-  const [pct, setPct] = useState(15);
-  const [validade, setValidade] = useState(plusDays(7));
-  const [contexto, setContexto] = useState("");
-  const [preview, setPreview] = useState("");
+  const [campanhas, setCampanhas] = useState<CampanhaLinha[]>([]);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"todas" | CampanhaStatus>("todas");
+  const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<CampanhaForm>(emptyForm);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const roiPorCanal = useMemo(() => {
-    const m = new Map<string, { canal: string; invest: number; clientes: number; receita: number; lucro: number; cacSum: number }>();
-    clientes.forEach(c => {
-      const k = c.origem;
-      const cur = m.get(k) || { canal: k, invest: 0, clientes: 0, receita: 0, lucro: 0, cacSum: 0 };
-      cur.invest += c.campanhaCusto || 0;
-      cur.clientes += 1;
-      cur.receita += c.totalGasto;
-      cur.lucro += c.lucroLiquido;
-      cur.cacSum += c.cac;
-      m.set(k, cur);
-    });
-    return Array.from(m.values()).map(r => ({
-      ...r,
-      cacMedio: r.clientes ? r.cacSum / r.clientes : 0,
-      ltv: r.clientes ? r.receita / r.clientes : 0,
-      roi: r.invest > 0 ? r.lucro / r.invest : Infinity,
-    })).sort((a,b) => (b.roi === Infinity ? 1 : a.roi === Infinity ? -1 : b.roi - a.roi));
+  useEffect(() => {
+    let alive = true;
+
+    async function load() {
+      setLoading(true);
+      try {
+        const response = await fetch("/api/crm/campanhas", { cache: "no-store" });
+        const data = (await response.json()) as CampanhaLinha[] | { erro?: string };
+        if (!response.ok || !Array.isArray(data)) {
+          throw new Error(Array.isArray(data) ? "Erro ao carregar campanhas" : data.erro);
+        }
+        if (alive) setCampanhas(data);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Erro ao carregar campanhas";
+        toast.error(message);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+
+    void load();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const produtoSel = produtos.find(p => p.sku === skuSel)!;
+  const filteredCampanhas = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return campanhas.filter((campanha) => {
+      const matchesStatus = statusFilter === "todas" || campanha.status === statusFilter;
+      const matchesQuery =
+        !term ||
+        campanha.nome.toLowerCase().includes(term) ||
+        campanha.origem.toLowerCase().includes(term) ||
+        campanha.objetivo.toLowerCase().includes(term);
+      return matchesStatus && matchesQuery;
+    });
+  }, [campanhas, query, statusFilter]);
 
-  function gerarPreview() {
-    const precoCom = produtoSel.preco * (1 - pct/100);
-    const [b1, b2] = beneficiosCategoria(produtoSel.categoria);
-    const ctxLine = contexto ? `\n💡 ${contexto}` : "";
-    const msg = `🐾 OFERTA ESPECIAL — Mundo Pet\n${emojiCategoria(produtoSel.categoria)} ${produtoSel.nome}\nDe ${brl(produtoSel.preco)} por apenas ${brl(precoCom)}\n✅ ${b1}\n✅ ${b2}\n⏰ Válido até ${validade}${ctxLine}\n📲 Responda QUERO para garantir o seu!`;
-    setPreview(msg);
-  }
-
-  function adicionarFila() {
-    if (!preview) { toast.error("Gere a prévia primeiro"); return; }
-    const precoCom = produtoSel.preco * (1 - pct/100);
-    const novo: GrupoCampanha = {
-      id: `g${Date.now()}`,
-      dia: new Date().toLocaleDateString("pt-BR", { weekday: "long" }),
-      produto: produtoSel.nome,
-      preco: Number(precoCom.toFixed(2)),
-      precoOriginal: produtoSel.preco,
-      validade,
-      status: "agendado",
+  const resumo = useMemo(() => {
+    const investimento = campanhas.reduce((sum, campanha) => sum + campanha.investimento, 0);
+    const leads = campanhas.reduce((sum, campanha) => sum + campanha.leads, 0);
+    const conversoes = campanhas.reduce((sum, campanha) => sum + campanha.conversoes, 0);
+    const receita = campanhas.reduce((sum, campanha) => sum + campanha.receita, 0);
+    return {
+      ativas: campanhas.filter((campanha) => campanha.status === "ativa").length,
+      investimento,
+      leads,
+      conversoes,
+      receita,
+      roi: investimento > 0 ? `${(receita / investimento).toFixed(1)}x` : "0x",
     };
-    setGrupos(g => [novo, ...g]);
-    toast.success("Adicionado à fila ✅");
-    setShowIA(false); setPreview("");
+  }, [campanhas]);
+
+  function openCreateModal() {
+    setEditingId(null);
+    setForm(emptyForm);
+    setShowModal(true);
   }
 
-  async function copiar() {
-    if (!preview) return;
+  function openEditModal(campanha: CampanhaLinha) {
+    setEditingId(campanha.id);
+    setForm({
+      nome: campanha.nome,
+      origem: campanha.origem,
+      objetivo: campanha.objetivo,
+      investimento: numberToInput(campanha.investimento),
+      leads: numberToInput(campanha.leads),
+      conversoes: numberToInput(campanha.conversoes),
+      receita: numberToInput(campanha.receita),
+      status: campanha.status,
+      inicio: campanha.inicio,
+      fim: campanha.fim,
+      observacoes: campanha.observacoes,
+    });
+    setShowModal(true);
+  }
+
+  function closeModal() {
+    setShowModal(false);
+    setEditingId(null);
+    setForm(emptyForm);
+  }
+
+  function formPayload(): CampanhaManualInput | null {
+    const nome = form.nome.trim();
+    if (!nome) {
+      toast.error("Informe o nome da campanha");
+      return null;
+    }
+
+    return {
+      nome,
+      origem: form.origem.trim(),
+      objetivo: form.objetivo.trim(),
+      investimento: parseNumber(form.investimento),
+      leads: Math.max(0, Math.floor(parseNumber(form.leads))),
+      conversoes: Math.max(0, Math.floor(parseNumber(form.conversoes))),
+      receita: parseNumber(form.receita),
+      status: form.status,
+      inicio: form.inicio,
+      fim: form.fim,
+      observacoes: form.observacoes.trim(),
+    };
+  }
+
+  async function saveCampanha() {
+    const payload = formPayload();
+    if (!payload) return;
+
+    setSaving(true);
     try {
-      await navigator.clipboard.writeText(preview);
-      toast.success("Copiado ✅");
-    } catch {
-      toast.error("Não foi possível copiar");
+      const response = await fetch("/api/crm/campanhas", {
+        method: editingId ? "PATCH" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(editingId ? { id: editingId, ...payload } : payload),
+      });
+      const data = (await response.json()) as CampanhaLinha | { erro?: string };
+      if (!response.ok || !("id" in data)) {
+        throw new Error("erro" in data ? data.erro : "Erro ao salvar campanha");
+      }
+
+      if (editingId) {
+        setCampanhas((current) =>
+          current.map((campanha) => (campanha.id === editingId ? data : campanha)),
+        );
+        toast.success("Campanha atualizada");
+      } else {
+        setCampanhas((current) => [data, ...current]);
+        toast.success("Campanha adicionada");
+      }
+      closeModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro ao salvar campanha";
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function duplicateCampanha(campanha: CampanhaLinha) {
+    const payload: CampanhaManualInput = {
+      nome: `${campanha.nome} (copia)`,
+      origem: campanha.origem,
+      objetivo: campanha.objetivo,
+      investimento: campanha.investimento,
+      leads: campanha.leads,
+      conversoes: campanha.conversoes,
+      receita: campanha.receita,
+      status: "rascunho",
+      inicio: campanha.inicio,
+      fim: campanha.fim,
+      observacoes: campanha.observacoes,
+    };
+
+    try {
+      const response = await fetch("/api/crm/campanhas", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await response.json()) as CampanhaLinha | { erro?: string };
+      if (!response.ok || !("id" in data)) {
+        throw new Error("erro" in data ? data.erro : "Erro ao duplicar campanha");
+      }
+
+      setCampanhas((current) => [data, ...current]);
+      toast.success("Campanha duplicada como rascunho");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro ao duplicar campanha";
+      toast.error(message);
+    }
+  }
+
+  async function removeCampanha(id: string) {
+    const campanha = campanhas.find((item) => item.id === id);
+    if (!campanha) return;
+    const confirmed = window.confirm(`Remover a campanha "${campanha.nome}"?`);
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch("/api/crm/campanhas", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await response.json()) as { ok?: boolean; erro?: string };
+      if (!response.ok || !data.ok) {
+        throw new Error(data.erro || "Erro ao remover campanha");
+      }
+
+      setCampanhas((current) => current.filter((item) => item.id !== id));
+      toast.success("Campanha removida");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro ao remover campanha";
+      toast.error(message);
     }
   }
 
@@ -115,64 +294,65 @@ export function Campanhas() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Campanhas</h1>
-          <p className="text-sm text-muted-foreground">Tracking de origem, conversão e ROI</p>
+          <p className="text-sm text-muted-foreground">
+            Cadastro manual de campanhas, sem dados automaticos ou mockados.
+          </p>
         </div>
-        <button className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
+        <button
+          onClick={openCreateModal}
+          className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2"
+        >
           <Plus className="size-4" /> Nova campanha
         </button>
       </div>
 
-      {/* ROI POR CANAL */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between px-1">
-          <h2 className="text-xs uppercase font-bold tracking-wider text-muted-foreground">ROI por canal</h2>
-          <span className="text-[10px] text-muted-foreground/70">cruzamento real com base de clientes</span>
-        </div>
-        <div className="grid lg:grid-cols-[1fr_280px] gap-4">
-          <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {roiPorCanal.map(r => {
-              const tone = r.roi === Infinity || r.roi > 2 ? "text-success" : r.roi >= 1 ? "text-accent" : "text-destructive";
-              const roiLabel = r.roi === Infinity ? "∞" : `${r.roi.toFixed(1)}x`;
-              return (
-                <div key={r.canal} className="card-soft p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-2xl">{emojiCanal(r.canal)}</span>
-                    <div className="font-semibold text-sm leading-tight">{r.canal}</div>
-                  </div>
-                  <div className={`text-3xl font-bold tabular-nums ${tone}`}>{roiLabel}</div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">ROI</div>
-                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 mt-3 text-[11px]">
-                    <span className="text-muted-foreground">Investido</span><span className="font-semibold tabular-nums text-right">{brl(r.invest)}</span>
-                    <span className="text-muted-foreground">Clientes</span><span className="font-semibold tabular-nums text-right">{r.clientes}</span>
-                    <span className="text-muted-foreground">Receita</span><span className="font-semibold tabular-nums text-right">{brl(r.receita)}</span>
-                    <span className="text-muted-foreground">Lucro</span><span className="font-semibold tabular-nums text-right text-success">{brl(r.lucro)}</span>
-                    <span className="text-muted-foreground">CAC médio</span><span className="font-semibold tabular-nums text-right">{brl(r.cacMedio)}</span>
-                    <span className="text-muted-foreground">LTV</span><span className="font-semibold tabular-nums text-right">{brl(r.ltv)}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="card-soft p-4">
-            <h3 className="font-semibold text-sm inline-flex items-center gap-2"><Trophy className="size-4 text-accent" /> Ranking por ROI</h3>
-            <ol className="mt-3 space-y-2">
-              {roiPorCanal.map((r, i) => (
-                <li key={r.canal} className="flex items-center gap-3 p-2 rounded-lg bg-secondary/40">
-                  <span className="size-6 rounded-md grid place-items-center text-xs font-bold bg-foreground text-background">{i+1}</span>
-                  <span className="text-base">{emojiCanal(r.canal)}</span>
-                  <span className="flex-1 text-xs font-semibold truncate">{r.canal}</span>
-                  <span className={`text-xs font-bold tabular-nums ${r.roi===Infinity||r.roi>2?"text-success":r.roi>=1?"text-accent":"text-destructive"}`}>{r.roi===Infinity?"∞":`${r.roi.toFixed(1)}x`}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
-      </section>
+      <div className="grid sm:grid-cols-2 xl:grid-cols-5 gap-3">
+        <Card
+          icon={<Megaphone className="size-5" />}
+          label="Ativas"
+          value={String(resumo.ativas)}
+        />
+        <Card
+          icon={<TrendingUp className="size-5" />}
+          label="Investimento"
+          value={brl(resumo.investimento)}
+        />
+        <Card icon={<Users className="size-5" />} label="Leads" value={String(resumo.leads)} />
+        <Card
+          icon={<Users className="size-5" />}
+          label="Conversoes"
+          value={String(resumo.conversoes)}
+        />
+        <Card icon={<TrendingUp className="size-5" />} label="ROI" value={resumo.roi} />
+      </div>
 
-      <div className="grid sm:grid-cols-3 gap-3">
-        <Card icon={<Megaphone className="size-5" />} label="Campanhas ativas" value="3" />
-        <Card icon={<Users className="size-5" />} label="Novos leads (30d)" value="302" />
-        <Card icon={<TrendingUp className="size-5" />} label="ROI médio" value="2.8x" />
+      <div className="card-soft p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative lg:max-w-sm w-full">
+            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar por nome, origem ou objetivo"
+              className="w-full h-10 pl-9 pr-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(["todas", "rascunho", "ativa", "pausada", "encerrada"] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`h-9 px-3 rounded-lg text-xs font-semibold border transition ${
+                  statusFilter === status
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-card border-border hover:bg-secondary"
+                }`}
+              >
+                {status === "todas" ? "Todas" : statusConfig[status].label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="card-soft overflow-hidden">
@@ -180,135 +360,249 @@ export function Campanhas() {
           <table className="w-full text-sm">
             <thead className="bg-secondary/50">
               <tr className="text-xs text-muted-foreground text-left">
-                <th className="font-medium px-4 py-3">Campanha</th>
-                <th className="font-medium px-4 py-3 hidden md:table-cell">Origem</th>
+                <th className="font-medium px-4 py-3 min-w-56">Campanha</th>
+                <th className="font-medium px-4 py-3 hidden md:table-cell">Periodo</th>
                 <th className="font-medium px-4 py-3">Invest.</th>
                 <th className="font-medium px-4 py-3">Leads</th>
-                <th className="font-medium px-4 py-3 hidden lg:table-cell">Conversões</th>
+                <th className="font-medium px-4 py-3 hidden lg:table-cell">Conv.</th>
+                <th className="font-medium px-4 py-3 hidden lg:table-cell">Taxa</th>
                 <th className="font-medium px-4 py-3">ROI</th>
                 <th className="font-medium px-4 py-3">Status</th>
+                <th className="font-medium px-4 py-3 text-right">Acoes</th>
               </tr>
             </thead>
             <tbody>
-              {campanhas.map((c) => (
-                <tr key={c.nome} className="border-t border-border hover:bg-secondary/30">
-                  <td className="px-4 py-3 font-semibold">{c.nome}</td>
-                  <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{c.origem}</td>
-                  <td className="px-4 py-3">R$ {c.investimento.toLocaleString("pt-BR")}</td>
-                  <td className="px-4 py-3">{c.leads}</td>
-                  <td className="px-4 py-3 hidden lg:table-cell">{c.conv}</td>
-                  <td className="px-4 py-3 font-bold text-success">{c.roi}</td>
+              {filteredCampanhas.map((campanha) => (
+                <tr key={campanha.id} className="border-t border-border hover:bg-secondary/30">
                   <td className="px-4 py-3">
-                    <span className={`text-[11px] font-semibold px-2 py-1 rounded-md ${c.status === "ativa" ? "bg-success/15 text-success" : "bg-secondary text-muted-foreground"}`}>
-                      {c.status}
+                    <div className="font-semibold">{campanha.nome}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {campanha.origem || "Sem origem"}
+                      {campanha.objetivo ? ` · ${campanha.objetivo}` : ""}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">
+                    {formatDate(campanha.inicio)} ate {formatDate(campanha.fim)}
+                  </td>
+                  <td className="px-4 py-3 tabular-nums">{brl(campanha.investimento)}</td>
+                  <td className="px-4 py-3 tabular-nums">{campanha.leads}</td>
+                  <td className="px-4 py-3 hidden lg:table-cell tabular-nums">
+                    {campanha.conversoes}
+                  </td>
+                  <td className="px-4 py-3 hidden lg:table-cell tabular-nums">
+                    {taxaConversao(campanha)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-bold text-success tabular-nums">{roi(campanha)}</div>
+                    <div className="text-[10px] text-muted-foreground">CAC {cac(campanha)}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`text-[11px] font-semibold px-2 py-1 rounded-md ${statusConfig[campanha.status].className}`}
+                    >
+                      {statusConfig[campanha.status].label}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-1">
+                      <IconButton label="Editar campanha" onClick={() => openEditModal(campanha)}>
+                        <Edit3 className="size-4" />
+                      </IconButton>
+                      <IconButton
+                        label="Duplicar campanha"
+                        onClick={() => duplicateCampanha(campanha)}
+                      >
+                        <Copy className="size-4" />
+                      </IconButton>
+                      <IconButton
+                        label="Remover campanha"
+                        onClick={() => removeCampanha(campanha.id)}
+                        destructive
+                      >
+                        <Trash2 className="size-4" />
+                      </IconButton>
+                    </div>
                   </td>
                 </tr>
               ))}
+              {loading && (
+                <tr>
+                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    Carregando campanhas...
+                  </td>
+                </tr>
+              )}
+              {!loading && filteredCampanhas.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    Nenhuma campanha cadastrada manualmente.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-[1fr_360px] gap-4">
-        <div className="card-soft p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold flex items-center gap-2"><Megaphone className="size-4 text-accent" /> Grupo WhatsApp · Ofertas da semana</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">A IA escolhe produtos, gera imagem e legenda — você só aprova.</p>
-            </div>
-            <button onClick={()=>setShowIA(true)} className="h-9 px-3 rounded-lg bg-foreground text-background text-xs font-semibold inline-flex items-center gap-1.5"><Sparkles className="size-3.5" /> Gerar com IA</button>
-          </div>
-          <div className="space-y-2">
-            {grupos.map(g => {
-              const tone = g.status === "enviado" ? "bg-success/15 text-success" : g.status === "agendado" ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground";
-              return (
-                <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/50 hover:bg-secondary transition">
-                  <div className="size-12 rounded-xl bg-gradient-to-br from-primary/30 to-accent/30 grid place-items-center text-foreground/60"><ImageIcon className="size-5" /></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{g.dia}</span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md capitalize ${tone}`}>{g.status}</span>
-                    </div>
-                    <div className="font-semibold text-sm truncate">{g.produto}</div>
-                    <div className="text-xs text-muted-foreground">
-                      <span className="font-bold text-success">R$ {g.preco.toFixed(2)}</span>
-                      <span className="line-through ml-1.5">R$ {g.precoOriginal.toFixed(2)}</span>
-                      <span className="ml-2">· val. {g.validade}</span>
-                      {g.alcance && <span className="ml-2">· {g.alcance} views</span>}
-                    </div>
-                  </div>
-                  <button className="h-8 px-3 rounded-lg bg-card border border-border text-xs font-semibold inline-flex items-center gap-1.5"><Calendar className="size-3.5" /> Editar</button>
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-3 p-3 rounded-xl bg-accent/5 border border-accent/20 text-xs">
-            <b>Automação inteligente:</b> 1 oferta/dia em horários distintos (10h, 14h, 18h) para evitar spam. A IA evita repetir categorias.
-          </div>
-        </div>
-
-        <div className="card-soft p-5">
-          <h3 className="font-semibold mb-3">Distribuição de origens</h3>
-          <div className="space-y-2.5">
-            {origemLeads.map((o) => (
-              <div key={o.name}>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="font-medium">{o.name}</span>
-                  <span className="text-muted-foreground">{o.value}%</span>
-                </div>
-                <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                  <div className="h-full bg-primary rounded-full" style={{ width: `${o.value}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {showIA && (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50" onClick={()=>setShowIA(false)}>
-          <div className="card-soft p-5 w-full max-w-lg space-y-4 max-h-[92vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-start justify-between">
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50"
+          onClick={closeModal}
+        >
+          <div
+            className="card-soft p-5 w-full max-w-2xl space-y-4 max-h-[92vh] overflow-y-auto"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="font-semibold inline-flex items-center gap-2"><Sparkles className="size-4 text-primary" /> Gerar oferta com IA</h3>
-                <p className="text-xs text-muted-foreground">Monte uma mensagem pronta para o grupo</p>
+                <h3 className="font-semibold inline-flex items-center gap-2">
+                  <Megaphone className="size-4 text-primary" />
+                  {editingId ? "Editar campanha" : "Nova campanha"}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Tudo aqui e preenchido manualmente. Nenhum dado sera criado automaticamente.
+                </p>
               </div>
-              <button onClick={()=>setShowIA(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="size-4" /></button>
+              <button
+                onClick={closeModal}
+                className="p-1 rounded-lg hover:bg-secondary"
+                aria-label="Fechar"
+              >
+                <X className="size-4" />
+              </button>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <Label>Produto</Label>
-                <select value={skuSel} onChange={e=>setSkuSel(e.target.value)} className="w-full h-10 px-3 rounded-lg bg-secondary text-sm outline-none">
-                  {produtos.map(p => <option key={p.sku} value={p.sku}>{p.nome} · {brl(p.preco)}</option>)}
+              <Field label="Nome" className="col-span-2">
+                <input
+                  value={form.nome}
+                  onChange={(event) => setForm((state) => ({ ...state, nome: event.target.value }))}
+                  className="input"
+                />
+              </Field>
+              <Field label="Origem">
+                <input
+                  value={form.origem}
+                  onChange={(event) =>
+                    setForm((state) => ({ ...state, origem: event.target.value }))
+                  }
+                  placeholder="Ex: Meta Ads"
+                  className="input"
+                />
+              </Field>
+              <Field label="Status">
+                <select
+                  value={form.status}
+                  onChange={(event) =>
+                    setForm((state) => ({ ...state, status: event.target.value as CampanhaStatus }))
+                  }
+                  className="input"
+                >
+                  {Object.entries(statusConfig).map(([value, config]) => (
+                    <option key={value} value={value}>
+                      {config.label}
+                    </option>
+                  ))}
                 </select>
-              </div>
-              <div>
-                <Label>Desconto (%)</Label>
-                <input type="number" value={pct} onChange={e=>setPct(Number(e.target.value)||0)} className="w-full h-10 px-3 rounded-lg bg-secondary text-sm outline-none" />
-              </div>
-              <div>
-                <Label>Validade</Label>
-                <input value={validade} onChange={e=>setValidade(e.target.value)} placeholder="dd/mm" className="w-full h-10 px-3 rounded-lg bg-secondary text-sm outline-none" />
-              </div>
-              <div className="col-span-2">
-                <Label>Contexto adicional (opcional)</Label>
-                <input value={contexto} onChange={e=>setContexto(e.target.value)} placeholder="Ex: foco em clientes VIP" className="w-full h-10 px-3 rounded-lg bg-secondary text-sm outline-none" />
-              </div>
+              </Field>
+              <Field label="Objetivo" className="col-span-2">
+                <input
+                  value={form.objetivo}
+                  onChange={(event) =>
+                    setForm((state) => ({ ...state, objetivo: event.target.value }))
+                  }
+                  placeholder="Ex: vender racao senior para clientes recorrentes"
+                  className="input"
+                />
+              </Field>
+              <Field label="Inicio">
+                <input
+                  type="date"
+                  value={form.inicio}
+                  onChange={(event) =>
+                    setForm((state) => ({ ...state, inicio: event.target.value }))
+                  }
+                  className="input"
+                />
+              </Field>
+              <Field label="Fim">
+                <input
+                  type="date"
+                  value={form.fim}
+                  onChange={(event) => setForm((state) => ({ ...state, fim: event.target.value }))}
+                  className="input"
+                />
+              </Field>
+              <Field label="Investimento">
+                <input
+                  inputMode="decimal"
+                  value={form.investimento}
+                  onChange={(event) =>
+                    setForm((state) => ({ ...state, investimento: event.target.value }))
+                  }
+                  placeholder="0,00"
+                  className="input"
+                />
+              </Field>
+              <Field label="Receita">
+                <input
+                  inputMode="decimal"
+                  value={form.receita}
+                  onChange={(event) =>
+                    setForm((state) => ({ ...state, receita: event.target.value }))
+                  }
+                  placeholder="0,00"
+                  className="input"
+                />
+              </Field>
+              <Field label="Leads">
+                <input
+                  inputMode="numeric"
+                  value={form.leads}
+                  onChange={(event) =>
+                    setForm((state) => ({ ...state, leads: event.target.value }))
+                  }
+                  placeholder="0"
+                  className="input"
+                />
+              </Field>
+              <Field label="Conversoes">
+                <input
+                  inputMode="numeric"
+                  value={form.conversoes}
+                  onChange={(event) =>
+                    setForm((state) => ({ ...state, conversoes: event.target.value }))
+                  }
+                  placeholder="0"
+                  className="input"
+                />
+              </Field>
+              <Field label="Observacoes" className="col-span-2">
+                <textarea
+                  value={form.observacoes}
+                  onChange={(event) =>
+                    setForm((state) => ({ ...state, observacoes: event.target.value }))
+                  }
+                  rows={4}
+                  className="w-full px-3 py-2 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30 resize-none"
+                />
+              </Field>
             </div>
 
-            <button onClick={gerarPreview} className="w-full h-10 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center justify-center gap-2"><Sparkles className="size-4" /> Gerar prévia</button>
-
-            {preview && (
-              <div className="rounded-2xl bg-[#075E54] text-white p-4 text-sm whitespace-pre-line shadow-inner">
-                {preview}
-              </div>
-            )}
-
             <div className="flex gap-2">
-              <button onClick={copiar} disabled={!preview} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-40"><Copy className="size-4" /> Copiar mensagem</button>
-              <button onClick={adicionarFila} disabled={!preview} className="flex-1 h-10 rounded-xl bg-success text-success-foreground text-sm font-semibold disabled:opacity-40">Adicionar à fila</button>
+              <button
+                onClick={closeModal}
+                className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveCampanha}
+                disabled={saving}
+                className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold disabled:opacity-50"
+              >
+                {saving ? "Salvando..." : "Salvar"}
+              </button>
             </div>
           </div>
         </div>
@@ -317,17 +611,61 @@ export function Campanhas() {
   );
 }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-1.5">{children}</div>;
+function Field({
+  children,
+  label,
+  className = "",
+}: {
+  children: React.ReactNode;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <label className={className}>
+      <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-1.5 block">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function IconButton({
+  children,
+  destructive = false,
+  label,
+  onClick,
+}: {
+  children: React.ReactNode;
+  destructive?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`size-8 rounded-lg border grid place-items-center transition ${
+        destructive
+          ? "border-destructive/20 text-destructive hover:bg-destructive/10"
+          : "border-border hover:bg-secondary"
+      }`}
+    >
+      {children}
+    </button>
+  );
 }
 
 function Card({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="card-soft p-4 flex items-center gap-4">
-      <div className="size-11 rounded-xl bg-primary/15 text-primary grid place-items-center">{icon}</div>
-      <div>
+    <div className="card-soft p-4 flex items-center gap-4 min-w-0">
+      <div className="size-11 rounded-xl bg-primary/15 text-primary grid place-items-center shrink-0">
+        {icon}
+      </div>
+      <div className="min-w-0">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-2xl font-bold">{value}</div>
+        <div className="text-2xl font-bold truncate">{value}</div>
       </div>
     </div>
   );

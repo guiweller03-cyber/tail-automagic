@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useLocation,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -120,11 +121,13 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const location = useLocation();
+  const isLoginPage = location.pathname === "/login";
 
   return (
     <QueryClientProvider client={queryClient}>
       <VendasProvider>
-        <AppShell />
+        {isLoginPage ? <Outlet /> : <AppShell />}
         <Toaster richColors position="top-right" />
       </VendasProvider>
     </QueryClientProvider>

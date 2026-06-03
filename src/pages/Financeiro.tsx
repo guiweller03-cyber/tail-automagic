@@ -1,4 +1,3 @@
-import { vendasSemana, kpis } from "@/lib/mock";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import {
   TrendingUp, TrendingDown, Wallet, Target, Receipt, Pencil,
@@ -6,13 +5,50 @@ import {
   Megaphone, Trophy,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useVendas } from "@/contexts/VendasContext";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import type { DashboardData } from "@/lib/crm-supabase";
+import { onCrmReload } from "@/lib/crm-refresh";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const META_KEY = "meta_mes";
 const META_DEFAULT = 120000;
+const FUEL_KEY = "financeiro_abastecimentos";
+const EXPENSES_KEY = "financeiro_despesas";
+const MARKETING_KEY = "financeiro_marketing";
+
+function readStoredList<T>(key: string, fallback: T[]): T[] {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredList<T>(key: string, value: T[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function useStoredList<T>(key: string, fallback: T[]) {
+  const [list, setList] = useState<T[]>(fallback);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    setList(readStoredList(key, fallback));
+    setReady(true);
+  }, [key, fallback]);
+
+  useEffect(() => {
+    if (ready) writeStoredList(key, list);
+  }, [key, list, ready]);
+
+  return [list, setList] as const;
+}
 
 export function Financeiro() {
   return (
@@ -43,10 +79,30 @@ export function Financeiro() {
    ABA VENDAS
    ============================================================ */
 function AbaVendas() {
-  const { vendas } = useVendas();
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [meta, setMeta] = useState<number>(META_DEFAULT);
   const [editingMeta, setEditingMeta] = useState(false);
   const [draftMeta, setDraftMeta] = useState<string>(String(META_DEFAULT));
+
+  useEffect(() => {
+    let alive = true;
+    async function loadDashboard() {
+      const res = await fetch("/api/crm/dashboard", { cache: "no-store" });
+      if (alive) setDashboard(res.ok ? await res.json() : null);
+    }
+    void loadDashboard();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return onCrmReload(() => {
+      void fetch("/api/crm/dashboard", { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data: DashboardData | null) => setDashboard(data));
+    });
+  }, []);
 
   useEffect(() => {
     const v = typeof window !== "undefined" ? localStorage.getItem(META_KEY) : null;
@@ -60,14 +116,16 @@ function AbaVendas() {
     setEditingMeta(false);
   }
 
-  const receitaHojeReal = useMemo(
-    () => vendas.filter(v => v.data === "hoje" && v.status === "Concluída").reduce((s, v) => s + v.total, 0),
-    [vendas],
-  );
+  const kpis = dashboard?.kpis ?? { faturamentoHoje: 0, faturamentoMes: 0, pedidosHoje: 0, lucroMes: 0 };
+  const vendasSemana = dashboard?.vendasSemana ?? [];
+  const receitaHojeReal = kpis.faturamentoHoje;
 
-  const faturamentoMes = kpis.faturamentoMes + receitaHojeReal;
-  const pedidosMes = Math.max(1, kpis.pedidosHoje * 20 + vendas.length);
+  const faturamentoMes = kpis.faturamentoMes;
+  const pedidosMes = Math.max(1, kpis.pedidosHoje);
   const ticketMedioReal = faturamentoMes / pedidosMes;
+  const custosProdutos = 0;
+  const frete = 0;
+  const despesasGerais = 0;
 
   const hoje = new Date();
   const diasPassados = hoje.getDate();
@@ -85,8 +143,8 @@ function AbaVendas() {
         <Big label="Faturamento mês" value={brl(faturamentoMes)} delta="+12%" up />
         <Big label="Lucro líquido" value={brl(kpis.lucroMes)} delta="+18%" up />
         <Big label="Ticket médio real" value={brl(ticketMedioReal)} delta="ao vivo" up icon={<Receipt className="size-4" />} />
-        <Big label="CAC" value={brl(11.4)} delta="-8%" up />
-        <Big label="LTV" value={brl(1240)} delta="+5%" up />
+        <Big label="CAC" value={brl(0)} delta="sem dados" up />
+        <Big label="LTV" value={brl(0)} delta="sem dados" up />
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
@@ -111,12 +169,12 @@ function AbaVendas() {
           <ul className="text-sm space-y-2.5">
             <Line label="Receita bruta (mês)" value={brl(faturamentoMes)} />
             <Line label="(+) Receita real hoje" value={brl(receitaHojeReal)} accent />
-            <Line label="(-) Custos produtos" value={brl(-48230)} muted />
-            <Line label="(-) Frete" value={brl(-3120)} muted />
-            <Line label="(-) Despesas gerais" value={brl(-11890)} muted />
-            <Line label="Lucro líquido" value={brl(24180)} bold />
+            <Line label="(-) Custos produtos" value={brl(-custosProdutos)} muted />
+            <Line label="(-) Frete" value={brl(-frete)} muted />
+            <Line label="(-) Despesas gerais" value={brl(-despesasGerais)} muted />
+            <Line label="Lucro líquido" value={brl(kpis.lucroMes)} bold />
             <li className="pt-2 border-t border-border flex justify-between text-xs text-muted-foreground">
-              <span>Margem</span><span className="font-bold text-success">27,7%</span>
+              <span>Margem</span><span className="font-bold text-success">{faturamentoMes > 0 ? `${((kpis.lucroMes / faturamentoMes) * 100).toFixed(1)}%` : "0,0%"}</span>
             </li>
           </ul>
         </div>
@@ -168,14 +226,10 @@ type Abastecimento = {
   valorLitro: number; valorTotal: number; posto?: string; obs?: string;
 };
 
-const abastecimentosIniciais: Abastecimento[] = [
-  { id: "a1", data: "02/05/2025", kmAtual: 48200, litros: 35, valorLitro: 6.29, valorTotal: 220.15, posto: "Shell Tijucas" },
-  { id: "a2", data: "12/05/2025", kmAtual: 48620, litros: 28, valorLitro: 6.35, valorTotal: 177.80, posto: "Ipiranga Centro" },
-  { id: "a3", data: "14/05/2025", kmAtual: 48890, litros: 22, valorLitro: 6.29, valorTotal: 138.38 },
-];
+const abastecimentosIniciais: Abastecimento[] = [];
 
 function AbaCombustivel() {
-  const [lista, setLista] = useState<Abastecimento[]>(abastecimentosIniciais);
+  const [lista, setLista] = useStoredList<Abastecimento>(FUEL_KEY, abastecimentosIniciais);
   const [aberto, setAberto] = useState(false);
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10));
   const [km, setKm] = useState("");
@@ -316,17 +370,10 @@ const CAT_EMOJI: Record<CategoriaDespesa, string> = {
   manutencao: "🔧", salario: "👤", contador: "📋", outros: "💼",
 };
 
-const despesasIniciais: Despesa[] = [
-  { id: "d1", data: "01/05/2025", categoria: "aluguel", descricao: "Aluguel loja maio", valor: 2800, recorrente: true, pago: true },
-  { id: "d2", data: "05/05/2025", categoria: "energia", descricao: "Conta de luz abril", valor: 480, recorrente: true, pago: true },
-  { id: "d3", data: "05/05/2025", categoria: "internet", descricao: "Internet + telefone", valor: 180, recorrente: true, pago: true },
-  { id: "d4", data: "08/05/2025", categoria: "embalagem", descricao: "Sacolas e caixas", valor: 340, recorrente: false, pago: true },
-  { id: "d5", data: "10/05/2025", categoria: "manutencao", descricao: "Conserto da balança", valor: 150, recorrente: false, pago: false },
-  { id: "d6", data: "15/05/2025", categoria: "contador", descricao: "Honorários contábeis", valor: 600, recorrente: true, pago: false },
-];
+const despesasIniciais: Despesa[] = [];
 
 function AbaDespesas() {
-  const [lista, setLista] = useState<Despesa[]>(despesasIniciais);
+  const [lista, setLista] = useStoredList<Despesa>(EXPENSES_KEY, despesasIniciais);
   const [modal, setModal] = useState(false);
   const [data, setData] = useState(() => new Date().toISOString().slice(0,10));
   const [categoria, setCategoria] = useState<CategoriaDespesa>("outros");
@@ -483,16 +530,10 @@ const TIPO_TONE: Record<TipoMkt, string> = {
   brinde: "bg-chart-2/15 text-chart-2",
   outros: "bg-muted text-foreground",
 };
-const gastosMktIniciais: GastoMkt[] = [
-  { id: "m1", data: "03/05/2025", tipo: "meta_ads", descricao: "Campanha ração premium", valor: 800, resultado: "42 leads · 11 vendas", roi: 3.2, campanha: "Black Pet", pago: true },
-  { id: "m2", data: "05/05/2025", tipo: "influenciador", descricao: "@petlovers_sc · story + reels", valor: 300, resultado: "15 novos clientes", roi: 4.1, campanha: "Influencer Maio", pago: true },
-  { id: "m3", data: "08/05/2025", tipo: "panfleto", descricao: "500 panfletos bairro Rau", valor: 120, resultado: "8 cupons resgatados", roi: 2.1, pago: true },
-  { id: "m4", data: "10/05/2025", tipo: "cupom", descricao: "Cupons 15% OFF primeiro pedido", valor: 240, resultado: "22 cupons usados", roi: 5.8, pago: true },
-  { id: "m5", data: "14/05/2025", tipo: "influenciador", descricao: "@mundoanimal · post patrocinado", valor: 500, resultado: "aguardando resultado", pago: false },
-];
+const gastosMktIniciais: GastoMkt[] = [];
 
 function AbaMarketing() {
-  const [lista, setLista] = useState<GastoMkt[]>(gastosMktIniciais);
+  const [lista, setLista] = useStoredList<GastoMkt>(MARKETING_KEY, gastosMktIniciais);
   const [modal, setModal] = useState(false);
   const [data, setData] = useState(() => new Date().toISOString().slice(0,10));
   const [tipo, setTipo] = useState<TipoMkt>("meta_ads");

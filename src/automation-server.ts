@@ -4,6 +4,15 @@ import { processarWebhookMercadoPago } from "./routes/api/webhook.pagamento";
 import { processarWebhookWhatsapp } from "./routes/api/webhook.whatsapp";
 
 const port = Number(process.env.PORT ?? 3001);
+const requiredEnv = [
+  "UAZAPI_URL",
+  "UAZAPI_TOKEN",
+  "OPENAI_API_KEY",
+  "SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
+  "MP_ACCESS_TOKEN",
+  "MP_WEBHOOK_URL",
+];
 
 async function readJson(request: http.IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -14,6 +23,13 @@ async function readJson(request: http.IncomingMessage): Promise<unknown> {
 
   const body = Buffer.concat(chunks).toString("utf8").trim();
   return body ? JSON.parse(body) : {};
+}
+
+function mergeQueryParams(body: unknown, params: URLSearchParams): Record<string, unknown> {
+  const payload = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+  const queryPayload = Object.fromEntries(params.entries());
+
+  return { ...queryPayload, ...payload };
 }
 
 async function sendNodeResponse(response: http.ServerResponse, fetchResponse: Response) {
@@ -31,7 +47,14 @@ async function handle(request: http.IncomingMessage, response: http.ServerRespon
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
   if (request.method === "GET" && url.pathname === "/health") {
-    return json(response, 200, { ok: true, service: "mundo-pet-automacao" });
+    const envStatus = Object.fromEntries(
+      requiredEnv.map((name) => [name, Boolean(process.env[name])]),
+    );
+    return json(response, 200, {
+      ok: true,
+      service: "mundo-pet-automacao",
+      env: envStatus,
+    });
   }
 
   if (request.method === "GET" && url.pathname === "/webhooks/whatsapp") {
@@ -54,10 +77,7 @@ async function handle(request: http.IncomingMessage, response: http.ServerRespon
     request.method === "POST" &&
     (url.pathname === "/webhooks/whatsapp" || url.pathname === "/api/webhook/whatsapp")
   ) {
-    return sendNodeResponse(
-      response,
-      await processarWebhookWhatsapp(await readJson(request)),
-    );
+    return sendNodeResponse(response, await processarWebhookWhatsapp(await readJson(request)));
   }
 
   if (
@@ -66,10 +86,9 @@ async function handle(request: http.IncomingMessage, response: http.ServerRespon
       url.pathname === "/api/webhook/pagamento" ||
       url.pathname === "/api/mercadopago/webhook")
   ) {
-    return sendNodeResponse(
-      response,
-      await processarWebhookMercadoPago(await readJson(request)),
-    );
+    const body = mergeQueryParams(await readJson(request), url.searchParams);
+
+    return sendNodeResponse(response, await processarWebhookMercadoPago(body));
   }
 
   return json(response, 404, { ok: false, error: "not_found" });
@@ -86,5 +105,9 @@ http
     });
   })
   .listen(port, "0.0.0.0", () => {
+    const missingEnv = requiredEnv.filter((name) => !process.env[name]);
     console.log(`Automacao Mundo Pet ouvindo na porta ${port}`);
+    if (missingEnv.length > 0) {
+      console.warn("Variaveis obrigatorias ausentes:", missingEnv.join(", "));
+    }
   });

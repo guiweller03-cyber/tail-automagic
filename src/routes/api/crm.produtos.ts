@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
+import type { ProdutoDetalhesTecnicos } from "@/lib/crm-types";
 import {
   atualizarProdutoCrm,
   criarProdutoCrm,
@@ -50,6 +51,10 @@ function produtoInput(body: Record<string, unknown>): ProdutoCrmInput | null {
     precoCompra,
     tipo,
     fornecedor: typeof body.fornecedor === "string" ? body.fornecedor : undefined,
+    detalhesTecnicos:
+      body.detalhesTecnicos && typeof body.detalhesTecnicos === "object"
+        ? ((body.detalhesTecnicos as ProdutoDetalhesTecnicos) ?? undefined)
+        : undefined,
   };
 }
 

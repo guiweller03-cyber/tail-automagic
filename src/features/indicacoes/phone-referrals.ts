@@ -1,8 +1,6 @@
 // Serviços de indicação por telefone (frontend-only, prontos p/ Supabase)
-import { clientes } from "@/lib/mock";
 import type { CompraIndicado } from "./data";
-
-export type Cliente = (typeof clientes)[number];
+import type { Cliente } from "@/lib/crm-types";
 
 export const DESCONTO_INDICACAO = 0.10; // 10% OFF na 1ª compra do indicado
 
@@ -18,7 +16,7 @@ export function samePhone(a: string, b: string): boolean {
   return na.length >= 8 && na === nb;
 }
 
-export function findClienteByPhone(tel: string): Cliente | null {
+export function findClienteByPhone(tel: string, clientes: Cliente[]): Cliente | null {
   const n = normalizePhone(tel);
   if (n.length < 8) return null;
   return clientes.find((c) => samePhone(c.telefone, tel)) ?? null;
@@ -39,12 +37,13 @@ export function validateReferralPhone(params: {
   telefoneIndicador: string;
   telefoneIndicado?: string;
   nomeIndicado?: string;
+  clientes: Cliente[];
   comprasExistentes: CompraIndicado[];
 }): ReferralValidation {
   const tel = normalizePhone(params.telefoneIndicador);
   if (tel.length < 8) return { ok: false, code: "INVALID", message: "Telefone inválido." };
 
-  const indicador = findClienteByPhone(tel);
+  const indicador = findClienteByPhone(tel, params.clientes);
   if (!indicador) return { ok: false, code: "NOT_FOUND", message: "Telefone não pertence a nenhum cliente." };
 
   if (params.telefoneIndicado && samePhone(params.telefoneIndicador, params.telefoneIndicado)) {
