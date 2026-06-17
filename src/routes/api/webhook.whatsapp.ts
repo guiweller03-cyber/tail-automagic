@@ -1,12 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 import { gerarPixPedido } from "@/lib/mercadopago";
-import { gerarRespostaWhatsapp, limparRespostaCliente } from "@/lib/openai";
+import {
+  extrairComprovantePagamento,
+  extrairCompraDaConversa,
+  gerarRespostaWhatsapp,
+  limparRespostaCliente,
+  type CompraConversaExtraida,
+} from "@/lib/openai";
+import {
+  ehMidiaComprovantePersistivel,
+  formaPagamentoDoMetodo,
+  persistirMidiaComprovante,
+} from "@/lib/comprovantes";
 import { buscarRacoesTecnicasPorTexto, clientePediuFichaTecnica } from "@/lib/racoes-tecnicas";
 import { buscarCupomAtivo, extrairCupomTexto } from "@/lib/indicacoes-supabase";
+import { invalidarDashboardCache } from "@/lib/crm-supabase";
 import { salvarDadosObservadosCliente } from "@/lib/recompra-supabase";
 import {
   adicionarMensagemConversa,
+  atualizarConversaAguardandoHumano,
   atualizarPedidoPixMercadoPago,
   buscarAprendizados,
   buscarClientePorTelefone,
@@ -14,17 +27,19 @@ import {
   buscarIaStatus,
   buscarIaPromptConfig,
   buscarProdutosDisponiveisPorTexto,
+  confirmarPixPorComprovanteWhatsapp,
   criarPedidoPixPendente,
   listarPedidos,
   registrarPedidoDoWhatsapp,
   registrarProdutoProcurado,
   salvarCadastroCliente,
   upsertConversa,
+  vincularPedidoPixAVenda,
   type ClienteCadastro,
   type Conversa,
   type PedidoCrm,
 } from "@/lib/supabase";
-import { enviarMensagemLonga } from "@/lib/uazapi";
+import { enviarMensagemLonga, urlMidiaDescriptografada } from "@/lib/uazapi";
 import { erroLog, logPix, telefoneLog } from "@/lib/pix-log";
 
 type UazapiMessage = {
@@ -61,10 +76,30 @@ type UazapiMessage = {
         text?: string;
         conversation?: string;
         extendedTextMessage?: { text?: string };
-        imageMessage?: { caption?: string; mimetype?: string; fileName?: string; url?: string; fileURL?: string };
-        videoMessage?: { caption?: string; mimetype?: string; fileName?: string; url?: string; fileURL?: string };
-        documentMessage?: { caption?: string; fileName?: string; mimetype?: string; url?: string; fileURL?: string };
-        audioMessage?: { mimetype?: string; fileName?: string; url?: string; fileURL?: string } | unknown;
+        imageMessage?: {
+          caption?: string;
+          mimetype?: string;
+          fileName?: string;
+          url?: string;
+          fileURL?: string;
+        };
+        videoMessage?: {
+          caption?: string;
+          mimetype?: string;
+          fileName?: string;
+          url?: string;
+          fileURL?: string;
+        };
+        documentMessage?: {
+          caption?: string;
+          fileName?: string;
+          mimetype?: string;
+          url?: string;
+          fileURL?: string;
+        };
+        audioMessage?:
+          | { mimetype?: string; fileName?: string; url?: string; fileURL?: string }
+          | unknown;
         stickerMessage?: unknown;
       };
   content?: unknown;
@@ -85,7 +120,7 @@ type UazapiMessage = {
   name?: string;
 };
 
-type UazapiWebhook = {
+export type UazapiWebhook = {
   body?: { message?: UazapiMessage; data?: UazapiPayload };
   message?: UazapiMessage;
   Message?: UazapiMessage;
@@ -95,10 +130,16 @@ type UazapiWebhook = {
   Messages?: UazapiMessage[];
 };
 
-type UazapiPayload =
-  | UazapiMessage
-  | UazapiMessage[]
-  | { messages?: UazapiMessage[]; Messages?: UazapiMessage[]; message?: UazapiMessage; Message?: UazapiMessage; data?: UazapiPayload; Data?: UazapiPayload };
+type UazapiPayloadContainer = {
+  messages?: UazapiMessage[];
+  Messages?: UazapiMessage[];
+  message?: UazapiMessage;
+  Message?: UazapiMessage;
+  data?: UazapiPayload;
+  Data?: UazapiPayload;
+};
+
+type UazapiPayload = UazapiMessage | UazapiMessage[] | UazapiPayloadContainer;
 
 type ResultadoPix = {
   ok: boolean;
@@ -129,6 +170,39 @@ function nomeClienteSeguro(value?: string | null): string | null {
 
 function brl(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function partesSaoPaulo(date = new Date()): { diaSemana: number; hora: number; minuto: number } {
+  const partes = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const weekday = partes.find((parte) => parte.type === "weekday")?.value ?? "Sun";
+  const diaSemana = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+  const hora = Number(partes.find((parte) => parte.type === "hour")?.value ?? 0);
+  const minuto = Number(partes.find((parte) => parte.type === "minute")?.value ?? 0);
+
+  return { diaSemana, hora, minuto };
+}
+
+function horarioAtendimento(date = new Date()) {
+  const { diaSemana, hora, minuto } = partesSaoPaulo(date);
+  const minutos = hora * 60 + minuto;
+  const horarioComercial =
+    diaSemana >= 1 && diaSemana <= 6 && minutos >= 8 * 60 && minutos < 18 * 60;
+  const saudacao = hora < 12 ? "Bom dia!" : hora < 18 ? "Boa tarde!" : "Boa noite!";
+  const periodo = hora < 12 ? "manha" : hora < 18 ? "tarde" : "noite";
+
+  return {
+    timezone: "America/Sao_Paulo",
+    horario_comercial: horarioComercial,
+    saudacao,
+    periodo,
+    regra: "segunda a sabado, das 8h as 18h",
+  };
 }
 
 function mensagemValida(message?: UazapiMessage): message is UazapiMessage & {
@@ -188,9 +262,12 @@ function textoMensagem(message?: UazapiMessage): string | undefined {
   if (tipo.includes("audio")) return message.fromMe ? "[Audio enviado]" : "[Audio recebido]";
   if (tipo.includes("image")) return message.fromMe ? "[Imagem enviada]" : "[Imagem recebida]";
   if (tipo.includes("video")) return message.fromMe ? "[Video enviado]" : "[Video recebido]";
-  if (tipo.includes("document")) return message.fromMe ? "[Documento enviado]" : "[Documento recebido]";
-  if (tipo.includes("sticker")) return message.fromMe ? "[Figurinha enviada]" : "[Figurinha recebida]";
-  if (tipo.includes("location")) return message.fromMe ? "[Localizacao enviada]" : "[Localizacao recebida]";
+  if (tipo.includes("document"))
+    return message.fromMe ? "[Documento enviado]" : "[Documento recebido]";
+  if (tipo.includes("sticker"))
+    return message.fromMe ? "[Figurinha enviada]" : "[Figurinha recebida]";
+  if (tipo.includes("location"))
+    return message.fromMe ? "[Localizacao enviada]" : "[Localizacao recebida]";
   if (tipo.includes("contact")) return message.fromMe ? "[Contato enviado]" : "[Contato recebido]";
 
   return undefined;
@@ -231,8 +308,26 @@ function mediaUrlMensagem(message?: UazapiMessage): string | undefined {
     message.fileUrl ??
     message.mediaUrl ??
     message.mediaURL ??
-    stringFromContent(message.content, ["fileURL", "fileUrl", "mediaUrl", "mediaURL", "downloadUrl", "downloadURL", "URL", "url"]) ??
-    stringFromContent(message.message, ["fileURL", "fileUrl", "mediaUrl", "mediaURL", "downloadUrl", "downloadURL", "URL", "url"])
+    stringFromContent(message.content, [
+      "fileURL",
+      "fileUrl",
+      "mediaUrl",
+      "mediaURL",
+      "downloadUrl",
+      "downloadURL",
+      "URL",
+      "url",
+    ]) ??
+    stringFromContent(message.message, [
+      "fileURL",
+      "fileUrl",
+      "mediaUrl",
+      "mediaURL",
+      "downloadUrl",
+      "downloadURL",
+      "URL",
+      "url",
+    ])
   )?.trim();
 }
 
@@ -260,7 +355,11 @@ function fileNameMensagem(message?: UazapiMessage): string | undefined {
 function mediaKeyMensagem(message?: UazapiMessage): string | undefined {
   if (!message) return undefined;
 
-  return (message.mediaKey ?? stringFromContent(message.content, ["mediaKey"]) ?? stringFromContent(message.message, ["mediaKey"]))?.trim();
+  return (
+    message.mediaKey ??
+    stringFromContent(message.content, ["mediaKey"]) ??
+    stringFromContent(message.message, ["mediaKey"])
+  )?.trim();
 }
 
 function normalizarMensagem(message?: UazapiMessage): UazapiMessage | undefined {
@@ -307,7 +406,7 @@ function extrairMensagensPayload(payload?: UazapiPayload): UazapiMessage[] {
   if (!payload) return [];
   if (Array.isArray(payload)) return payload;
 
-  const container = payload as Exclude<UazapiPayload, UazapiMessage[]>;
+  const container = payload as UazapiPayloadContainer;
   const nested = [
     ...(Array.isArray(container.messages) ? container.messages : []),
     ...(Array.isArray(container.Messages) ? container.Messages : []),
@@ -317,7 +416,7 @@ function extrairMensagensPayload(payload?: UazapiPayload): UazapiMessage[] {
     ...extrairMensagensPayload(container.Data),
   ].filter((message): message is UazapiMessage => Boolean(message));
 
-  return nested.length > 0 ? nested : [container as UazapiMessage];
+  return nested.length > 0 ? nested : [payload as UazapiMessage];
 }
 
 function extrairMensagensWebhook(event: UazapiWebhook): UazapiMessage[] {
@@ -386,9 +485,20 @@ function extrairDadosObservados(content: string): Record<string, unknown> | null
 
   const dados = {
     pets: extrairCampoMarcador(marcador, "pets"),
+    especie: extrairCampoMarcador(marcador, "especie"),
+    fase: extrairCampoMarcador(marcador, "fase"),
+    idade: extrairCampoMarcador(marcador, "idade"),
+    peso: extrairCampoMarcador(marcador, "peso"),
+    porte: extrairCampoMarcador(marcador, "porte"),
+    castrado: extrairCampoMarcador(marcador, "castrado"),
+    necessidade: extrairCampoMarcador(marcador, "necessidade"),
+    racao: extrairCampoMarcador(marcador, "racao") ?? extrairCampoMarcador(marcador, "ração"),
     produto: extrairCampoMarcador(marcador, "produto"),
+    cidade: extrairCampoMarcador(marcador, "cidade"),
+    bairro: extrairCampoMarcador(marcador, "bairro"),
     consumo: extrairCampoMarcador(marcador, "consumo"),
     duracao: extrairCampoMarcador(marcador, "duracao"),
+    restricoes: extrairCampoMarcador(marcador, "restricoes"),
   };
   const limpo = Object.fromEntries(
     Object.entries(dados).filter(([, value]) => typeof value === "string" && value.trim()),
@@ -602,10 +712,7 @@ async function registrarMensagemHistorico(
 ): Promise<Conversa> {
   const ultimaMensagem = conversa.historico.at(-1);
   const messageId = metadata.id;
-  if (
-    messageId &&
-    conversa.historico.some((mensagem) => mensagem.id === messageId)
-  ) {
+  if (messageId && conversa.historico.some((mensagem) => mensagem.id === messageId)) {
     return conversa;
   }
 
@@ -627,6 +734,95 @@ async function registrarMensagemCliente(
   return registrarMensagemHistorico(conversa, "user", content, metadata);
 }
 
+function agendarTrackingPedidosWhatsapp(conversa: Conversa): void {
+  if (!historicoTemSinalDePedido(conversa.historico)) return;
+
+  void registrarPedidoAutomaticoDaConversa(conversa)
+    .then((registrou) => {
+      if (registrou) {
+        invalidarDashboardCache();
+      }
+    })
+    .catch((error) => {
+      console.error("[whatsapp] erro_tracking_pedidos", erroLog(error));
+    });
+}
+
+function historicoTemSinalDePedido(historico: Conversa["historico"]): boolean {
+  return historico.slice(-12).some((mensagem) => {
+    const texto = mensagem.content ?? "";
+
+    return /(?:nome|n[uú]mero|telefone|pedido|pode\s+(?:fechar|separar|mandar|enviar)|fechado|vou\s+querer|manda|entrega|pix|cart[aã]o|dinheiro|comprovante|paguei|R\$\s*\d)/i.test(
+      texto,
+    );
+  });
+}
+
+function formaPagamentoCompra(compra: CompraConversaExtraida): string {
+  switch (compra.formaPagamento) {
+    case "cartao":
+      return "Cartao";
+    case "transferencia":
+      return "Transferencia";
+    case "boleto":
+      return "Boleto";
+    case "dinheiro":
+      return "Dinheiro";
+    default:
+      return "Pix";
+  }
+}
+
+function textoPedidoAutomatico(
+  historico: Conversa["historico"],
+  compra: CompraConversaExtraida,
+): string {
+  const janela = historico.slice(-18);
+  const contexto = janela
+    .map((mensagem) => `${mensagem.role === "user" ? "Cliente" : "Atendente"}: ${mensagem.content}`)
+    .join("\n");
+  const produto = compra.produtos?.[0];
+  const quantidade = compra.quantidade ?? 1;
+  const total = compra.total ? brl(compra.total) : undefined;
+  const marcador = [
+    "[PEDIDO]",
+    produto ? `produto="${produto}"` : null,
+    `quantidade=${quantidade}`,
+    `pagamento="${formaPagamentoCompra(compra)}"`,
+    total ? `total="${total}"` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return `${contexto}\n${marcador}`;
+}
+
+async function registrarPedidoAutomaticoDaConversa(conversa: Conversa): Promise<boolean> {
+  const historico = conversa.historico.slice(-24);
+  const compra = await extrairCompraDaConversa(historico);
+
+  if (!compra.ehCompra || compra.status !== "fechada" || compra.confianca < 0.68) {
+    return false;
+  }
+
+  const pedido = await registrarPedidoDoWhatsapp({
+    telefone: normalizarTelefone(conversa.telefone),
+    texto: textoPedidoAutomatico(historico, compra),
+    nomeCliente: conversa.nome_cliente,
+    formaPagamento: formaPagamentoCompra(compra),
+    totalPago: compra.total,
+    pago: compra.pagamentoConfirmado === true,
+    observacaoExtra: [
+      "Pedido criado automaticamente a partir do historico do WhatsApp",
+      compra.motivo ? compra.motivo.slice(0, 100) : null,
+    ]
+      .filter(Boolean)
+      .join(" | "),
+  });
+
+  return Boolean(pedido.registrado && pedido.vendaId);
+}
+
 function contextoCliente(cliente: ClienteCadastro | null) {
   return cliente
     ? {
@@ -642,6 +838,204 @@ function contextoCliente(cliente: ClienteCadastro | null) {
 
 function pedidosDoCliente(pedidos: PedidoCrm[], telefone: string): PedidoCrm[] {
   return pedidos.filter((pedido) => normalizarTelefone(pedido.telefone) === telefone).slice(0, 5);
+}
+
+function primeiraUrlTexto(texto: string): string | undefined {
+  return texto.match(/https?:\/\/[^\s<>"')]+/i)?.[0];
+}
+
+function contextoPedidoDoHistorico(
+  historico: Conversa["historico"],
+  comprovante: Conversa["historico"][number],
+  valor: number,
+  formaPagamento = "Pix",
+): string {
+  const index = historico.findIndex(
+    (mensagem) =>
+      mensagem === comprovante || (Boolean(mensagem.id) && mensagem.id === comprovante.id),
+  );
+  const inicio = index >= 0 ? Math.max(0, index - 14) : Math.max(0, historico.length - 18);
+  const fim = index >= 0 ? Math.min(historico.length, index + 1) : historico.length;
+  const contexto = historico
+    .slice(inicio, fim)
+    .map((mensagem) => `${mensagem.role === "user" ? "Cliente" : "Atendente"}: ${mensagem.content}`)
+    .join("\n");
+
+  return `${contexto}\n[PEDIDO] pagamento="${formaPagamento}"; total="${brl(valor)}"`;
+}
+
+function deveAnalisarComprovante(
+  texto: string,
+  metadata: Partial<Conversa["historico"][number]>,
+): boolean {
+  const mime = metadata.mimeType?.toLowerCase() ?? "";
+  const tipo = metadata.messageType?.toLowerCase() ?? "";
+  const nome = metadata.fileName?.toLowerCase() ?? "";
+  const temMidiaVisual =
+    Boolean(metadata.mediaUrl) &&
+    (mime.startsWith("image/") || tipo.includes("image") || /\.(?:png|jpe?g|webp)$/i.test(nome));
+  const temDocumento =
+    Boolean(metadata.mediaUrl) &&
+    (mime === "application/pdf" || tipo.includes("document") || /\.pdf$/i.test(nome));
+  const textoSugereComprovante =
+    /(?:comprovante|paguei|pagamento|pix|transfer[eê]ncia|recibo|maquininha|segue\s+(?:o\s+)?comprovante)/i.test(
+      texto,
+    );
+  const temLink = /https?:\/\/\S+/i.test(texto);
+
+  return textoSugereComprovante || temMidiaVisual || temDocumento || temLink;
+}
+
+function formaPagamentoMencionada(texto: string): "Cartão" | "Dinheiro" | undefined {
+  if (
+    /(?:no|com|na|pelo)\s+(?:cart[aã]o|maquininha|d[eé]bito|cr[eé]dito)|cart[aã]o\s+(?:de\s+)?(?:cr[eé]dito|d[eé]bito)|maquininha/i.test(
+      texto,
+    )
+  ) {
+    return "Cartão";
+  }
+  if (/(?:pagar|pago|pagamento)\s+(?:em|no|com)\s+dinheiro|dinheiro\s+na\s+entrega/i.test(texto)) {
+    return "Dinheiro";
+  }
+
+  return undefined;
+}
+
+async function tentarConfirmarPagamentoPorComprovante({
+  telefone,
+  texto,
+  conversa,
+  metadata,
+}: {
+  telefone: string;
+  texto: string;
+  conversa: Conversa;
+  metadata: Partial<Conversa["historico"][number]>;
+}): Promise<boolean> {
+  if (!deveAnalisarComprovante(texto, metadata)) return false;
+
+  try {
+    const mediaUrl =
+      (await urlMidiaDescriptografada({
+        id: metadata.id,
+        mediaUrl: metadata.mediaUrl,
+        mimeType: metadata.mimeType,
+        messageType: metadata.messageType,
+      })) ?? primeiraUrlTexto(texto);
+    const extraido = await extrairComprovantePagamento({
+      texto,
+      mediaUrl,
+      fileName: metadata.fileName,
+    });
+
+    logPix("whatsapp", "comprovante_analisado", {
+      telefone: telefoneLog(telefone),
+      eh_comprovante: extraido.ehComprovante,
+      metodo: extraido.metodo ?? null,
+      valor: extraido.valor ?? null,
+      confianca: extraido.confianca,
+      id_transacao: extraido.idTransacao ?? null,
+    });
+
+    if (!extraido.ehComprovante || !extraido.valor || extraido.confianca < 0.55) {
+      return false;
+    }
+
+    const formaPagamento = formaPagamentoDoMetodo(extraido.metodo);
+    const confirmacao = await confirmarPixPorComprovanteWhatsapp({
+      telefone,
+      valor: extraido.valor,
+      formaPagamento,
+    });
+    let confirmacaoFinal = confirmacao;
+
+    if (
+      !confirmacao.confirmado &&
+      (confirmacao.motivo === "pedido_pendente_nao_encontrado" ||
+        confirmacao.motivo === "pedido_pix_sem_venda")
+    ) {
+      const pedido = await registrarPedidoDoWhatsapp({
+        telefone,
+        texto: contextoPedidoDoHistorico(
+          conversa.historico,
+          conversa.historico.at(-1) ?? {
+            role: "user",
+            content: texto,
+          },
+          extraido.valor,
+          formaPagamento,
+        ),
+        nomeCliente: conversa.nome_cliente,
+        formaPagamento,
+        totalPago: extraido.valor,
+        pago: true,
+        observacaoExtra: [
+          metadata.id ? `WPP_PAY:${metadata.id.slice(0, 60)}` : null,
+          `Pagamento ${formaPagamento} confirmado por comprovante no WhatsApp`,
+          extraido.idTransacao ? `ID ${extraido.idTransacao}` : null,
+        ]
+          .filter(Boolean)
+          .join(" | "),
+      });
+
+      if (pedido.registrado && pedido.vendaId) {
+        if (confirmacao.pedidoPixId) {
+          await vincularPedidoPixAVenda({
+            pedidoPixId: confirmacao.pedidoPixId,
+            vendaId: pedido.vendaId,
+          });
+        }
+
+        confirmacaoFinal = {
+          confirmado: true,
+          tipo: confirmacao.pedidoPixId ? "pedido_pix" : "venda",
+          pedidoPixId: confirmacao.pedidoPixId,
+          vendaId: pedido.vendaId,
+          valor: pedido.total,
+        };
+      }
+    }
+
+    logPix(
+      "whatsapp",
+      confirmacaoFinal.confirmado ? "comprovante_confirmou_pagamento" : "comprovante_sem_match",
+      {
+        telefone: telefoneLog(telefone),
+        valor: extraido.valor,
+        tipo: confirmacaoFinal.tipo ?? null,
+        venda_id: confirmacaoFinal.vendaId ?? null,
+        pedido_pix_id: confirmacaoFinal.pedidoPixId ?? null,
+        motivo: confirmacaoFinal.motivo ?? null,
+      },
+      confirmacaoFinal.confirmado ? "info" : "warn",
+    );
+
+    if (!confirmacaoFinal.confirmado) return false;
+
+    const resposta =
+      `Pagamento ${formaPagamento} confirmado no sistema no valor de ${brl(extraido.valor)}. ` +
+      "Vou seguir com a separacao do pedido.";
+    await Promise.all([
+      enviarMensagemLonga(`${telefone}@s.whatsapp.net`, resposta),
+      adicionarMensagemConversa({
+        id: conversa.id,
+        mensagem: { role: "assistant", content: resposta },
+      }),
+    ]);
+
+    return true;
+  } catch (error) {
+    logPix(
+      "whatsapp",
+      "falha_analisar_comprovante",
+      {
+        telefone: telefoneLog(telefone),
+        erro: erroLog(error),
+      },
+      "error",
+    );
+    return false;
+  }
 }
 
 async function tentarGerarPix({
@@ -792,16 +1186,18 @@ function respostaPixSemChave(resposta: string, resultadoPix?: ResultadoPix): str
   return "Vou fechar o pedido antes de gerar a chave Pix. Me confirma o produto e a quantidade.";
 }
 
-async function registrarPedidoPixPorHistorico({
+async function registrarPedidoPorHistorico({
   telefone,
   conversa,
   texto,
   nomeCliente,
+  formaPagamento = "Pix",
 }: {
   telefone: string;
   conversa: Conversa;
   texto: string;
   nomeCliente?: string | null;
+  formaPagamento?: string;
 }) {
   const historicoPedido = [...conversa.historico.slice(-12), { role: "user", content: texto }]
     .map((mensagem) => mensagem.content)
@@ -831,14 +1227,14 @@ async function registrarPedidoPixPorHistorico({
     });
   }
 
-  const pedidoSintetico = `[PEDIDO] produto="${produto.nome}"; quantidade=1; pagamento="Pix"; total="${brl(
+  const pedidoSintetico = `[PEDIDO] produto="${produto.nome}"; quantidade=1; pagamento="${formaPagamento}"; total="${brl(
     produto.preco,
   )}"\n${texto}`;
   const pedido = await registrarPedidoDoWhatsapp({
     telefone,
     texto: pedidoSintetico,
     nomeCliente,
-    formaPagamento: "Pix",
+    formaPagamento,
   });
 
   logPix("whatsapp", "pedido_fallback_processado", {
@@ -904,7 +1300,13 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
   }
 
   if (message.fromMe) {
-    await registrarMensagemHistorico(conversaInicial, "assistant", texto, metadata);
+    const conversaRegistrada = await registrarMensagemHistorico(
+      conversaInicial,
+      "assistant",
+      texto,
+      metadata,
+    );
+    agendarTrackingPedidosWhatsapp(conversaRegistrada);
 
     return json({
       received: true,
@@ -920,7 +1322,40 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
       conversa_chatid_valido: Boolean(message.chatid),
     });
   }
-  const conversa = await registrarMensagemCliente(conversaInicial, texto, metadata);
+  // Copia a midia (imagem/PDF) para o storage permanente enquanto ainda esta
+  // fresca na UazAPI, antes que expire. A mensagem ja entra no historico com a
+  // URL estavel, garantindo exibicao no chat e reanalise futura do comprovante.
+  let metadataFinal = metadata;
+  if (ehMidiaComprovantePersistivel(metadata)) {
+    const persistida = await persistirMidiaComprovante({
+      telefone,
+      id: metadata.id,
+      mediaUrl: metadata.mediaUrl,
+      mimeType: metadata.mimeType,
+      messageType: metadata.messageType,
+      fileName: metadata.fileName,
+    });
+    if (persistida) {
+      metadataFinal = {
+        ...metadata,
+        mediaUrl: persistida.url,
+        mimeType: persistida.mimeType ?? metadata.mimeType,
+      };
+    }
+  }
+
+  const conversa = await registrarMensagemCliente(conversaInicial, texto, metadataFinal);
+  const comprovanteConfirmado = await tentarConfirmarPagamentoPorComprovante({
+    telefone,
+    texto,
+    conversa,
+    metadata: metadataFinal,
+  });
+
+  if (comprovanteConfirmado) {
+    return json({ received: true, responded: true, pagamento_confirmado: true });
+  }
+
   const cupomMensagemAtual = extrairCupomTexto(texto);
   const solicitouPix = solicitouPixNaMensagem || pixSolicitadoRecentemente(conversa);
   const iaStatus = await buscarIaStatus();
@@ -949,6 +1384,8 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
         "warn",
       );
     }
+    agendarTrackingPedidosWhatsapp(conversa);
+
     return json({
       received: true,
       ignored: true,
@@ -1006,9 +1443,6 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
     });
   }
 
-  const temPedidoPendente = pedidosRecentes.some(
-    (pedido) => pedido.statusPagamento !== "pago" && pedido.total > 0,
-  );
   const respostaIa = await gerarRespostaWhatsapp({
     mensagem: texto,
     config: iaConfig,
@@ -1026,9 +1460,11 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
         ({ estoque: _estoque, precoCompra: _precoCompra, ...produto }) => produto,
       ),
       fichas_tecnicas_relevantes: fichasTecnicas,
+      horario_atendimento: horarioAtendimento(),
       aprendizados,
     },
   });
+  const handoffSolicitado = /\[HANDOFF\]/i.test(respostaIa);
   const termoProcurado = extrairProdutoProcurado(respostaIa);
   if (termoProcurado) {
     registrarProdutoProcurado({
@@ -1049,7 +1485,6 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
           ...cadastroIa,
         }
       : null;
-  const temPedido = /\[PEDIDO\]/i.test(respostaIa);
   const clienteSalvo = cadastro
     ? await salvarCadastroCliente({
         telefone,
@@ -1068,7 +1503,23 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
         ...dadosObservados,
         mensagemAtual: texto,
       },
-      resumo: [dadosObservados.produto, dadosObservados.pets, dadosObservados.consumo, dadosObservados.duracao]
+      resumo: [
+        dadosObservados.necessidade,
+        dadosObservados.produto,
+        dadosObservados.racao,
+        dadosObservados.pets,
+        dadosObservados.especie,
+        dadosObservados.fase,
+        dadosObservados.idade,
+        dadosObservados.peso,
+        dadosObservados.porte,
+        dadosObservados.castrado,
+        dadosObservados.cidade,
+        dadosObservados.bairro,
+        dadosObservados.consumo,
+        dadosObservados.duracao,
+        dadosObservados.restricoes,
+      ]
         .filter(Boolean)
         .join(" | "),
       confianca: 0.7,
@@ -1076,117 +1527,43 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
       console.error("[whatsapp] erro_salvar_dados_observados", erroLog(error));
     });
   }
-  const cupomRecente = cupomRecenteDaConversa(conversa, texto);
-  const pedidoMarcado = temPedido
-    ? await registrarPedidoDoWhatsapp({
-        telefone,
-        texto: `${respostaIa}\n${texto}${cupomRecente ? `\ncupom ${cupomRecente}` : ""}`,
-        nomeCliente: cliente?.nome ?? clienteWhatsappInicial?.nome ?? nomeWhatsapp,
-        formaPagamento: extrairPagamentoPedido(respostaIa),
-      })
-    : null;
-  const pedidoRegistrado =
-    pedidoMarcado ??
-    (solicitouPix && !temPedidoPendente
-      ? await registrarPedidoPixPorHistorico({
-          telefone,
-          conversa,
-          texto,
-          nomeCliente: cliente?.nome ?? clienteWhatsappInicial?.nome ?? nomeWhatsapp,
-        })
-      : null);
 
-  if (solicitouPix && pedidoRegistrado) {
-    logPix("whatsapp", "pedido_processado_antes_pix", {
-      telefone: telefoneLog(telefone),
-      registrado: pedidoRegistrado.registrado,
-      motivo: pedidoRegistrado.motivo ?? null,
-      venda_id: pedidoRegistrado.vendaId ?? null,
-      total: pedidoRegistrado.total,
-    });
-  }
-
-  const pedidoNovoParaPix =
-    pedidoRegistrado?.registrado && pedidoRegistrado.vendaId && pedidoRegistrado.total > 0
-      ? [
-          {
-            id: pedidoRegistrado.vendaId,
-            total: pedidoRegistrado.total,
-            statusPagamento: "pendente",
-          },
-        ]
-      : [];
-  const pedidosParaPix = pedidoNovoParaPix.length > 0 ? pedidoNovoParaPix : pedidosRecentes;
-  const resultadoPix =
-    solicitouPix && pedidosParaPix.length > 0
-      ? await tentarGerarPix({
-          telefone,
-          cliente: clienteSalvo,
-          pedidos: pedidosParaPix,
-        })
-      : undefined;
-
-  if (resultadoPix) {
-    logPix(
-      "whatsapp",
-      resultadoPix.pix_gerado ? "pix_pronto_para_resposta" : "pix_nao_gerado",
-      {
-        telefone: telefoneLog(telefone),
-        erro: resultadoPix.erro ?? null,
-        mensagem: resultadoPix.mensagem ?? null,
-        status_pix: resultadoPix.status_pix ?? null,
-      },
-      resultadoPix.pix_gerado ? "info" : "warn",
-    );
-  }
-
-  const respostaLimpa = respostaPixSemChave(
-    resultadoPix?.pix_gerado ? "Segue a chave Pix do pedido." : limparRespostaTecnica(respostaIa),
-    resultadoPix,
-  );
-  const mensagensCliente = montarMensagensPix(respostaLimpa, resultadoPix);
-  const respostaCliente = mensagensCliente.join("\n\n");
-  const chatid = `${telefone}@s.whatsapp.net`;
+  const respostaPreAtendimento = limparRespostaTecnica(respostaIa);
+  const chatidPreAtendimento = `${telefone}@s.whatsapp.net`;
 
   await Promise.all([
-    (async () => {
-      for (const mensagemCliente of mensagensCliente) {
-        await enviarMensagemLonga(chatid, mensagemCliente);
-      }
-    })()
-      .then((resultado) => {
-        if (solicitouPix) {
-          logPix("whatsapp", "resposta_enviada", {
-            telefone: telefoneLog(telefone),
-            pix_anexado: Boolean(resultadoPix?.pix_gerado),
-          });
-        }
-
-        return resultado;
-      })
-      .catch((error) => {
-        if (solicitouPix) {
-          logPix(
-            "whatsapp",
-            "falha_envio_resposta",
-            {
-              telefone: telefoneLog(telefone),
-              pix_anexado: Boolean(resultadoPix?.pix_gerado),
-              erro: erroLog(error),
-            },
-            "error",
-          );
-        }
-
-        throw error;
-      }),
+    enviarMensagemLonga(chatidPreAtendimento, respostaPreAtendimento),
     adicionarMensagemConversa({
       id: conversa.id,
-      mensagem: { role: "assistant", content: respostaCliente },
+      mensagem: { role: "assistant", content: respostaPreAtendimento },
     }),
   ]);
 
-  return json({ received: true, responded: true });
+  if (handoffSolicitado) {
+    await atualizarConversaAguardandoHumano({
+      id: conversa.id,
+      aguardandoHumano: true,
+      iaAtiva: false,
+    });
+  }
+
+  agendarTrackingPedidosWhatsapp({
+    ...conversa,
+    historico: [
+      ...conversa.historico,
+      {
+        role: "assistant",
+        content: respostaPreAtendimento,
+      },
+    ],
+  });
+
+  return json({
+    received: true,
+    responded: true,
+    pre_atendimento: true,
+    handoff: handoffSolicitado,
+  });
 }
 
 export const Route = createFileRoute("/api/webhook/whatsapp")({

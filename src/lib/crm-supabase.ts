@@ -1,4 +1,10 @@
-import type { Cliente, Produto, ProdutoDetalhesTecnicos } from "@/lib/crm-types";
+import type { Cliente, PetDetalhe, Produto, ProdutoDetalhesTecnicos } from "@/lib/crm-types";
+import {
+  type LeadTotalInput,
+  listarLeadsTotais,
+  registrarLeadTotal,
+  registrarLeadsTotais,
+} from "@/lib/leads-totais-supabase";
 
 export type DashboardData = {
   kpis: {
@@ -13,6 +19,7 @@ export type DashboardData = {
     clientesVip: number;
     clientesRisco: number;
     estoqueCritico: number;
+    leadsTotais: number;
     leadsHoje: number;
     leadsSemana: number;
     conversaoHoje: number;
@@ -58,6 +65,7 @@ type ClienteRow = {
   prox_recompra: string | null;
   cidade: string | null;
   especies: Cliente["especies"] | null;
+  pets_detalhes: unknown;
   observacoes: string | null;
   follow_up_manual: Cliente["followUpManual"] | null;
 };
@@ -112,8 +120,19 @@ const PRODUTO_FOTO_MIME_EXT: Record<string, string> = {
   "image/webp": "webp",
   "image/gif": "gif",
 };
+
+const COMPROVANTES_BUCKET = "comprovantes";
+const COMPROVANTE_MAX_BYTES = 20 * 1024 * 1024;
+const COMPROVANTE_MIME_EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "application/pdf": "pdf",
+};
 let dashboardCache: { expiresAt: number; data: DashboardData } | null = null;
 let dashboardPromise: Promise<DashboardData> | null = null;
+const PESO_PADRAO_GATO_KG = 3.5;
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -210,6 +229,66 @@ async function selectOptional<T>(path: string): Promise<T[]> {
   }
 }
 
+function parsePesoPetKg(value: unknown): number | undefined {
+  if (typeof value === "string" && !value.trim()) return undefined;
+  const texto =
+    typeof value === "string" ? value.replace(",", ".").match(/\d+(?:\.\d+)?/)?.[0] : undefined;
+  const numero = typeof value === "number" ? value : texto ? Number(texto) : Number.NaN;
+
+  return Number.isFinite(numero) && numero > 0 ? numero : undefined;
+}
+
+function normalizarPetDetalhe(value: unknown): PetDetalhe | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  const item = value as Record<string, unknown>;
+  const nome = typeof item.nome === "string" ? item.nome.trim() : "";
+  const especie = item.especie === "cachorro" || item.especie === "gato" ? item.especie : undefined;
+  const castrado =
+    typeof item.castrado === "boolean"
+      ? item.castrado
+      : typeof item.castrado === "string" && /^(sim|true|1)$/i.test(item.castrado.trim())
+        ? true
+        : typeof item.castrado === "string" && /^(nao|não|false|0)$/i.test(item.castrado.trim())
+          ? false
+          : undefined;
+  const porte =
+    item.porte === "pequeno" || item.porte === "medio" || item.porte === "grande"
+      ? item.porte
+      : undefined;
+  const pesoKg =
+    parsePesoPetKg(item.pesoKg) ?? (especie === "gato" ? PESO_PADRAO_GATO_KG : undefined);
+  const raca = typeof item.raca === "string" ? item.raca.trim() || undefined : undefined;
+  const idade = typeof item.idade === "string" ? item.idade.trim() || undefined : undefined;
+  const observacao =
+    typeof item.observacao === "string"
+      ? item.observacao.trim().slice(0, 300) || undefined
+      : undefined;
+
+  if (
+    !nome &&
+    !especie &&
+    castrado === undefined &&
+    !raca &&
+    !porte &&
+    !pesoKg &&
+    !idade &&
+    !observacao
+  )
+    return null;
+
+  return { nome, especie, castrado, raca, porte, pesoKg, idade, observacao };
+}
+
+function normalizarPetsDetalhes(value: unknown): PetDetalhe[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map(normalizarPetDetalhe)
+    .filter((pet): pet is PetDetalhe => pet !== null)
+    .slice(0, 20);
+}
+
 function mapCliente(row: ClienteRow): Cliente {
   return {
     id: row.id,
@@ -237,6 +316,7 @@ function mapCliente(row: ClienteRow): Cliente {
     proxRecompra: row.prox_recompra ?? "",
     cidade: row.cidade ?? undefined,
     especies: row.especies ?? undefined,
+    petsDetalhes: normalizarPetsDetalhes(row.pets_detalhes),
     observacoes: row.observacoes ?? "",
     followUpManual: row.follow_up_manual ?? undefined,
   };
@@ -265,12 +345,28 @@ export async function listarClientes(): Promise<Cliente[]> {
   return rows.map(mapCliente);
 }
 
+export async function listarClientesHistorico(
+  leadsExtras: LeadTotalInput[] = [],
+): Promise<Cliente[]> {
+  const clientes = await listarClientes();
+
+  await registrarLeadsTotais([...clientes, ...leadsExtras], { ativo: true });
+
+  try {
+    return await listarLeadsTotais();
+  } catch (error) {
+    console.error("[leads-totais] erro_listar_historico", error);
+    return clientes;
+  }
+}
+
 export type ClienteCrmInput = {
   nome: string;
   telefone: string;
   endereco?: string;
   bairro?: string;
   pets?: string[];
+  petsDetalhes?: PetDetalhe[];
   perfil?: Cliente["perfil"];
   origem?: string;
   observacoes?: string;
@@ -286,6 +382,9 @@ function clientePayload(input: ClienteCrmInput): Record<string, unknown> {
     pets: input.pets?.map((pet) => pet.trim()).filter(Boolean) ?? [],
     perfil: input.perfil ?? "Novo",
     origem: input.origem?.trim() || "CRM manual",
+    ...(input.petsDetalhes !== undefined
+      ? { pets_detalhes: normalizarPetsDetalhes(input.petsDetalhes) }
+      : {}),
     ...(input.observacoes !== undefined ? { observacoes: input.observacoes.trim() || null } : {}),
     ...(input.followUpManual !== undefined ? { follow_up_manual: input.followUpManual ?? {} } : {}),
     atualizado_em: new Date().toISOString(),
@@ -319,19 +418,33 @@ async function writeCliente(
 }
 
 export async function criarClienteCrm(input: ClienteCrmInput): Promise<Cliente> {
-  return writeCliente(
+  const cliente = await writeCliente(
     "/clientes?on_conflict=telefone",
     "POST",
     clientePayload(input),
     "resolution=merge-duplicates,return=representation",
   );
+
+  await registrarLeadTotal(cliente, { ativo: true });
+
+  return cliente;
 }
 
 export async function atualizarClienteCrm(id: string, input: ClienteCrmInput): Promise<Cliente> {
-  return writeCliente(`/clientes?id=eq.${encodeURIComponent(id)}`, "PATCH", clientePayload(input));
+  const cliente = await writeCliente(
+    `/clientes?id=eq.${encodeURIComponent(id)}`,
+    "PATCH",
+    clientePayload(input),
+  );
+
+  await registrarLeadTotal(cliente, { ativo: true });
+
+  return cliente;
 }
 
 export async function excluirClienteCrm(id: string): Promise<void> {
+  const cliente = await buscarClientePorId(id);
+
   const response = await fetch(supabaseUrl(`/clientes?id=eq.${encodeURIComponent(id)}`), {
     method: "DELETE",
     headers: supabaseHeaders(),
@@ -341,11 +454,39 @@ export async function excluirClienteCrm(id: string): Promise<void> {
     const errorBody = await response.text();
     throw new Error(`Supabase cliente delete failed (${response.status}): ${errorBody}`);
   }
+
+  if (cliente) {
+    await registrarLeadTotal({ ...cliente, clienteId: null }, { ativo: false });
+  }
+}
+
+async function buscarClientePorId(id: string): Promise<Cliente | null> {
+  const rows = await selectFromSupabase<ClienteRow>(
+    `/clientes?id=eq.${encodeURIComponent(id)}&select=*&limit=1`,
+  );
+
+  return rows[0] ? mapCliente(rows[0]) : null;
 }
 
 export async function listarProdutos(): Promise<Produto[]> {
-  const rows = await selectFromSupabase<ProdutoRow>("/produtos?select=*&order=nome.asc");
+  const rows = await selectAllFromSupabase<ProdutoRow>("/produtos?select=*&order=nome.asc");
   return rows.map(mapProduto);
+}
+
+export async function zerarEstoqueTodosProdutos(): Promise<number> {
+  const response = await fetch(supabaseUrl("/produtos?estoque=gt.0"), {
+    method: "PATCH",
+    headers: { ...supabaseHeaders(), Prefer: "return=representation" },
+    body: JSON.stringify({ estoque: 0, atualizado_em: new Date().toISOString() }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase zerar estoque failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as unknown[];
+  return rows.length;
 }
 
 export type ProdutoCrmInput = {
@@ -446,6 +587,25 @@ export async function criarProdutoCrm(input: ProdutoCrmInput): Promise<Produto> 
 
 export async function atualizarProdutoCrm(sku: string, input: ProdutoCrmInput): Promise<Produto> {
   return writeProduto(`/produtos?sku=eq.${encodeURIComponent(sku)}`, "PATCH", input);
+}
+
+export async function excluirProdutoCrm(sku: string): Promise<void> {
+  const produto = await buscarProdutoPorSku(sku);
+
+  const response = await fetch(
+    supabaseUrl(`/produtos?sku=eq.${encodeURIComponent(sku.trim().toUpperCase())}`),
+    {
+      method: "DELETE",
+      headers: supabaseHeaders(),
+    },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase produto delete failed (${response.status}): ${errorBody}`);
+  }
+
+  void removerProdutoFotoStorage(produto?.fotoPath).catch(() => undefined);
 }
 
 export type ProdutoFotoArquivo = {
@@ -619,8 +779,59 @@ export async function removerProdutoFotoCrm(sku: string): Promise<Produto> {
   return atualizado;
 }
 
+/**
+ * Sobe os bytes de um comprovante (imagem/PDF) para o bucket permanente e
+ * devolve a URL publica estavel. Usado para guardar comprovantes do WhatsApp
+ * antes que a midia original da UazAPI/WhatsApp expire.
+ */
+export async function uploadComprovanteStorage({
+  path,
+  bytes,
+  contentType,
+}: {
+  path: string;
+  bytes: ArrayBuffer;
+  contentType: string;
+}): Promise<string> {
+  if (bytes.byteLength > COMPROVANTE_MAX_BYTES) {
+    throw new Error("Comprovante excede o tamanho maximo permitido");
+  }
+
+  const response = await fetch(
+    supabaseStorageUrl(`/object/${COMPROVANTES_BUCKET}/${encodeStoragePath(path)}`),
+    {
+      method: "POST",
+      headers: {
+        ...supabaseStorageHeaders(contentType),
+        "cache-control": "31536000",
+        "x-upsert": "true",
+      },
+      body: bytes,
+    },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase comprovante upload failed (${response.status}): ${errorBody}`);
+  }
+
+  return supabasePublicObjectUrl(COMPROVANTES_BUCKET, path);
+}
+
+export function comprovanteStoragePath(
+  telefone: string,
+  messageId: string | undefined,
+  contentType: string,
+): string {
+  const ext = COMPROVANTE_MIME_EXT[contentType.toLowerCase()] ?? "bin";
+  const telefoneLimpo = telefone.replace(/\D/g, "") || "sem-telefone";
+  const idLimpo = (messageId ?? `${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+
+  return `${telefoneLimpo}/${idLimpo}.${ext}`;
+}
+
 async function listarClientesDashboard(): Promise<ClienteDashboardRow[]> {
-  return selectFromSupabase<ClienteDashboardRow>(
+  return selectAllFromSupabase<ClienteDashboardRow>(
     "/clientes?select=perfil,ultima,total_gasto,lucro_liquido,pedidos,prox_recompra",
   );
 }
@@ -629,16 +840,29 @@ async function listarProdutosDashboard(): Promise<ProdutoDashboardRow[]> {
   return selectFromSupabase<ProdutoDashboardRow>("/produtos?select=estoque,minimo");
 }
 
-function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+function dataLocalSaoPaulo(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 
-function startOfWeek(date: Date): Date {
-  const start = startOfDay(date);
-  const day = start.getDay();
-  const diff = day === 0 ? 6 : day - 1;
-  start.setDate(start.getDate() - diff);
-  return start;
+function dataLocalSaoPauloDiasAtras(date: Date, days: number): string {
+  const [year, month, day] = dataLocalSaoPaulo(date).split("-").map(Number);
+  const localNoonUtc = new Date(Date.UTC(year, month - 1, day, 15));
+  localNoonUtc.setUTCDate(localNoonUtc.getUTCDate() - days);
+  return dataLocalSaoPaulo(localNoonUtc);
+}
+
+function labelDiaSemanaSaoPaulo(dataLocal: string): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    weekday: "short",
+  })
+    .format(new Date(`${dataLocal}T12:00:00-03:00`))
+    .replace(".", "");
 }
 
 function numeroSeguro(value: unknown): number {
@@ -716,8 +940,8 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
     ),
   ]);
 
-  const hoje = startOfDay(agora);
-  const semana = startOfWeek(agora);
+  const hojeLocal = dataLocalSaoPaulo(agora);
+  const inicioSemanaLocal = dataLocalSaoPauloDiasAtras(agora, 6);
   const mes = new Date(agora.getFullYear(), agora.getMonth(), 1);
   const vendasPagas = vendas.filter(
     (venda) =>
@@ -725,12 +949,16 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
       venda.status !== "cancelado" &&
       venda.status !== "cancelada",
   );
-  const vendasHoje = vendasPagas.filter((venda) => new Date(venda.criado_em) >= hoje);
-  const vendasSemanaAtual = vendasPagas.filter((venda) => new Date(venda.criado_em) >= semana);
+  const vendasHoje = vendasPagas.filter(
+    (venda) => dataLocalSaoPaulo(new Date(venda.criado_em)) === hojeLocal,
+  );
+  const vendasSemanaAtual = vendasPagas.filter(
+    (venda) => dataLocalSaoPaulo(new Date(venda.criado_em)) >= inicioSemanaLocal,
+  );
   const vendasMes = vendasPagas.filter((venda) => new Date(venda.criado_em) >= mes);
   const leadsHoje = clientes.filter((cliente) => cliente.ultima === "hoje").length;
   const leadsSemana = clientes.filter(
-    (cliente) => cliente.ultima === "hoje" || cliente.ultima.includes("dia"),
+    (cliente) => cliente.ultima === "hoje" || (cliente.ultima ?? "").includes("dia"),
   ).length;
   const faturamentoMes = vendas.length
     ? sum(vendasMes, "total")
@@ -743,25 +971,26 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
     : clientes.reduce((total, cliente) => total + numeroSeguro(cliente.pedidos), 0);
   const ticketMedio = pedidosMes > 0 ? faturamentoMes / pedidosMes : 0;
   const clientesComRecompra = clientes.filter(
-    (cliente) => cliente.proxRecompra && cliente.proxRecompra !== "atrasada",
+    (cliente) => cliente.prox_recompra && cliente.prox_recompra !== "atrasada",
   ).length;
   const clientesVip = clientes.filter((cliente) => cliente.perfil === "VIP").length;
   const clientesRisco = clientes.filter((cliente) => cliente.perfil === "Risco").length;
-  const estoqueCritico = produtos.filter((produto) => produto.estoque < produto.minimo).length;
+  const estoqueCritico = produtos.filter(
+    (produto) => numeroSeguro(produto.estoque) < numeroSeguro(produto.minimo),
+  ).length;
+  const leadsHistoricos = await listarLeadsTotais().catch((error) => {
+    console.error("[leads-totais] erro_dashboard", error);
+    return null;
+  });
 
-  const dias = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
   const vendasSemana = Array.from({ length: 7 }, (_, index) => {
-    const dia = new Date(semana);
-    dia.setDate(semana.getDate() + index);
-    const proximoDia = new Date(dia);
-    proximoDia.setDate(dia.getDate() + 1);
+    const diaLocal = dataLocalSaoPauloDiasAtras(agora, 6 - index);
     const vendasDia = vendasPagas.filter((venda) => {
-      const criadoEm = new Date(venda.criado_em);
-      return criadoEm >= dia && criadoEm < proximoDia;
+      return dataLocalSaoPaulo(new Date(venda.criado_em)) === diaLocal;
     });
 
     return {
-      dia: dias[dia.getDay()],
+      dia: labelDiaSemanaSaoPaulo(diaLocal),
       vendas: sum(vendasDia, "total"),
       lucro: sum(vendasDia, "lucro"),
     };
@@ -781,7 +1010,7 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
     };
   });
 
-  const leads = clientes.length;
+  const leads = Math.max(clientes.length, leadsHistoricos?.length ?? 0);
   const pedidos = vendas.length ? vendasPagas.length : pedidosMes;
   const recompra = clientesComRecompra;
 
@@ -798,6 +1027,7 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
       clientesVip,
       clientesRisco,
       estoqueCritico,
+      leadsTotais: leads,
       leadsHoje,
       leadsSemana,
       conversaoHoje: percent(vendasHoje.length, leadsHoje),

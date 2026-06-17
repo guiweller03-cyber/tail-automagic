@@ -1380,14 +1380,26 @@ Schema:
       : undefined;
   const confiancaBruta =
     typeof data.confianca === "number" ? data.confianca : Number(data.confianca);
-  const confianca = Number.isFinite(confiancaBruta) ? Math.max(0, Math.min(1, confiancaBruta)) : 0;
+  const produtos = stringArray(data.produtos, 10);
+  const total = moneyFromJson(data.total);
+  const compraFechadaComDados =
+    booleanFromJson(data.ehCompra) &&
+    status === "fechada" &&
+    Boolean(produtos?.length) &&
+    Boolean(total);
+  const confianca =
+    Number.isFinite(confiancaBruta) && confiancaBruta > 0
+      ? Math.max(0, Math.min(1, confiancaBruta))
+      : compraFechadaComDados
+        ? 0.78
+        : 0;
 
   return {
     ehCompra: booleanFromJson(data.ehCompra),
     status,
-    produtos: stringArray(data.produtos, 10),
+    produtos,
     quantidade: numberOrUndefined(data.quantidade),
-    total: moneyFromJson(data.total),
+    total,
     formaPagamento: metodoFromJson(data.formaPagamento),
     pagamentoConfirmado: booleanFromJson(data.pagamentoConfirmado),
     confianca,
