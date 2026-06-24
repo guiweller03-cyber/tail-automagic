@@ -6,20 +6,49 @@
 // com Node puro em qualquer branch, sem o problema de resolução de alias que
 // derruba o automation-server quando se usa a build de `main` na VPS.
 //
-// Subir na VPS:
-//   pm2 start followups-worker.mjs --name followups-worker \
-//     --node-args="--env-file=/opt/tail-automagic/.env"
+// Já está cadastrado em ecosystem.config.cjs (app "followups-worker"). Para
+// subir/atualizar na VPS depois de um `git pull`:
+//   pm2 start ecosystem.config.cjs --only followups-worker
 //   pm2 save
+// (ou `pm2 reload ecosystem.config.cjs` para reiniciar os dois apps juntos)
 //
 // A cada minuto varre crm_followups pendentes já vencidos:
 //   - disparo "automatico": envia no WhatsApp e marca enviado.
 //   - disparo "confirmar":  deixa o rascunho pronto (gera com IA se preciso) e
 //     marca aguardando_confirmacao para o operador disparar com 1 clique.
 
+import { readFileSync } from "node:fs";
+
+// Carrega o .env e SOBRESCREVE process.env. O Node com `--env-file` NÃO
+// sobrescreve variáveis já presentes no ambiente, então uma OPENAI_API_KEY
+// antiga salva no pm2/shell vencia o valor do arquivo e gerava 401. Aqui o
+// arquivo .env passa a ser a fonte da verdade.
+function loadEnvFile() {
+  try {
+    const raw = readFileSync(new URL("./.env", import.meta.url), "utf8");
+    for (const line of raw.split(/\r?\n/)) {
+      const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*)$/);
+      if (!m || line.trimStart().startsWith("#")) continue;
+      let [, key, val] = m;
+      val = val.trim();
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.slice(1, -1);
+      }
+      if (val) process.env[key] = val;
+    }
+  } catch (e) {
+    console.warn("[followups] não foi possível ler .env:", e?.message || e);
+  }
+}
+loadEnvFile();
+
 const POLL_MS = Number(process.env.FOLLOWUP_POLL_MS ?? 60_000);
 
 function env(name) {
-  const v = process.env[name];
+  const v = process.env[name]?.trim();
   if (!v) throw new Error(`Variável de ambiente ausente: ${name}`);
   return v;
 }
