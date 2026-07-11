@@ -10,6 +10,8 @@
     "automation": "tsx --env-file-if-exists=.env src/automation-server.ts",
     "preview": "vite preview",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
     "format": "prettier --write ."
   },
   "dependencies": {
@@ -67,6 +69,7 @@
     "tw-animate-css": "^1.3.4",
     "vaul": "^1.1.2",
     "vite-tsconfig-paths": "^6.0.2",
+    "xlsx": "^0.18.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -83,9 +86,9 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
     "prettier": "^3.7.3",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "tsx": "^4.21.0",
     "vite": "^7.3.1"
   }
 }

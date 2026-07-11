@@ -269,7 +269,7 @@ Como conduzir:
 - faca uma pergunta por vez;
 - use tom de conversa, nunca tom de entrevista. Aproveite tudo que o cliente ja falou e pergunte so o proximo dado que falta;
 - pre-atendimento completo significa ter: tipo de pet, fase, idade, castracao para gato ou porte para cachorro, racao/produto desejado ou pedido de indicacao, e bairro/cidade quando o cliente informar ou quando for natural perguntar;
-- se ja tiver tipo de pet, fase, idade, castracao/porte quando aplicavel, racao desejada/atual ou pedido de indicacao e bairro/cidade, encerre o automatico com [HANDOFF];
+- REGRA CRITICA: assim que tiver TODOS esses dados, inclua [HANDOFF] IMEDIATAMENTE nessa propria resposta, sem fazer mais nenhuma pergunta e sem tentar continuar o atendimento. Nao espere mais mensagens do cliente;
 - se o cliente demonstrar intencao clara de comprar e a qualificacao essencial estiver completa, encerre o automatico com [HANDOFF];
 - ao encerrar o pre-atendimento, diga que deixou as informacoes separadas e que a equipe vai continuar por aqui. Sempre inclua [HANDOFF] nesse encerramento;
 - use CONTEXTO_ATENDIMENTO_JSON.horario_atendimento.horario_comercial para decidir a mensagem de encerramento;
@@ -603,6 +603,19 @@ function encerrarPreAtendimento(options?: OpcoesPreAtendimento): string {
   }
 
   return "Perfeito, deixei as informacoes separadas. Agora e so aguardar que logo um atendente da equipe continua por aqui. [HANDOFF]";
+}
+
+export function preAtendimentoConcluido(
+  mensagem: string,
+  historico: Array<{ role: string; content: string }>,
+): boolean {
+  const tipados: Mensagem[] = historico
+    .filter(
+      (m): m is { role: "user" | "assistant"; content: string } =>
+        m.role === "user" || m.role === "assistant",
+    )
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+  return proximaPerguntaPreAtendimento(mensagem, tipados) === null;
 }
 
 export function respostaAutomaticaWhatsappPorContexto(
@@ -943,9 +956,13 @@ export type PerfilClienteExtraido = {
       nome?: string;
       especie?: "cachorro" | "gato";
       castrado?: boolean;
+      raca?: string;
       porte?: "pequeno" | "medio" | "grande";
       pesoKg?: number;
+      idade?: string;
+      nascimento?: string;
       apetite?: "baixo" | "normal" | "alto";
+      observacao?: string;
     }>;
     produtosUsoContinuo?: Array<{
       nome?: string;
@@ -1157,11 +1174,29 @@ function dadosObservadosFromJson(
               nome: typeof pet.nome === "string" ? pet.nome.trim() || undefined : undefined,
               especie,
               castrado: optionalBooleanFromJson(pet.castrado),
+              raca:
+                typeof pet.raca === "string"
+                  ? pet.raca.trim().slice(0, 80) || undefined
+                  : undefined,
               porte,
               pesoKg: numberOrUndefined(pet.pesoKg),
+              idade:
+                typeof pet.idade === "string"
+                  ? pet.idade.trim().slice(0, 60) || undefined
+                  : undefined,
+              nascimento:
+                typeof pet.nascimento === "string"
+                  ? pet.nascimento.trim().slice(0, 20) || undefined
+                  : typeof pet.dataNascimento === "string"
+                    ? pet.dataNascimento.trim().slice(0, 20) || undefined
+                    : undefined,
               apetite:
                 pet.apetite === "baixo" || pet.apetite === "normal" || pet.apetite === "alto"
                   ? (pet.apetite as "baixo" | "normal" | "alto")
+                  : undefined,
+              observacao:
+                typeof pet.observacao === "string"
+                  ? pet.observacao.trim().slice(0, 300) || undefined
                   : undefined,
             },
           ];
@@ -1266,7 +1301,7 @@ Schema:
   "observacoes": "resumo factual curto de preferencias, restricoes, produto de interesse, pagamento ou entrega",
   "followUpMensagem": "proxima acao manual objetiva, se houver",
   "dadosObservados": {
-    "pets": [{"nome": "nome", "especie": "cachorro/gato", "castrado": true/false, "porte": "pequeno/medio/grande", "pesoKg": 0, "apetite": "baixo/normal/alto"}],
+    "pets": [{"nome": "nome", "especie": "cachorro/gato", "castrado": true/false, "raca": "raca", "porte": "pequeno/medio/grande", "pesoKg": 0, "idade": "idade citada", "nascimento": "YYYY-MM-DD se informado", "apetite": "baixo/normal/alto", "observacao": "fato curto do pet"}],
     "produtosUsoContinuo": [{"nome": "produto citado", "categoria": "racao/areia/medicamento/etc", "pesoKg": 0, "frequenciaDias": 0, "observacao": "fato citado"}],
     "rotinaConsumo": {"quantidadePets": 0, "consumoDescrito": "ex: 3 cachorros comem bastante", "compraDescrita": "ex: saco de 15kg dura um mes"}
   }

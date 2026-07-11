@@ -16,7 +16,8 @@ export function SmartKanban({ aiEnabled }: { aiEnabled: boolean }) {
   const columns = COLUMNS_BY_TAB[tab];
 
   const visible = useMemo(() => {
-    if (tab === "Leads") return items.filter((l) => l.tab === "Leads" || columns.includes(l.column));
+    if (tab === "Leads")
+      return items.filter((l) => l.tab === "Leads" || columns.includes(l.column));
     return items.filter((l) => l.tab === tab || columns.includes(l.column));
   }, [items, tab, columns]);
 
@@ -31,7 +32,7 @@ export function SmartKanban({ aiEnabled }: { aiEnabled: boolean }) {
       prev.map((l) => {
         const next = autoMoveKanbanCard(l);
         return next === l.column ? l : { ...l, column: next };
-      })
+      }),
     );
   }
 
@@ -54,7 +55,9 @@ export function SmartKanban({ aiEnabled }: { aiEnabled: boolean }) {
                 }`}
               >
                 {t}
-                <span className={`text-[10px] px-1.5 rounded-full ${ativo ? "bg-background/20" : "bg-secondary"}`}>
+                <span
+                  className={`text-[10px] px-1.5 rounded-full ${ativo ? "bg-background/20" : "bg-secondary"}`}
+                >
                   {count}
                 </span>
               </button>
@@ -91,8 +94,12 @@ export function SmartKanban({ aiEnabled }: { aiEnabled: boolean }) {
                   <div className="text-[10px] text-muted-foreground truncate">{meta.hint}</div>
                 </div>
                 <div className="flex flex-col items-end shrink-0">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${meta.tone}`}>{list.length}</span>
-                  <span className="text-[10px] text-success font-bold mt-0.5">{formatBRL(total)}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${meta.tone}`}>
+                    {list.length}
+                  </span>
+                  <span className="text-[10px] text-success font-bold mt-0.5">
+                    {formatBRL(total)}
+                  </span>
                 </div>
               </div>
 

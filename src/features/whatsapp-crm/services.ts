@@ -1,7 +1,6 @@
 import type { LeadCard, LeadIntent, LeadPriority, SmartColumn } from "./types";
 
-const brl = (n: number) =>
-  n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export const formatBRL = brl;
 
@@ -13,9 +12,10 @@ export function calculateLeadCost(lead: LeadCard): {
 } {
   return {
     cac: lead.custoLead,
-    pretty: lead.custoLead > 0
-      ? `Lead adquirido por ${brl(lead.custoLead)}`
-      : "Lead orgânico · sem custo",
+    pretty:
+      lead.custoLead > 0
+        ? `Lead adquirido por ${brl(lead.custoLead)}`
+        : "Lead orgânico · sem custo",
     origem: lead.origemDetalhe ? `${lead.origem} · ${lead.origemDetalhe}` : lead.origem,
   };
 }
@@ -72,18 +72,26 @@ export function autoMoveKanbanCard(lead: LeadCard): SmartColumn {
 
 export function intentColor(intent: LeadIntent): string {
   switch (intent) {
-    case "comprando": return "bg-success/15 text-success border-success/30";
-    case "quente":    return "bg-accent/20 text-accent border-accent/40";
-    case "morno":     return "bg-primary/15 text-primary border-primary/30";
-    case "frio":      return "bg-muted text-muted-foreground border-border";
+    case "comprando":
+      return "bg-success/15 text-success border-success/30";
+    case "quente":
+      return "bg-accent/20 text-accent border-accent/40";
+    case "morno":
+      return "bg-primary/15 text-primary border-primary/30";
+    case "frio":
+      return "bg-muted text-muted-foreground border-border";
   }
 }
 
 export function priorityRing(p: LeadPriority): string {
   switch (p) {
-    case "urgente": return "ring-2 ring-destructive/40 shadow-[0_0_24px_hsl(var(--destructive)/0.25)]";
-    case "alta":    return "ring-2 ring-accent/40 shadow-[0_0_18px_hsl(var(--accent)/0.20)]";
-    case "media":   return "ring-1 ring-primary/30";
-    case "baixa":   return "ring-1 ring-border";
+    case "urgente":
+      return "ring-2 ring-destructive/40 shadow-[0_0_24px_hsl(var(--destructive)/0.25)]";
+    case "alta":
+      return "ring-2 ring-accent/40 shadow-[0_0_18px_hsl(var(--accent)/0.20)]";
+    case "media":
+      return "ring-1 ring-primary/30";
+    case "baixa":
+      return "ring-1 ring-border";
   }
 }

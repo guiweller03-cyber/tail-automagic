@@ -1,19 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
 import { Dashboard } from "@/pages/Dashboard";
-import type { DashboardData } from "@/lib/crm-supabase";
+import { carregarDashboard } from "@/lib/crm-supabase";
 
 const dashboardQueryKey = ["crm", "dashboard"] as const;
 
-async function fetchDashboard(): Promise<DashboardData | null> {
-  try {
-    const res = await fetch("/api/crm/dashboard", { cache: "no-store" });
-    if (res.ok) return (await res.json()) as DashboardData;
-  } catch {
-    return null;
-  }
-
-  return null;
-}
+const fetchDashboard = createServerFn({ method: "GET" }).handler(() => carregarDashboard());
 
 export const Route = createFileRoute("/")({
   component: DashboardRoute,

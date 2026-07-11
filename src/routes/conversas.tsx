@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Conversas } from "@/pages/Conversas";
-import type { Cliente, Conversa, KanbanStage } from "@/lib/crm-types";
+import type { ConversaMensagem, ConversaView } from "@/pages/Conversas";
+import type { Cliente, KanbanStage, ResumoFinanceiroConversa } from "@/lib/crm-types";
 
 export const Route = createFileRoute("/conversas")({
   component: ConversasRoute,
@@ -33,12 +34,8 @@ function ConversasRoute() {
   );
 }
 
-function mapConversa(row: Record<string, unknown>): Conversa & {
-  historico: any[];
-  aguardandoHumano: boolean;
-  iaAtiva: boolean | null;
-} {
-  const historico = Array.isArray(row.historico) ? row.historico : [];
+function mapConversa(row: Record<string, unknown>): ConversaView {
+  const historico = Array.isArray(row.historico) ? (row.historico as ConversaMensagem[]) : [];
   const ultimaMsg = historico.at(-1) as { content?: unknown } | undefined;
   const estagio = mapStage(row.estagio);
   return {
@@ -47,16 +44,33 @@ function mapConversa(row: Record<string, unknown>): Conversa & {
     telefone: String(row.telefone ?? ""),
     ultima: String(ultimaMsg?.content ?? ""),
     hora: row.atualizado_em
-      ? new Date(String(row.atualizado_em)).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+      ? new Date(String(row.atualizado_em)).toLocaleTimeString("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
       : "",
     naoLidas: row.aguardando_humano ? 1 : 0,
     tag: row.aguardando_humano ? "Aguardando" : "IA",
     estagio,
     valorPotencial: Number(row.valor_potencial ?? 0),
+    resumoFinanceiro: mapResumoFinanceiro(row.resumo_financeiro),
     filtros: [],
     historico,
     aguardandoHumano: Boolean(row.aguardando_humano),
     iaAtiva: typeof row.ia_ativa === "boolean" ? row.ia_ativa : null,
+  };
+}
+
+function mapResumoFinanceiro(value: unknown): ResumoFinanceiroConversa | undefined {
+  if (!value || typeof value !== "object") return undefined;
+
+  const row = value as Record<string, unknown>;
+  return {
+    totalGasto: Number(row.total_gasto ?? 0),
+    lucroLiquido: Number(row.lucro_liquido ?? 0),
+    totalDescontos: Number(row.total_descontos ?? 0),
+    ticketMedio: Number(row.ticket_medio ?? 0),
+    pedidos: Number(row.pedidos ?? 0),
   };
 }
 

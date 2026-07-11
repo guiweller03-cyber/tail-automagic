@@ -11,6 +11,7 @@ import {
   Clock,
   AlertTriangle,
   Plus,
+  Trash2,
 } from "lucide-react";
 
 type FollowupModo = "manual" | "ia";
@@ -71,6 +72,17 @@ function defaultDateTimeLocal(): string {
   )}`;
 }
 
+function isoParaInputLocal(iso: string): string {
+  // Inversa de localParaISO: ISO em UTC -> "YYYY-MM-DDTHH:mm" no fuso do operador,
+  // que e o formato que o input datetime-local espera para pre-preencher a edicao.
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return defaultDateTimeLocal();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
+    d.getMinutes(),
+  )}`;
+}
+
 const STATUS_META: Record<FollowupStatus, { label: string; tone: string; icon: React.ReactNode }> =
   {
     pendente: {
@@ -119,6 +131,8 @@ export function FollowupScheduler({
   const [mensagem, setMensagem] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [acaoId, setAcaoId] = useState<string | null>(null);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
 
   const telefoneDigits = useMemo(() => telefone.replace(/\D/g, ""), [telefone]);
 
@@ -214,6 +228,92 @@ export function FollowupScheduler({
     }
   }
 
+  function resetForm() {
+    setEditandoId(null);
+    setModo("manual");
+    setDisparo("confirmar");
+    setMensagem("");
+    setQuando(defaultDateTimeLocal());
+  }
+
+  function fecharForm() {
+    setAberto(false);
+    resetForm();
+  }
+
+  function abrirNovo() {
+    resetForm();
+    setAberto(true);
+  }
+
+  function abrirEdicao(f: Followup) {
+    setEditandoId(f.id);
+    setQuando(isoParaInputLocal(f.agendadoPara));
+    setModo(f.modo);
+    setDisparo(f.disparo);
+    setMensagem(f.mensagem ?? "");
+    setConfirmandoId(null);
+    setAberto(true);
+  }
+
+  async function salvarEdicao() {
+    if (!editandoId) return;
+    const iso = localParaISO(quando);
+    if (!iso) {
+      toast.error("Escolha uma data e hora validas");
+      return;
+    }
+    if (modo === "manual" && !mensagem.trim()) {
+      toast.error("Escreva a mensagem ou deixe a IA gerar");
+      return;
+    }
+    setSalvando(true);
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: editandoId,
+          acao: "editar",
+          agendadoPara: iso,
+          modo,
+          disparo,
+          mensagem: modo === "manual" ? mensagem.trim() : "",
+        }),
+      });
+      const data = (await res.json()) as Followup & { erro?: string };
+      if (!res.ok) throw new Error(data?.erro || "Falha ao salvar alteracoes");
+      setLista((prev) =>
+        prev
+          .map((f) => (f.id === editandoId ? data : f))
+          .sort((a, b) => a.agendadoPara.localeCompare(b.agendadoPara)),
+      );
+      fecharForm();
+      toast.success("Follow-up atualizado ✅");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao salvar alteracoes");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function remover(id: string) {
+    setAcaoId(id);
+    try {
+      const res = await fetch(`${ENDPOINT}?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const data = (await res.json()) as { ok?: boolean; erro?: string };
+      if (!res.ok || data?.erro) throw new Error(data?.erro || "Falha ao apagar");
+      setLista((prev) => prev.filter((f) => f.id !== id));
+      if (editandoId === id) fecharForm();
+      toast.success("Follow-up apagado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao apagar");
+    } finally {
+      setAcaoId(null);
+      setConfirmandoId(null);
+    }
+  }
+
   const ativos = lista.filter((f) => f.status !== "cancelado");
 
   return (
@@ -224,15 +324,29 @@ export function FollowupScheduler({
         </div>
         <button
           type="button"
-          onClick={() => setAberto((v) => !v)}
+          onClick={() => (aberto ? fecharForm() : abrirNovo())}
           className="inline-flex items-center gap-1 rounded-lg bg-primary/15 px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
         >
-          <Plus className="size-3" /> Agendar
+          <Plus className="size-3" /> {aberto ? "Fechar" : "Agendar"}
         </button>
       </div>
 
       {aberto && (
         <div className="rounded-lg border border-border bg-secondary/30 p-2.5 space-y-2.5">
+          {editandoId && (
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary">
+                <Pencil className="size-3" /> Editando follow-up
+              </span>
+              <button
+                type="button"
+                onClick={fecharForm}
+                className="text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+              >
+                Cancelar edicao
+              </button>
+            </div>
+          )}
           <div>
             <label className="text-[10px] font-semibold text-muted-foreground">Quando</label>
             <input
@@ -300,11 +414,18 @@ export function FollowupScheduler({
 
           <button
             type="button"
-            onClick={() => void agendar()}
+            onClick={() => void (editandoId ? salvarEdicao() : agendar())}
             disabled={salvando}
             className="h-9 w-full rounded-lg bg-primary text-xs font-bold text-primary-foreground inline-flex items-center justify-center gap-1.5 hover:opacity-90 disabled:opacity-60"
           >
-            <CalendarClock className="size-4" /> {salvando ? "Agendando…" : "Agendar follow-up"}
+            <CalendarClock className="size-4" />{" "}
+            {salvando
+              ? editandoId
+                ? "Salvando…"
+                : "Agendando…"
+              : editandoId
+                ? "Salvar alteracoes"
+                : "Agendar follow-up"}
           </button>
         </div>
       )}
@@ -363,23 +484,69 @@ export function FollowupScheduler({
                   <span>·</span>
                   <span>{f.disparo === "automatico" ? "Auto" : "Confirmar"}</span>
                 </div>
-                {podeAgir && (
+                {confirmandoId === f.id ? (
+                  <div className="space-y-1.5 rounded-md border border-destructive/20 bg-destructive/10 p-2">
+                    <div className="text-[11px] font-semibold text-destructive">
+                      Apagar este follow-up? Nao da pra desfazer.
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void remover(f.id)}
+                        disabled={ocupado}
+                        className="h-7 rounded-md bg-destructive text-[11px] font-semibold text-destructive-foreground inline-flex items-center justify-center gap-1 hover:opacity-90 disabled:opacity-60"
+                      >
+                        <Trash2 className="size-3" /> Apagar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmandoId(null)}
+                        disabled={ocupado}
+                        className="h-7 rounded-md bg-secondary text-[11px] font-semibold inline-flex items-center justify-center gap-1 hover:bg-secondary/70 disabled:opacity-60"
+                      >
+                        Voltar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                   <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                    {podeAgir && (
+                      <button
+                        type="button"
+                        onClick={() => void acao(f.id, "enviar")}
+                        disabled={ocupado}
+                        className="h-7 rounded-md bg-success/90 text-[11px] font-semibold text-success-foreground inline-flex items-center justify-center gap-1 hover:bg-success disabled:opacity-60"
+                      >
+                        <Send className="size-3" /> Enviar agora
+                      </button>
+                    )}
+                    {(podeAgir || f.status === "erro") && (
+                      <button
+                        type="button"
+                        onClick={() => abrirEdicao(f)}
+                        disabled={ocupado}
+                        className="h-7 rounded-md bg-secondary text-[11px] font-semibold inline-flex items-center justify-center gap-1 hover:bg-secondary/70 disabled:opacity-60"
+                      >
+                        <Pencil className="size-3" /> Editar
+                      </button>
+                    )}
+                    {podeAgir && (
+                      <button
+                        type="button"
+                        onClick={() => void acao(f.id, "cancelar")}
+                        disabled={ocupado}
+                        className="h-7 rounded-md bg-secondary text-[11px] font-semibold inline-flex items-center justify-center gap-1 hover:bg-secondary/70 disabled:opacity-60"
+                      >
+                        <X className="size-3" /> Cancelar
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => void acao(f.id, "enviar")}
+                      onClick={() => setConfirmandoId(f.id)}
                       disabled={ocupado}
-                      className="h-7 rounded-md bg-success/90 text-[11px] font-semibold text-success-foreground inline-flex items-center justify-center gap-1 hover:bg-success disabled:opacity-60"
+                      className="h-7 rounded-md bg-destructive/10 text-[11px] font-semibold text-destructive inline-flex items-center justify-center gap-1 hover:bg-destructive/20 disabled:opacity-60"
                     >
-                      <Send className="size-3" /> Enviar agora
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void acao(f.id, "cancelar")}
-                      disabled={ocupado}
-                      className="h-7 rounded-md bg-secondary text-[11px] font-semibold inline-flex items-center justify-center gap-1 hover:bg-secondary/70 disabled:opacity-60"
-                    >
-                      <X className="size-3" /> Cancelar
+                      <Trash2 className="size-3" /> Apagar
                     </button>
                   </div>
                 )}

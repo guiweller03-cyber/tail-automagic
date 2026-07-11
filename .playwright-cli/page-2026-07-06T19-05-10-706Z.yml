@@ -1,0 +1,30 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - button "Ativar modo escuro" [ref=e3]:
+      - img [ref=e4]
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]:
+          - img [ref=e11]
+          - generic [ref=e16]:
+            - generic [ref=e17]: Mundo Pet
+            - generic [ref=e18]: CRM inteligente
+        - generic [ref=e19]:
+          - paragraph [ref=e20]: Acesso restrito aos administradores do CRM.
+          - paragraph [ref=e21]: Use um dos dois logins cadastrados no ambiente para visualizar vendas, clientes, pedidos e automacoes.
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - img [ref=e25]
+          - heading "Entrar no CRM" [level=1] [ref=e29]
+          - paragraph [ref=e30]: Informe seu login de administrador para continuar.
+        - generic [ref=e31]:
+          - generic [ref=e32]:
+            - text: Login
+            - textbox "Login" [ref=e33]:
+              - /placeholder: admin@mundopet.com
+          - generic [ref=e34]:
+            - text: Senha
+            - textbox "Senha" [ref=e35]:
+              - /placeholder: Sua senha
+          - button "Entrar" [ref=e36] [cursor=pointer]
+  - region "Notifications alt+T"

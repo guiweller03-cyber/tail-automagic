@@ -1,7 +1,17 @@
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  X, Phone, MessageCircle, Tag, Target, DollarSign, Sparkles,
-  TrendingUp, Gift, Megaphone, Clock, AlertTriangle,
+  X,
+  Phone,
+  MessageCircle,
+  Tag,
+  Target,
+  DollarSign,
+  Sparkles,
+  TrendingUp,
+  Gift,
+  Megaphone,
+  Clock,
+  AlertTriangle,
 } from "lucide-react";
 import type { LeadCard } from "../types";
 import { detectLeadSource } from "../services";
@@ -15,12 +25,16 @@ export function LeadDetailPanel({ lead, onClose }: { lead: LeadCard | null; onCl
         <>
           <motion.div
             className="fixed inset-0 bg-foreground/30 z-40"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             onClick={onClose}
           />
           <motion.aside
             className="fixed right-0 top-0 h-full w-full sm:w-[420px] bg-card border-l border-border z-50 flex flex-col shadow-2xl"
-            initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
             transition={{ type: "spring", stiffness: 300, damping: 32 }}
           >
             <Header lead={lead} onClose={onClose} />
@@ -44,28 +58,52 @@ function Header({ lead, onClose }: { lead: LeadCard; onClose: () => void }) {
   return (
     <div className="p-4 border-b border-border bg-gradient-to-br from-primary/10 to-accent/10 flex items-start gap-3">
       <div className="size-12 rounded-2xl bg-gradient-to-br from-primary to-accent grid place-items-center font-bold text-primary-foreground">
-        {lead.nome.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+        {lead.nome
+          .split(" ")
+          .map((n) => n[0])
+          .slice(0, 2)
+          .join("")}
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-bold text-sm truncate">{lead.nome}</div>
         <div className="text-[11px] text-muted-foreground">{lead.telefone}</div>
         <div className="mt-1.5 flex flex-wrap gap-1">
           {lead.tags.map((t) => (
-            <span key={t} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-secondary">{t}</span>
+            <span key={t} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-secondary">
+              {t}
+            </span>
           ))}
-          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-            lead.intent === "comprando" ? "bg-success/20 text-success" :
-            lead.intent === "quente" ? "bg-accent/20 text-accent" :
-            lead.intent === "morno" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
-          }`}>{lead.intent.toUpperCase()}</span>
+          <span
+            className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+              lead.intent === "comprando"
+                ? "bg-success/20 text-success"
+                : lead.intent === "quente"
+                  ? "bg-accent/20 text-accent"
+                  : lead.intent === "morno"
+                    ? "bg-primary/15 text-primary"
+                    : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {lead.intent.toUpperCase()}
+          </span>
         </div>
       </div>
-      <button onClick={onClose} className="p-2 rounded-lg hover:bg-secondary"><X className="size-4" /></button>
+      <button onClick={onClose} className="p-2 rounded-lg hover:bg-secondary">
+        <X className="size-4" />
+      </button>
     </div>
   );
 }
 
-function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Section({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-1.5 px-1">
@@ -83,22 +121,29 @@ function AquisicaoBlock({ lead }: { lead: LeadCard }) {
   const lucro = receita - cac;
   const roi = cac > 0 ? (lucro / cac) * 100 : null; // % — null se orgânico
   const ltv = receita + lead.ticketMedio * 6; // projeção simples: +6 compras futuras
-  const campanha = lead.utmCampaign ?? lead.anuncio ?? lead.influenciador ?? lead.origemDetalhe ?? "—";
+  const campanha =
+    lead.utmCampaign ?? lead.anuncio ?? lead.influenciador ?? lead.origemDetalhe ?? "—";
 
   return (
     <Section icon={<DollarSign className="size-3" />} title="Aquisição deste lead">
       <div className="rounded-xl border border-border p-3 bg-gradient-to-br from-primary/5 to-transparent space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-primary font-bold">CAC individual</div>
+            <div className="text-[10px] uppercase tracking-wide text-primary font-bold">
+              CAC individual
+            </div>
             <div className="text-2xl font-bold text-primary mt-0.5">
               {cac > 0 ? brl(cac) : "Orgânico"}
             </div>
             <div className="text-[10px] text-muted-foreground">Custo só deste lead</div>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">ROI individual</div>
-            <div className={`text-2xl font-bold mt-0.5 ${roi === null ? "text-success" : roi >= 0 ? "text-success" : "text-destructive"}`}>
+            <div className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">
+              ROI individual
+            </div>
+            <div
+              className={`text-2xl font-bold mt-0.5 ${roi === null ? "text-success" : roi >= 0 ? "text-success" : "text-destructive"}`}
+            >
               {roi === null ? "∞" : `${roi >= 0 ? "+" : ""}${roi.toFixed(0)}%`}
             </div>
             <div className="text-[10px] text-muted-foreground">Lucro / CAC</div>
@@ -110,7 +155,8 @@ function AquisicaoBlock({ lead }: { lead: LeadCard }) {
           <MiniStat label="LTV projetado" value={brl(ltv)} />
         </div>
         <div className="text-[10px] text-muted-foreground pt-2 border-t border-border">
-          Origem: <b className="text-foreground">{lead.origem}</b> · Campanha: <b className="text-foreground">{campanha}</b>
+          Origem: <b className="text-foreground">{lead.origem}</b> · Campanha:{" "}
+          <b className="text-foreground">{campanha}</b>
         </div>
       </div>
     </Section>
@@ -120,7 +166,9 @@ function AquisicaoBlock({ lead }: { lead: LeadCard }) {
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-secondary/60 p-1.5 text-center">
-      <div className="text-[9px] text-muted-foreground uppercase tracking-wide truncate">{label}</div>
+      <div className="text-[9px] text-muted-foreground uppercase tracking-wide truncate">
+        {label}
+      </div>
       <div className="font-bold text-[11px] mt-0.5 truncate">{value}</div>
     </div>
   );
@@ -131,13 +179,19 @@ function OriginBlock({ lead }: { lead: LeadCard }) {
     <Section icon={<Target className="size-3" />} title="Origem do lead">
       <div className="rounded-xl border border-border p-2.5 space-y-1.5 bg-card">
         <div className="text-sm font-semibold">{lead.origem}</div>
-        {lead.origemDetalhe && <div className="text-[11px] text-muted-foreground">{lead.origemDetalhe}</div>}
+        {lead.origemDetalhe && (
+          <div className="text-[11px] text-muted-foreground">{lead.origemDetalhe}</div>
+        )}
         <div className="flex flex-wrap gap-1 pt-1">
           {lead.utmSource && <Chip>utm: {lead.utmSource}</Chip>}
           {lead.utmCampaign && <Chip>camp: {lead.utmCampaign}</Chip>}
           {lead.anuncio && <Chip>{lead.anuncio}</Chip>}
           {lead.influenciador && <Chip tone="accent">{lead.influenciador}</Chip>}
-          {lead.cupom && <Chip tone="accent"><Tag className="size-2.5" /> {lead.cupom}</Chip>}
+          {lead.cupom && (
+            <Chip tone="accent">
+              <Tag className="size-2.5" /> {lead.cupom}
+            </Chip>
+          )}
         </div>
         <div className="text-[10px] text-muted-foreground pt-1 border-t border-border mt-1">
           Rastreio · {detectLeadSource(lead)}
@@ -166,7 +220,9 @@ function RelationshipBlock({ lead }: { lead: LeadCard }) {
       <div className="rounded-xl border border-border p-2.5 bg-card flex items-center justify-between">
         <div>
           <div className="text-sm font-semibold">{lead.statusRelacionamento}</div>
-          <div className="text-[10px] text-muted-foreground">Última interação: {lead.ultimaInteracao}</div>
+          <div className="text-[10px] text-muted-foreground">
+            Última interação: {lead.ultimaInteracao}
+          </div>
         </div>
         <div className={`text-right ${lead.churnRisk >= 65 ? "text-destructive" : "text-success"}`}>
           <div className="text-[9px] uppercase font-bold tracking-wide flex items-center gap-1">
@@ -185,7 +241,9 @@ function CampaignsBlock({ lead }: { lead: LeadCard }) {
     <Section icon={<Megaphone className="size-3" />} title="Campanhas recebidas">
       <div className="flex flex-wrap gap-1">
         {lead.campanhasRecebidas.map((c) => (
-          <span key={c} className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-secondary">{c}</span>
+          <span key={c} className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-secondary">
+            {c}
+          </span>
         ))}
       </div>
     </Section>
@@ -196,11 +254,21 @@ function HistoryBlock({ lead }: { lead: LeadCard }) {
   return (
     <Section icon={<Clock className="size-3" />} title="Histórico rápido">
       <ul className="space-y-1 text-[11px]">
-        <li>• Primeiro contato: <b>{lead.primeiroContato}</b></li>
-        {lead.tempoAteCompra !== undefined && <li>• Tempo até primeira compra: <b>{lead.tempoAteCompra}d</b></li>}
-        <li>• Último atendimento: <b>{lead.ultimoAtendimento}</b></li>
+        <li>
+          • Primeiro contato: <b>{lead.primeiroContato}</b>
+        </li>
+        {lead.tempoAteCompra !== undefined && (
+          <li>
+            • Tempo até primeira compra: <b>{lead.tempoAteCompra}d</b>
+          </li>
+        )}
+        <li>
+          • Último atendimento: <b>{lead.ultimoAtendimento}</b>
+        </li>
         {lead.produtosFavoritos.length > 0 && (
-          <li>• Favoritos: <b>{lead.produtosFavoritos.join(", ")}</b></li>
+          <li>
+            • Favoritos: <b>{lead.produtosFavoritos.join(", ")}</b>
+          </li>
         )}
       </ul>
     </Section>
@@ -234,8 +302,12 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function Chip({ children, tone }: { children: React.ReactNode; tone?: "accent" }) {
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-      tone === "accent" ? "bg-accent/15 text-accent" : "bg-secondary"
-    }`}>{children}</span>
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+        tone === "accent" ? "bg-accent/15 text-accent" : "bg-secondary"
+      }`}
+    >
+      {children}
+    </span>
   );
 }

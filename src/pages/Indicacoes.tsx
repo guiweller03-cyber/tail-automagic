@@ -924,7 +924,7 @@ function Kpi({
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
+function Th({ children }: { children?: ReactNode }) {
   return <th className="text-left font-semibold px-3 py-2.5">{children}</th>;
 }
 

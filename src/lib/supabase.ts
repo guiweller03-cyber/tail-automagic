@@ -12,7 +12,9 @@ import {
   validarCupom,
   type CupomAplicado,
 } from "./indicacoes-supabase";
+import { registrarLeadTotal } from "./leads-totais-supabase";
 import { recalcularRecompraVenda } from "./recompra-supabase";
+import { requireSupabaseServerKey } from "./server-env";
 
 export type Conversa = {
   id: string;
@@ -24,6 +26,8 @@ export type Conversa = {
   estagio: "novo" | "qualificando" | "vendendo" | "pos_venda" | "inativo";
   criado_em: string;
   atualizado_em: string;
+  lido_ate: string | null;
+  bloqueado?: boolean;
 };
 
 export type IaStatus = {
@@ -45,6 +49,7 @@ export type ProdutoPedido = {
   quantidade: number;
   preco: number;
   precoCompra: number;
+  petNome?: string | null;
 };
 
 export type PedidoProcesso = "novo" | "pago" | "separando" | "em rota" | "entregue" | "cancelado";
@@ -61,6 +66,7 @@ export type PedidoCrm = {
   pagamento: string;
   statusPagamento: string;
   observacao: string;
+  taxaMaquina: number;
 };
 
 export type PedidoPixRow = {
@@ -75,6 +81,15 @@ export type PedidoPixRow = {
   mp_qr_code_base64: string | null;
   criado_em: string;
   atualizado_em: string;
+};
+
+export type ConfirmacaoComprovantePix = {
+  confirmado: boolean;
+  tipo?: "pedido_pix" | "venda";
+  pedidoPixId?: string;
+  vendaId?: string;
+  valor?: number;
+  motivo?: string;
 };
 
 type ConversaUpsert = {
@@ -103,11 +118,11 @@ function supabaseUrl(path: string): string {
 }
 
 function supabaseHeaders(prefer?: string): HeadersInit {
-  const anonKey = requireEnv("SUPABASE_ANON_KEY");
+  const apiKey = requireSupabaseServerKey();
 
   return {
-    apikey: anonKey,
-    authorization: `Bearer ${anonKey}`,
+    apikey: apiKey,
+    authorization: `Bearer ${apiKey}`,
     "content-type": "application/json",
     ...(prefer ? { Prefer: prefer } : {}),
   };
@@ -176,7 +191,76 @@ export async function listarConversas(): Promise<Conversa[]> {
     throw new Error(`Supabase conversas select failed (${response.status}): ${errorBody}`);
   }
 
+  const rows = (await response.json()) as Conversa[];
+
+  // Contatos bloqueados somem de toda a operacao do CRM (lista, leads derivados de
+  // conversa, scan de pagamentos). O filtro em JS tolera o banco sem a coluna
+  // ainda (migration nao aplicada): nesse caso bloqueado vem undefined.
+  return rows.filter((conversa) => conversa.bloqueado !== true);
+}
+
+/**
+ * Telefones bloqueados pelo operador. Usado pela sincronizacao do WhatsApp para
+ * nao recriar conversas que ja foram bloqueadas (a listarConversas as esconde, e
+ * sem este filtro o sync as traria de volta do historico do WhatsApp).
+ */
+export async function listarTelefonesBloqueados(): Promise<Set<string>> {
+  const response = await fetch(supabaseUrl("/conversas?select=telefone&bloqueado=eq.true"), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) return new Set();
+
+  const rows = (await response.json()) as Array<{ telefone: string }>;
+  return new Set(rows.map((row) => row.telefone.replace(/\D/g, "")));
+}
+
+export async function definirConversaBloqueada({
+  id,
+  bloqueado,
+}: {
+  id: string;
+  bloqueado: boolean;
+}): Promise<Conversa> {
+  const response = await fetch(supabaseUrl(`/conversas?id=eq.${encodeURIComponent(id)}`), {
+    method: "PATCH",
+    headers: supabaseHeaders("return=representation"),
+    body: JSON.stringify({ bloqueado, atualizado_em: new Date().toISOString() }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase conversa bloqueio update failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as Conversa[];
+  if (!rows[0]) throw new Error("Conversa nao encontrada");
+
+  return rows[0];
+}
+
+/** Lista as conversas bloqueadas para o painel de gerenciamento de bloqueios. */
+export async function listarConversasBloqueadas(): Promise<Conversa[]> {
+  const response = await fetch(
+    supabaseUrl("/conversas?select=*&bloqueado=eq.true&order=atualizado_em.desc"),
+    { headers: supabaseHeaders() },
+  );
+
+  if (!response.ok) return [];
+
   return (await response.json()) as Conversa[];
+}
+
+export async function excluirConversa(id: string): Promise<void> {
+  const response = await fetch(supabaseUrl(`/conversas?id=eq.${encodeURIComponent(id)}`), {
+    method: "DELETE",
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase delete conversa failed (${response.status}): ${errorBody}`);
+  }
 }
 
 export async function atualizarConversaAguardandoHumano({
@@ -207,6 +291,30 @@ export async function atualizarConversaAguardandoHumano({
   if (!rows[0]) throw new Error("Conversa nao encontrada");
 
   return rows[0];
+}
+
+export async function marcarConversaLida({
+  id,
+  lidoAte,
+}: {
+  id: string;
+  lidoAte?: string;
+}): Promise<{ ok: true; lido_ate: string }> {
+  const valor = lidoAte ?? new Date().toISOString();
+
+  // Atualiza apenas lido_ate (sem mexer em atualizado_em para nao reordenar a lista).
+  const response = await fetch(supabaseUrl(`/conversas?id=eq.${encodeURIComponent(id)}`), {
+    method: "PATCH",
+    headers: supabaseHeaders("return=minimal"),
+    body: JSON.stringify({ lido_ate: valor }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase conversa lido update failed (${response.status}): ${errorBody}`);
+  }
+
+  return { ok: true, lido_ate: valor };
 }
 
 export async function atualizarConversaPipeline({
@@ -452,6 +560,27 @@ export async function buscarClientePorTelefone(telefone: string): Promise<Client
   return rows[0] ?? null;
 }
 
+function normalizarListaPets(pets: string[] | null | undefined): string[] {
+  if (!pets) return [];
+
+  const unicos = new Map<string, string>();
+
+  for (const pet of pets) {
+    const nome = pet.trim();
+    if (!nome) continue;
+    unicos.set(nome.toLowerCase(), nome);
+  }
+
+  return Array.from(unicos.values());
+}
+
+function mesclarPetsCliente(
+  atuais: string[] | null | undefined,
+  novos: string[] | null | undefined,
+): string[] {
+  return normalizarListaPets([...(atuais ?? []), ...(novos ?? [])]);
+}
+
 export async function salvarCadastroCliente({
   telefone,
   nome,
@@ -473,11 +602,14 @@ export async function salvarCadastroCliente({
     ultima: "hoje",
     atualizado_em: new Date().toISOString(),
   };
+  const petsNormalizados = normalizarListaPets(pets);
 
   if (nome) payload.nome = nome;
   if (endereco) payload.endereco = endereco;
   if (bairro) payload.bairro = bairro;
-  if (pets && pets.length > 0) payload.pets = pets;
+  if (petsNormalizados.length > 0) {
+    payload.pets = cliente ? mesclarPetsCliente(cliente.pets, petsNormalizados) : petsNormalizados;
+  }
 
   if (cliente) {
     const response = await fetch(
@@ -495,7 +627,22 @@ export async function salvarCadastroCliente({
     }
 
     const rows = (await response.json()) as ClienteCadastro[];
-    return rows[0] ?? { ...cliente, ...payload };
+    const atualizado = rows[0] ?? { ...cliente, ...payload };
+    await registrarLeadTotal({
+      id: atualizado.id,
+      nome: atualizado.nome,
+      telefone: atualizado.telefone,
+      endereco: atualizado.endereco ?? "",
+      bairro: atualizado.bairro ?? "",
+      pets: atualizado.pets ?? [],
+      origem,
+      ultima: "hoje",
+      totalGasto: atualizado.total_gasto ?? 0,
+      lucroLiquido: atualizado.lucro_liquido ?? 0,
+      pedidos: atualizado.pedidos ?? 0,
+    });
+
+    return atualizado;
   }
 
   const response = await fetch(supabaseUrl("/clientes?on_conflict=telefone"), {
@@ -509,7 +656,7 @@ export async function salvarCadastroCliente({
       atualizado_em: new Date().toISOString(),
       ...(endereco ? { endereco } : {}),
       ...(bairro ? { bairro } : {}),
-      ...(pets && pets.length > 0 ? { pets } : {}),
+      ...(petsNormalizados.length > 0 ? { pets: petsNormalizados } : {}),
     }),
   });
 
@@ -519,7 +666,57 @@ export async function salvarCadastroCliente({
   }
 
   const rows = (await response.json()) as ClienteCadastro[];
+  if (rows[0]) {
+    await registrarLeadTotal({
+      id: rows[0].id,
+      nome: rows[0].nome,
+      telefone: rows[0].telefone,
+      endereco: rows[0].endereco ?? "",
+      bairro: rows[0].bairro ?? "",
+      pets: rows[0].pets ?? [],
+      origem,
+      ultima: "hoje",
+      totalGasto: rows[0].total_gasto ?? 0,
+      lucroLiquido: rows[0].lucro_liquido ?? 0,
+      pedidos: rows[0].pedidos ?? 0,
+    });
+  }
+
   return rows[0];
+}
+
+export async function salvarCadastrosClientesBasicos(
+  inputs: Array<{ telefone: string; nome?: string | null; origem?: string }>,
+): Promise<ClienteCadastro[]> {
+  const payload = inputs
+    .map((input) => ({
+      telefone: input.telefone.replace(/\D/g, ""),
+      nome: input.nome?.trim(),
+      origem: input.origem?.trim() || "WhatsApp IA",
+    }))
+    .filter((input) => input.telefone.length >= 8)
+    .map((input) => ({
+      telefone: input.telefone,
+      nome: input.nome || `Cliente ${input.telefone.slice(-4)}`,
+      origem: input.origem,
+      ultima: "hoje",
+      atualizado_em: new Date().toISOString(),
+    }));
+
+  if (payload.length === 0) return [];
+
+  const response = await fetch(supabaseUrl("/clientes?on_conflict=telefone"), {
+    method: "POST",
+    headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase clientes bulk upsert failed (${response.status}): ${errorBody}`);
+  }
+
+  return (await response.json()) as ClienteCadastro[];
 }
 
 type ProdutoRow = {
@@ -547,7 +744,9 @@ type VendaPedidoRow = {
   cliente_id: string | null;
   cliente_nome: string | null;
   telefone: string | null;
+  pet_nome: string | null;
   total: number | null;
+  taxa_maquininha: number | null;
   forma_pagamento: string | null;
   status_pagamento: string | null;
   status: string | null;
@@ -580,7 +779,13 @@ type VendaItemRow = {
   quantidade: number;
   preco: number;
   preco_compra: number;
+  pet_nome: string | null;
   estoque_baixado: boolean;
+};
+
+type VendaItemPetRow = {
+  venda_id: string;
+  pet_nome: string | null;
 };
 
 export type ProdutoCrmResumo = ProdutoPedido & {
@@ -624,6 +829,15 @@ function resumoPedido(observacao: string | null): string {
   return observacao.replace(/^Pedido WhatsApp IA:\s*/i, "").trim() || "Pedido registrado";
 }
 
+function primeiroPetDosItens(itens: ProdutoPedido[]): string | null {
+  for (const item of itens) {
+    const pet = item.petNome?.trim();
+    if (pet) return pet;
+  }
+
+  return null;
+}
+
 function deduplicarVendasRecentes(vendas: VendaPedidoRow[]): VendaPedidoRow[] {
   const vistas = new Map<string, number>();
   const janelaDuplicidadeMs = 60 * 60 * 1000;
@@ -661,18 +875,141 @@ async function buscarClientesCadastro(): Promise<ClienteCadastro[]> {
   return (await response.json()) as ClienteCadastro[];
 }
 
+async function listarPetsItensPorVenda(vendaIds: string[]): Promise<Map<string, string[]>> {
+  if (vendaIds.length === 0) return new Map();
+
+  const params = new URLSearchParams({
+    venda_id: `in.(${vendaIds.map((id) => `"${id}"`).join(",")})`,
+    pet_nome: "not.is.null",
+    select: "venda_id,pet_nome",
+  });
+
+  const response = await fetch(supabaseUrl(`/venda_itens?${params}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    if (/pet_nome|PGRST204|PGRST205|relation .* does not exist/i.test(errorBody)) {
+      return new Map();
+    }
+
+    throw new Error(`Supabase venda_itens pets select failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as VendaItemPetRow[];
+  const petsPorVenda = new Map<string, string[]>();
+  const vistosPorVenda = new Map<string, Set<string>>();
+
+  for (const row of rows) {
+    const pet = row.pet_nome?.trim();
+    if (!pet) continue;
+
+    const vistos = vistosPorVenda.get(row.venda_id) ?? new Set<string>();
+    const chave = pet.toLowerCase();
+    if (vistos.has(chave)) continue;
+
+    vistos.add(chave);
+    vistosPorVenda.set(row.venda_id, vistos);
+    petsPorVenda.set(row.venda_id, [...(petsPorVenda.get(row.venda_id) ?? []), pet]);
+  }
+
+  return petsPorVenda;
+}
+
+export type ResumoFinanceiroTelefone = {
+  totalGasto: number;
+  lucroLiquido: number;
+  totalDescontos: number;
+  ticketMedio: number;
+  pedidos: number;
+};
+
+type VendaResumoRow = {
+  telefone: string | null;
+  total: number | null;
+  lucro: number | null;
+  desconto_cupom: number | null;
+  status_pagamento: string | null;
+  status: string | null;
+};
+
+/**
+ * Agrega, por telefone, todas as vendas que a IA registrou (exceto canceladas):
+ * total gasto, lucro, descontos, nº de pedidos e ticket médio. Diferente dos
+ * acumulados gravados na ficha do cliente (que só contam venda paga/faturada),
+ * isto reflete tudo que foi registrado na conversa, pago ou pendente.
+ */
+export async function resumoFinanceiroPorTelefone(): Promise<
+  Map<string, ResumoFinanceiroTelefone>
+> {
+  const response = await fetch(
+    supabaseUrl("/vendas?select=telefone,total,lucro,desconto_cupom,status_pagamento,status"),
+    { headers: supabaseHeaders() },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase resumo financeiro select failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as VendaResumoRow[];
+  const mapa = new Map<string, ResumoFinanceiroTelefone>();
+
+  for (const row of rows) {
+    if (row.status === "cancelada") continue;
+
+    const telefone = (row.telefone ?? "").replace(/\D/g, "");
+    if (!telefone) continue;
+
+    const atual = mapa.get(telefone) ?? {
+      totalGasto: 0,
+      lucroLiquido: 0,
+      totalDescontos: 0,
+      ticketMedio: 0,
+      pedidos: 0,
+    };
+    atual.totalGasto += Number(row.total ?? 0);
+    atual.lucroLiquido += Number(row.lucro ?? 0);
+    atual.totalDescontos += Number(row.desconto_cupom ?? 0);
+    atual.pedidos += 1;
+    mapa.set(telefone, atual);
+  }
+
+  for (const resumo of mapa.values()) {
+    resumo.ticketMedio = resumo.pedidos > 0 ? resumo.totalGasto / resumo.pedidos : 0;
+  }
+
+  return mapa;
+}
+
 export async function listarPedidos(): Promise<PedidoCrm[]> {
   const [vendas, clientes] = await Promise.all([
     (async () => {
-      const response = await fetch(
+      let response = await fetch(
         supabaseUrl(
-          "/vendas?select=id,cliente_id,cliente_nome,telefone,total,forma_pagamento,status_pagamento,status,processo,observacao,criado_em&order=criado_em.desc",
+          "/vendas?select=id,cliente_id,cliente_nome,telefone,pet_nome,total,taxa_maquininha,forma_pagamento,status_pagamento,status,processo,observacao,criado_em&order=criado_em.desc",
         ),
         { headers: supabaseHeaders() },
       );
 
       if (!response.ok) {
         const errorBody = await response.text();
+        if (errorBody.includes("pet_nome") || errorBody.includes("taxa_maquininha")) {
+          response = await fetch(
+            supabaseUrl(
+              "/vendas?select=id,cliente_id,cliente_nome,telefone,total,forma_pagamento,status_pagamento,status,processo,observacao,criado_em&order=criado_em.desc",
+            ),
+            { headers: supabaseHeaders() },
+          );
+
+          if (response.ok) {
+            const rows = (await response.json()) as Array<
+              Omit<VendaPedidoRow, "pet_nome" | "taxa_maquininha">
+            >;
+            return rows.map((row) => ({ ...row, pet_nome: null, taxa_maquininha: 0 }));
+          }
+        }
         throw new Error(`Supabase vendas select failed (${response.status}): ${errorBody}`);
       }
 
@@ -683,17 +1020,20 @@ export async function listarPedidos(): Promise<PedidoCrm[]> {
 
   const clientesPorId = new Map(clientes.map((cliente) => [cliente.id, cliente]));
   const clientesPorTelefone = new Map(clientes.map((cliente) => [cliente.telefone, cliente]));
+  const petsPorVenda = await listarPetsItensPorVenda(vendas.map((venda) => venda.id));
 
   return deduplicarVendasRecentes(vendas).map((venda) => {
     const cliente =
       (venda.cliente_id ? clientesPorId.get(venda.cliente_id) : undefined) ??
       (venda.telefone ? clientesPorTelefone.get(venda.telefone) : undefined);
+    const petsItens = petsPorVenda.get(venda.id);
+    const petResumo = petsItens?.length ? petsItens.join(", ") : null;
 
     return {
       id: venda.id,
       cliente: venda.cliente_nome ?? cliente?.nome ?? venda.telefone ?? "Cliente",
       telefone: venda.telefone ?? cliente?.telefone ?? "",
-      pet: cliente?.pets?.[0] ?? resumoPedido(venda.observacao),
+      pet: petResumo ?? venda.pet_nome ?? cliente?.pets?.[0] ?? resumoPedido(venda.observacao),
       bairro: cliente?.bairro ?? cliente?.endereco ?? "Entrega a confirmar",
       total: venda.total ?? 0,
       hora: formatHoraPedido(venda.criado_em),
@@ -701,8 +1041,79 @@ export async function listarPedidos(): Promise<PedidoCrm[]> {
       pagamento: venda.forma_pagamento ?? "A combinar",
       statusPagamento: venda.status_pagamento ?? "pendente",
       observacao: venda.observacao ?? "",
+      taxaMaquina: Number(venda.taxa_maquininha ?? 0),
     };
   });
+}
+
+async function buscarPedidoPorId(id: string): Promise<PedidoCrm | null> {
+  let response = await fetch(
+    supabaseUrl(
+      `/vendas?id=eq.${encodeURIComponent(
+        id,
+      )}&select=id,cliente_id,cliente_nome,telefone,pet_nome,total,taxa_maquininha,forma_pagamento,status_pagamento,status,processo,observacao,criado_em&limit=1`,
+    ),
+    { headers: supabaseHeaders() },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    if (errorBody.includes("pet_nome") || errorBody.includes("taxa_maquininha")) {
+      response = await fetch(
+        supabaseUrl(
+          `/vendas?id=eq.${encodeURIComponent(
+            id,
+          )}&select=id,cliente_id,cliente_nome,telefone,total,forma_pagamento,status_pagamento,status,processo,observacao,criado_em&limit=1`,
+        ),
+        { headers: supabaseHeaders() },
+      );
+
+      if (!response.ok) {
+        const retryErrorBody = await response.text();
+        throw new Error(`Supabase venda select failed (${response.status}): ${retryErrorBody}`);
+      }
+
+      const rows = (await response.json()) as Array<
+        Omit<VendaPedidoRow, "pet_nome" | "taxa_maquininha">
+      >;
+      const venda = rows[0] ? { ...rows[0], pet_nome: null, taxa_maquininha: 0 } : null;
+      return venda ? mapPedidoVenda(venda) : null;
+    }
+
+    throw new Error(`Supabase venda select failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as VendaPedidoRow[];
+  return rows[0] ? mapPedidoVenda(rows[0]) : null;
+}
+
+async function mapPedidoVenda(venda: VendaPedidoRow): Promise<PedidoCrm> {
+  const [clientes, petsPorVenda] = await Promise.all([
+    buscarClientesCadastro(),
+    listarPetsItensPorVenda([venda.id]),
+  ]);
+  const clientesPorId = new Map(clientes.map((cliente) => [cliente.id, cliente]));
+  const clientesPorTelefone = new Map(clientes.map((cliente) => [cliente.telefone, cliente]));
+  const cliente =
+    (venda.cliente_id ? clientesPorId.get(venda.cliente_id) : undefined) ??
+    (venda.telefone ? clientesPorTelefone.get(venda.telefone) : undefined);
+  const petsItens = petsPorVenda.get(venda.id);
+  const petResumo = petsItens?.length ? petsItens.join(", ") : null;
+
+  return {
+    id: venda.id,
+    cliente: venda.cliente_nome ?? cliente?.nome ?? venda.telefone ?? "Cliente",
+    telefone: venda.telefone ?? cliente?.telefone ?? "",
+    pet: petResumo ?? venda.pet_nome ?? cliente?.pets?.[0] ?? resumoPedido(venda.observacao),
+    bairro: cliente?.bairro ?? cliente?.endereco ?? "Entrega a confirmar",
+    total: venda.total ?? 0,
+    hora: formatHoraPedido(venda.criado_em),
+    status: mapProcessoVenda(venda),
+    pagamento: venda.forma_pagamento ?? "A combinar",
+    statusPagamento: venda.status_pagamento ?? "pendente",
+    observacao: venda.observacao ?? "",
+    taxaMaquina: Number(venda.taxa_maquininha ?? 0),
+  };
 }
 
 export async function atualizarProcessoPedido(
@@ -713,8 +1124,7 @@ export async function atualizarProcessoPedido(
   if (processo === "cancelado") {
     await cancelarVendaComEstorno(id);
 
-    const pedidos = await listarPedidos();
-    const pedido = pedidos.find((item) => item.id === id);
+    const pedido = await buscarPedidoPorId(id);
     if (!pedido) throw new Error("Pedido nao encontrado apos cancelamento");
 
     return pedido;
@@ -745,14 +1155,14 @@ export async function atualizarProcessoPedido(
     throw new Error(`Supabase venda update failed (${response.status}): ${errorBody}`);
   }
 
-  const pedidos = await listarPedidos();
-  const pedido = pedidos.find((item) => item.id === id);
+  const pedido = await buscarPedidoPorId(id);
   if (!pedido) throw new Error("Pedido nao encontrado apos atualizacao");
 
   return pedido;
 }
 
-export async function criarPedidoManual({
+export async function editarPedidoManual({
+  id,
   nome,
   telefone,
   total,
@@ -760,13 +1170,151 @@ export async function criarPedidoManual({
   observacao,
   bairro,
   pet,
+  pago,
+}: {
+  id: string;
+  nome: string;
+  telefone?: string | null;
+  total: number;
+  formaPagamento?: string | null;
+  observacao?: string | null;
+  bairro?: string | null;
+  pet?: string | null;
+  pago?: boolean;
+}): Promise<PedidoCrm> {
+  const nomeLimpo = nome.trim();
+  const telefoneLimpo = telefone?.replace(/\D/g, "") ?? "";
+  if (!nomeLimpo || !Number.isFinite(total) || total <= 0) {
+    throw new Error("Nome e total valido sao obrigatorios");
+  }
+
+  const vendaAtualResponse = await fetch(
+    supabaseUrl(
+      `/vendas?id=eq.${encodeURIComponent(id)}&select=id,cliente_id,telefone,status_pagamento,faturado_em,processo`,
+    ),
+    { headers: supabaseHeaders() },
+  );
+  if (!vendaAtualResponse.ok) {
+    const errorBody = await vendaAtualResponse.text();
+    throw new Error(`Supabase venda select failed (${vendaAtualResponse.status}): ${errorBody}`);
+  }
+
+  const vendaAtual = (
+    (await vendaAtualResponse.json()) as Array<{
+      id: string;
+      cliente_id: string | null;
+      telefone: string | null;
+      status_pagamento: string | null;
+      faturado_em?: string | null;
+      processo: PedidoProcesso | null;
+    }>
+  )[0];
+  if (!vendaAtual) throw new Error("Pedido nao encontrado");
+
+  const cliente =
+    telefoneLimpo.length >= 8
+      ? await buscarOuCriarCliente(telefoneLimpo, nomeLimpo, "CRM manual")
+      : vendaAtual.cliente_id
+        ? await buscarClientePorId(vendaAtual.cliente_id)
+        : null;
+
+  if (cliente && (bairro?.trim() || pet?.trim() || cliente.nome !== nomeLimpo)) {
+    await salvarCadastroCliente({
+      telefone: cliente.telefone,
+      nome: nomeLimpo,
+      bairro,
+      pets: pet?.trim() ? [pet.trim()] : undefined,
+      origem: "CRM manual",
+    });
+  }
+
+  const payload: Record<string, unknown> = {
+    cliente_id: cliente?.id ?? vendaAtual.cliente_id,
+    cliente_nome: nomeLimpo,
+    telefone: telefoneLimpo.length >= 8 ? telefoneLimpo : vendaAtual.telefone,
+    pet_nome: pet?.trim() || null,
+    total,
+    forma_pagamento: formaPagamento?.trim() || null,
+    observacao: observacao?.trim() || "Pedido manual do CRM",
+    atualizado_em: new Date().toISOString(),
+  };
+
+  if (pago === true && vendaAtual.status_pagamento !== "pago") {
+    payload.processo = "pago";
+  } else if (pago === false && vendaAtual.status_pagamento === "pago" && !vendaAtual.faturado_em) {
+    payload.status_pagamento = "pendente";
+    payload.processo = vendaAtual.processo === "pago" ? "novo" : vendaAtual.processo;
+  }
+
+  let response = await fetch(supabaseUrl(`/vendas?id=eq.${encodeURIComponent(id)}`), {
+    method: "PATCH",
+    headers: supabaseHeaders("return=representation"),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    if (errorBody.includes("pet_nome")) {
+      delete payload.pet_nome;
+      response = await fetch(supabaseUrl(`/vendas?id=eq.${encodeURIComponent(id)}`), {
+        method: "PATCH",
+        headers: supabaseHeaders("return=representation"),
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        // Pedido salvo em banco ainda sem a migration pet_nome aplicada.
+      } else {
+        const retryErrorBody = await response.text();
+        throw new Error(`Supabase venda edit failed (${response.status}): ${retryErrorBody}`);
+      }
+    } else {
+      throw new Error(`Supabase venda edit failed (${response.status}): ${errorBody}`);
+    }
+  }
+
+  if (pago === true && vendaAtual.status_pagamento !== "pago") {
+    await registrarFaturamentoPedidoPago(id);
+  }
+
+  const pedido = await buscarPedidoPorId(id);
+  if (!pedido) throw new Error("Pedido nao encontrado apos edicao");
+
+  return pedido;
+}
+
+export async function apagarPedidoManual(id: string): Promise<void> {
+  await cancelarVendaComEstorno(id);
+  await requestSupabase(`/pedidos?venda_id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+  await requestSupabase(`/venda_itens?venda_id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+  await requestSupabase(`/vendas?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function criarPedidoManual({
+  nome,
+  telefone,
+  total,
+  totalBruto,
+  descontoPercentual,
+  descontoValor,
+  taxaMaquininha,
+  formaPagamento,
+  observacao,
+  bairro,
+  pet,
   itens = [],
   pago = false,
   cupomCodigo,
+  criadoEm,
+  vendaOrigem,
 }: {
   nome: string;
   telefone: string;
   total: number;
+  totalBruto?: number;
+  descontoPercentual?: number;
+  descontoValor?: number;
+  taxaMaquininha?: number;
   formaPagamento?: string | null;
   observacao?: string | null;
   bairro?: string | null;
@@ -774,6 +1322,8 @@ export async function criarPedidoManual({
   itens?: ProdutoPedido[];
   pago?: boolean;
   cupomCodigo?: string | null;
+  criadoEm?: string | null;
+  vendaOrigem?: string | null;
 }): Promise<PedidoCrm> {
   const telefoneLimpo = telefone.replace(/\D/g, "");
   const itensValidos = itens.filter(
@@ -786,17 +1336,26 @@ export async function criarPedidoManual({
   );
   const cliente = await buscarOuCriarCliente(telefoneLimpo, nome, "CRM manual");
   const cupomAplicado = cupomCodigo ? await validarCupom(cupomCodigo, total) : null;
+  const descontoManual = normalizarDescontoManual({
+    total,
+    totalBruto,
+    descontoPercentual,
+    descontoValor,
+  });
   const totalFinal = cupomAplicado?.totalFinal ?? total;
+  const taxaMaquininhaFinal = normalizarTaxaMaquininha(totalFinal, taxaMaquininha);
   const lucro =
     totalFinal -
-    itensValidos.reduce((custo, item) => custo + item.precoCompra * item.quantidade, 0);
+    itensValidos.reduce((custo, item) => custo + item.precoCompra * item.quantidade, 0) -
+    taxaMaquininhaFinal;
+  const petPedido = pet?.trim() || primeiroPetDosItens(itensValidos);
 
-  if (bairro?.trim() || pet?.trim() || (nome.trim() && cliente.nome !== nome.trim())) {
+  if (bairro?.trim() || petPedido || (nome.trim() && cliente.nome !== nome.trim())) {
     await salvarCadastroCliente({
       telefone: telefoneLimpo,
       nome,
       bairro,
-      pets: pet?.trim() ? [pet.trim()] : undefined,
+      pets: petPedido ? [petPedido] : undefined,
       origem: "CRM manual",
     });
   }
@@ -805,20 +1364,32 @@ export async function criarPedidoManual({
     cliente_id: cliente.id,
     cliente_nome: nome.trim(),
     telefone: telefoneLimpo,
+    pet_nome: petPedido || null,
     total: totalFinal,
+    taxa_maquininha: taxaMaquininhaFinal,
     lucro,
     forma_pagamento: formaPagamento?.trim() || null,
     status_pagamento: "pendente",
     status: "concluida",
     processo: "novo",
     observacao: observacao?.trim() || "Pedido manual do CRM",
+    venda_origem: vendaOrigem || null,
   };
+
+  if (criadoEm) {
+    const dataCustom = new Date(criadoEm);
+    if (!Number.isNaN(dataCustom.getTime())) {
+      vendaPayload.criado_em = dataCustom.toISOString();
+    }
+  }
 
   if (cupomAplicado) {
     Object.assign(vendaPayload, vendaCupomPayload(cupomAplicado));
+  } else if (descontoManual) {
+    Object.assign(vendaPayload, vendaDescontoManualPayload(descontoManual));
   }
 
-  const response = await fetch(supabaseUrl("/vendas"), {
+  let response = await fetch(supabaseUrl("/vendas"), {
     method: "POST",
     headers: supabaseHeaders("return=representation"),
     body: JSON.stringify(vendaPayload),
@@ -826,7 +1397,24 @@ export async function criarPedidoManual({
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Supabase venda manual insert failed (${response.status}): ${errorBody}`);
+    if (removerCamposVendaNaoSuportados(vendaPayload, errorBody)) {
+      response = await fetch(supabaseUrl("/vendas"), {
+        method: "POST",
+        headers: supabaseHeaders("return=representation"),
+        body: JSON.stringify(vendaPayload),
+      });
+
+      if (response.ok) {
+        // Pedido salvo em banco ainda sem a migration pet_nome aplicada.
+      } else {
+        const retryErrorBody = await response.text();
+        throw new Error(
+          `Supabase venda manual insert failed (${response.status}): ${retryErrorBody}`,
+        );
+      }
+    } else {
+      throw new Error(`Supabase venda manual insert failed (${response.status}): ${errorBody}`);
+    }
   }
 
   const rows = (await response.json()) as Array<{ id: string }>;
@@ -854,7 +1442,7 @@ export async function criarPedidoManual({
     throw error;
   }
 
-  const pedido = (await listarPedidos()).find((item) => item.id === vendaId);
+  const pedido = await buscarPedidoPorId(vendaId);
   if (!pedido) throw new Error("Pedido manual nao encontrado apos criacao");
 
   return pedido;
@@ -868,6 +1456,103 @@ function vendaCupomPayload(cupomAplicado: CupomAplicado): Record<string, unknown
     desconto_cupom: cupomAplicado.desconto,
     total_bruto: cupomAplicado.totalBruto,
   };
+}
+
+type DescontoManualVenda = {
+  totalBruto: number;
+  desconto: number;
+};
+
+function normalizarDescontoManual({
+  total,
+  totalBruto,
+  descontoPercentual,
+  descontoValor,
+}: {
+  total: number;
+  totalBruto?: number;
+  descontoPercentual?: number;
+  descontoValor?: number;
+}): DescontoManualVenda | null {
+  const bruto = Number.isFinite(totalBruto) && totalBruto !== undefined ? totalBruto : total;
+  const desconto =
+    Number.isFinite(descontoValor) && descontoValor !== undefined ? descontoValor : 0;
+  const percentual =
+    Number.isFinite(descontoPercentual) && descontoPercentual !== undefined
+      ? descontoPercentual
+      : bruto > 0
+        ? (desconto / bruto) * 100
+        : 0;
+
+  if (bruto <= 0 || desconto <= 0) return null;
+  if (desconto < 0 || desconto > bruto) {
+    throw new Error("Desconto invalido para o total da venda");
+  }
+  if (percentual < 0 || percentual > 100) {
+    throw new Error("Percentual de desconto invalido");
+  }
+
+  const totalEsperado = Math.round((bruto - desconto) * 100) / 100;
+  if (Math.abs(totalEsperado - total) > 0.05) {
+    throw new Error("Total da venda nao bate com o desconto informado");
+  }
+
+  return {
+    totalBruto: Math.round(bruto * 100) / 100,
+    desconto: Math.round(desconto * 100) / 100,
+  };
+}
+
+function vendaDescontoManualPayload(desconto: DescontoManualVenda): Record<string, unknown> {
+  return {
+    desconto_cupom: desconto.desconto,
+    total_bruto: desconto.totalBruto,
+  };
+}
+
+function normalizarTaxaMaquininha(total: number, taxaMaquininha?: number): number {
+  if (!Number.isFinite(taxaMaquininha) || taxaMaquininha === undefined) return 0;
+  if (taxaMaquininha < 0) {
+    throw new Error("Taxa da maquininha invalida");
+  }
+  if (taxaMaquininha > total) {
+    throw new Error("Taxa da maquininha maior que o total da venda");
+  }
+
+  return Math.round(taxaMaquininha * 100) / 100;
+}
+
+function removerCamposVendaNaoSuportados(
+  vendaPayload: Record<string, unknown>,
+  errorBody: string,
+): boolean {
+  let alterou = false;
+  const camposRemover = new Set<string>();
+
+  if (errorBody.includes("pet_nome")) camposRemover.add("pet_nome");
+  if (errorBody.includes("taxa_maquininha")) camposRemover.add("taxa_maquininha");
+  if (
+    errorBody.includes("cupom_id") ||
+    errorBody.includes("influenciador_id") ||
+    errorBody.includes("cupom_codigo")
+  ) {
+    camposRemover.add("cupom_id");
+    camposRemover.add("influenciador_id");
+    camposRemover.add("cupom_codigo");
+  }
+  if (errorBody.includes("desconto_cupom") || errorBody.includes("total_bruto")) {
+    camposRemover.add("desconto_cupom");
+    camposRemover.add("total_bruto");
+  }
+
+  for (const campo of camposRemover) {
+    if (campo in vendaPayload) {
+      delete vendaPayload[campo];
+      alterou = true;
+    }
+  }
+
+  return alterou;
 }
 
 function normalizeText(value: string): string {
@@ -886,6 +1571,9 @@ function dinheiroFromTexto(value: string): number | null {
 }
 
 function quantidadeFromTexto(value: string): number {
+  const quantidadeMarcador = value.match(/\bquantidade\s*=\s*["']?(\d{1,2})["']?/i);
+  if (quantidadeMarcador) return Math.max(1, Number(quantidadeMarcador[1]));
+
   const match = value.match(/\b(\d{1,2})\s*(?:x|un|unidade|unidades|pacote|pacotes)?\b/i);
 
   if (!match) return 1;
@@ -910,6 +1598,7 @@ export async function buscarProdutosPorTexto(texto: string): Promise<ProdutoPedi
   const precoInformado = dinheiroFromTexto(texto);
 
   return rows
+    .filter((produto) => (produto.estoque ?? 0) > 0)
     .map((produto) => {
       const nome = normalizeText(produto.nome);
       const termos = nome.split(/\s+/).filter((termo) => termo.length >= 4);
@@ -958,7 +1647,7 @@ export async function buscarProdutosDisponiveisPorTexto(
 
       return { produto, score };
     })
-    .filter(({ produto, score }) => score > 0 && (produto.estoque ?? 0) > 0)
+    .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limite)
     .map(({ produto }) => ({
@@ -1326,23 +2015,42 @@ async function cancelarVendaComEstorno(vendaId: string): Promise<void> {
 async function salvarItensVenda(vendaId: string, itens: ProdutoPedido[]): Promise<void> {
   if (itens.length === 0) return;
 
-  const response = await fetch(supabaseUrl("/venda_itens"), {
+  const payload = itens.map((item) => ({
+    venda_id: vendaId,
+    sku: item.sku,
+    nome: item.nome,
+    quantidade: item.quantidade,
+    preco: item.preco,
+    preco_compra: item.precoCompra,
+    pet_nome: item.petNome?.trim() || null,
+  }));
+
+  let response = await fetch(supabaseUrl("/venda_itens"), {
     method: "POST",
     headers: supabaseHeaders(),
-    body: JSON.stringify(
-      itens.map((item) => ({
-        venda_id: vendaId,
-        sku: item.sku,
-        nome: item.nome,
-        quantidade: item.quantidade,
-        preco: item.preco,
-        preco_compra: item.precoCompra,
-      })),
-    ),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
     const errorBody = await response.text();
+    if (errorBody.includes("pet_nome")) {
+      const payloadSemPetNome = payload.map((item) => {
+        const itemSemPetNome: Record<string, unknown> = { ...item };
+        delete itemSemPetNome.pet_nome;
+        return itemSemPetNome;
+      });
+      response = await fetch(supabaseUrl("/venda_itens"), {
+        method: "POST",
+        headers: supabaseHeaders(),
+        body: JSON.stringify(payloadSemPetNome),
+      });
+
+      if (response.ok) return;
+
+      const retryErrorBody = await response.text();
+      throw new Error(`Supabase venda_itens insert failed (${response.status}): ${retryErrorBody}`);
+    }
+
     throw new Error(`Supabase venda_itens insert failed (${response.status}): ${errorBody}`);
   }
 }
@@ -1360,7 +2068,6 @@ async function buscarVendaDuplicadaRecente({
     telefone: `eq.${telefone}`,
     observacao: `eq.${observacao}`,
     total: `eq.${total}`,
-    status_pagamento: "eq.pendente",
     select: "id,criado_em",
     order: "criado_em.desc",
     limit: "1",
@@ -1852,16 +2559,242 @@ export async function marcarPedidoPixPago(id: string): Promise<PedidoPixRow | nu
   return pedidoPago;
 }
 
+export async function vincularPedidoPixAVenda({
+  pedidoPixId,
+  vendaId,
+  pago = true,
+}: {
+  pedidoPixId: string;
+  vendaId: string;
+  pago?: boolean;
+}): Promise<PedidoPixRow> {
+  const response = await fetch(supabaseUrl(`/pedidos?id=eq.${encodeURIComponent(pedidoPixId)}`), {
+    method: "PATCH",
+    headers: supabaseHeaders("return=representation"),
+    body: JSON.stringify({
+      venda_id: vendaId,
+      status: pago ? "pago" : "pendente",
+      atualizado_em: new Date().toISOString(),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase pedido Pix venda update failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as PedidoPixRow[];
+  if (!rows[0]) throw new Error("Pedido Pix nao encontrado apos vincular venda");
+
+  return rows[0];
+}
+
+function valoresIguais(a: number | null | undefined, b: number): boolean {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(Number(a) - b) <= 0.02;
+}
+
+export async function existeVendaComMarcador(marcador: string): Promise<boolean> {
+  const texto = marcador.trim();
+  if (!texto) return false;
+
+  const params = new URLSearchParams({
+    observacao: `ilike.*${texto}*`,
+    select: "id",
+    limit: "1",
+  });
+  const response = await fetch(supabaseUrl(`/vendas?${params}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase venda marcador select failed (${response.status}): ${errorBody}`);
+  }
+
+  return ((await response.json()) as Array<{ id: string }>).length > 0;
+}
+
+export async function existeVendaPagaComValor({
+  telefone,
+  valor,
+  dataReferencia,
+  janelaDias = 5,
+}: {
+  telefone: string;
+  valor: number;
+  dataReferencia?: string;
+  janelaDias?: number;
+}): Promise<boolean> {
+  const telefoneLimpo = telefone.replace(/\D/g, "");
+  if (!telefoneLimpo || !Number.isFinite(valor) || valor <= 0) return false;
+
+  const params = new URLSearchParams({
+    telefone: `eq.${telefoneLimpo}`,
+    status_pagamento: "eq.pago",
+    status: "neq.cancelada",
+    select: "id,total,criado_em",
+    order: "criado_em.desc",
+    limit: "30",
+  });
+  const response = await fetch(supabaseUrl(`/vendas?${params}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase venda paga select failed (${response.status}): ${errorBody}`);
+  }
+
+  const vendas = (await response.json()) as Array<{
+    id: string;
+    total: number | null;
+    criado_em: string;
+  }>;
+  const referencia = dataReferencia ? new Date(dataReferencia).getTime() : Number.NaN;
+  const janelaMs = janelaDias * 24 * 60 * 60 * 1000;
+
+  return vendas.some((venda) => {
+    if (!valoresIguais(venda.total, valor)) return false;
+    if (!Number.isFinite(referencia)) return true;
+
+    const criadaEm = new Date(venda.criado_em).getTime();
+    // Vendas lancadas retroativamente nascem com criado_em = agora; vendas em
+    // tempo real ficam perto da data do comprovante. Considera duplicada se a
+    // venda paga de mesmo valor estiver na janela OU for posterior ao comprovante.
+    return !Number.isFinite(criadaEm) || criadaEm >= referencia - janelaMs;
+  });
+}
+
+export async function confirmarPixPorComprovanteWhatsapp({
+  telefone,
+  valor,
+  formaPagamento = "Pix",
+}: {
+  telefone: string;
+  valor: number;
+  formaPagamento?: string;
+}): Promise<ConfirmacaoComprovantePix> {
+  const telefoneLimpo = telefone.replace(/\D/g, "");
+  if (!telefoneLimpo || !Number.isFinite(valor) || valor <= 0) {
+    return { confirmado: false, motivo: "dados_invalidos" };
+  }
+
+  const pedidosParams = new URLSearchParams({
+    cliente_telefone: `eq.${telefoneLimpo}`,
+    status: "eq.pendente",
+    select: "*",
+    order: "criado_em.desc",
+    limit: "10",
+  });
+  const pedidosResponse = await fetch(supabaseUrl(`/pedidos?${pedidosParams}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!pedidosResponse.ok) {
+    const errorBody = await pedidosResponse.text();
+    throw new Error(
+      `Supabase pedidos Pix comprovante select failed (${pedidosResponse.status}): ${errorBody}`,
+    );
+  }
+
+  const pedidosPix = ((await pedidosResponse.json()) as PedidoPixRow[]).filter((pedido) =>
+    valoresIguais(pedido.valor, valor),
+  );
+
+  if (pedidosPix.length === 1) {
+    const pedidoPix = pedidosPix[0];
+
+    if (!pedidoPix.venda_id) {
+      return {
+        confirmado: false,
+        motivo: "pedido_pix_sem_venda",
+        pedidoPixId: pedidoPix.id,
+        valor: pedidoPix.valor,
+      };
+    }
+
+    const pedidoPago = await marcarPedidoPixPago(pedidoPix.id);
+    return {
+      confirmado: Boolean(pedidoPago),
+      tipo: "pedido_pix",
+      pedidoPixId: pedidoPago?.id,
+      vendaId: pedidoPago?.venda_id ?? undefined,
+      valor: pedidoPago?.valor,
+    };
+  }
+
+  if (pedidosPix.length > 1) {
+    return { confirmado: false, motivo: "multiplos_pedidos_pix_mesmo_valor", valor };
+  }
+
+  const vendasParams = new URLSearchParams({
+    telefone: `eq.${telefoneLimpo}`,
+    status_pagamento: "neq.pago",
+    status: "neq.cancelada",
+    select: "id,total,criado_em",
+    order: "criado_em.desc",
+    limit: "10",
+  });
+  const vendasResponse = await fetch(supabaseUrl(`/vendas?${vendasParams}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!vendasResponse.ok) {
+    const errorBody = await vendasResponse.text();
+    throw new Error(
+      `Supabase vendas comprovante select failed (${vendasResponse.status}): ${errorBody}`,
+    );
+  }
+
+  const vendas = (
+    (await vendasResponse.json()) as Array<{ id: string; total: number | null }>
+  ).filter((venda) => valoresIguais(venda.total, valor));
+
+  if (vendas.length === 1) {
+    await registrarFaturamentoPedidoPago(vendas[0].id);
+    await fetch(supabaseUrl(`/vendas?id=eq.${encodeURIComponent(vendas[0].id)}`), {
+      method: "PATCH",
+      headers: supabaseHeaders("return=minimal"),
+      body: JSON.stringify({
+        forma_pagamento: formaPagamento,
+        atualizado_em: new Date().toISOString(),
+      }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(
+          `Supabase venda forma pagamento update failed (${response.status}): ${errorBody}`,
+        );
+      }
+    });
+
+    return { confirmado: true, tipo: "venda", vendaId: vendas[0].id, valor };
+  }
+
+  if (vendas.length > 1) {
+    return { confirmado: false, motivo: "multiplas_vendas_mesmo_valor", valor };
+  }
+
+  return { confirmado: false, motivo: "pedido_pendente_nao_encontrado", valor };
+}
+
 export async function registrarPedidoDoWhatsapp({
   telefone,
   texto,
   nomeCliente,
   formaPagamento,
+  totalPago,
+  pago = false,
+  observacaoExtra,
 }: {
   telefone: string;
   texto: string;
   nomeCliente?: string | null;
   formaPagamento?: string | null;
+  totalPago?: number | null;
+  pago?: boolean;
+  observacaoExtra?: string | null;
 }): Promise<{
   registrado: boolean;
   motivo?: string;
@@ -1870,24 +2803,91 @@ export async function registrarPedidoDoWhatsapp({
   vendaId?: string;
 }> {
   const itens = await buscarProdutosPorTexto(texto);
+  const totalConfirmado =
+    typeof totalPago === "number" && Number.isFinite(totalPago) && totalPago > 0 ? totalPago : null;
 
   if (itens.length === 0) {
+    if (pago && totalConfirmado) {
+      const cliente = await buscarOuCriarCliente(telefone, nomeCliente);
+      const observacao = observacaoExtra?.trim()
+        ? `Pedido WhatsApp IA: Produto a confirmar | ${observacaoExtra.trim().slice(0, 180)}`
+        : "Pedido WhatsApp IA: Produto a confirmar";
+      const vendaDuplicada = await buscarVendaDuplicadaRecente({
+        telefone,
+        observacao,
+        total: totalConfirmado,
+      });
+
+      if (vendaDuplicada) {
+        return {
+          registrado: true,
+          motivo: "pedido_duplicado_ignorado",
+          itens: [],
+          total: totalConfirmado,
+          vendaId: vendaDuplicada.id,
+        };
+      }
+
+      const vendaResponse = await fetch(supabaseUrl("/vendas"), {
+        method: "POST",
+        headers: supabaseHeaders("return=representation"),
+        body: JSON.stringify({
+          cliente_id: cliente.id,
+          cliente_nome: cliente.nome,
+          telefone,
+          total: totalConfirmado,
+          lucro: totalConfirmado,
+          forma_pagamento: formaPagamento,
+          status_pagamento: "pendente",
+          status: "concluida",
+          processo: "novo",
+          observacao,
+        }),
+      });
+
+      if (!vendaResponse.ok) {
+        const errorBody = await vendaResponse.text();
+        throw new Error(
+          `Supabase venda comprovante insert failed (${vendaResponse.status}): ${errorBody}`,
+        );
+      }
+
+      const vendasCriadas = (await vendaResponse.json()) as Array<{ id: string }>;
+      const vendaId = vendasCriadas[0]?.id;
+      if (!vendaId) throw new Error("Venda de comprovante criada sem id retornado pelo Supabase");
+
+      try {
+        await registrarFaturamentoPedidoPago(vendaId);
+      } catch (error) {
+        await requestSupabase(`/vendas?id=eq.${encodeURIComponent(vendaId)}`, {
+          method: "DELETE",
+        }).catch(() => undefined);
+
+        throw error;
+      }
+
+      return { registrado: true, itens: [], total: totalConfirmado, vendaId };
+    }
+
     return { registrado: false, motivo: "produto_nao_encontrado_no_estoque", itens: [], total: 0 };
   }
 
   const total = itens.reduce((sum, item) => sum + item.preco * item.quantidade, 0);
   const cupomAplicado = await (async () => {
+    if (totalConfirmado) return null;
     const codigo = extrairCupomTexto(texto);
     return codigo ? validarCupom(codigo, total) : null;
   })();
-  const totalFinal = cupomAplicado?.totalFinal ?? total;
-  const lucro =
-    itens.reduce((sum, item) => sum + (item.preco - item.precoCompra) * item.quantidade, 0) -
-    (cupomAplicado?.desconto ?? 0);
+  const totalFinal = totalConfirmado ?? cupomAplicado?.totalFinal ?? total;
+  const custoTotal = itens.reduce((sum, item) => sum + item.precoCompra * item.quantidade, 0);
+  const lucro = totalFinal - custoTotal;
   const cliente = await buscarOuCriarCliente(telefone, nomeCliente);
-  const observacao = `Pedido WhatsApp IA: ${itens
+  const observacaoBase = `Pedido WhatsApp IA: ${itens
     .map((item) => `${item.quantidade}x ${item.nome}`)
     .join(", ")}`;
+  const observacao = observacaoExtra?.trim()
+    ? `${observacaoBase} | ${observacaoExtra.trim().slice(0, 180)}`
+    : observacaoBase;
   const vendaDuplicada = await buscarVendaDuplicadaRecente({
     telefone,
     observacao,
@@ -1939,13 +2939,27 @@ export async function registrarPedidoDoWhatsapp({
     throw new Error("Venda criada sem id retornado pelo Supabase");
   }
 
-  await salvarItensVenda(vendaId, itens);
-  await recalcularRecompraVenda(vendaId).catch((error) => {
-    console.error("[recompra] erro_recalcular_whatsapp", error);
-  });
-  if (cupomAplicado) {
-    await registrarUsoCupom(cupomAplicado.cupom);
-    await registrarComissaoVenda(vendaId);
+  try {
+    await salvarItensVenda(vendaId, itens);
+    await recalcularRecompraVenda(vendaId).catch((error) => {
+      console.error("[recompra] erro_recalcular_whatsapp", error);
+    });
+    if (cupomAplicado) {
+      await registrarUsoCupom(cupomAplicado.cupom);
+      await registrarComissaoVenda(vendaId);
+    }
+    if (pago) {
+      await registrarFaturamentoPedidoPago(vendaId);
+    }
+  } catch (error) {
+    await requestSupabase(`/venda_itens?venda_id=eq.${encodeURIComponent(vendaId)}`, {
+      method: "DELETE",
+    }).catch(() => undefined);
+    await requestSupabase(`/vendas?id=eq.${encodeURIComponent(vendaId)}`, {
+      method: "DELETE",
+    }).catch(() => undefined);
+
+    throw error;
   }
 
   return { registrado: true, itens, total: totalFinal, vendaId };

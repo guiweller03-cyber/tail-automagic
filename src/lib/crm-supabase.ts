@@ -5,6 +5,7 @@ import {
   registrarLeadTotal,
   registrarLeadsTotais,
 } from "@/lib/leads-totais-supabase";
+import { requireSupabaseServerKey } from "@/lib/server-env";
 
 export type DashboardData = {
   kpis: {
@@ -28,6 +29,21 @@ export type DashboardData = {
     recompraPrevista: number;
   };
   vendasSemana: { dia: string; vendas: number; lucro: number }[];
+  itensVendidosHoje: {
+    sku: string;
+    nome: string;
+    quantidade: number;
+    receita: number;
+    pedidos: number;
+  }[];
+  formulaNaturalSemana: {
+    sku: string;
+    nome: string;
+    categoria: string | null;
+    quantidade: number;
+    receita: number;
+    pedidos: number;
+  }[];
   crescimentoMensal: { mes: string; valor: number }[];
   funilDados: { etapa: string; valor: number; cor: string }[];
   conversas: {
@@ -68,6 +84,7 @@ type ClienteRow = {
   pets_detalhes: unknown;
   observacoes: string | null;
   follow_up_manual: Cliente["followUpManual"] | null;
+  criado_em: string;
 };
 
 type ProdutoRow = {
@@ -93,6 +110,16 @@ type VendaRow = {
   status: string | null;
   status_pagamento: string | null;
   criado_em: string;
+  atualizado_em: string | null;
+  faturado_em?: string | null;
+};
+
+type VendaItemDashboardRow = {
+  venda_id: string;
+  sku: string | null;
+  nome: string | null;
+  quantidade: number | null;
+  preco: number | null;
 };
 
 type ConversaDashboardRow = {
@@ -106,10 +133,13 @@ type ConversaDashboardRow = {
 
 type ClienteDashboardRow = Pick<
   ClienteRow,
-  "perfil" | "ultima" | "total_gasto" | "lucro_liquido" | "pedidos" | "prox_recompra"
+  "perfil" | "criado_em" | "total_gasto" | "lucro_liquido" | "pedidos" | "prox_recompra"
 >;
 
-type ProdutoDashboardRow = Pick<ProdutoRow, "estoque" | "minimo">;
+type ProdutoDashboardRow = Pick<
+  ProdutoRow,
+  "sku" | "nome" | "categoria" | "fornecedor" | "estoque" | "minimo"
+>;
 
 const DASHBOARD_CACHE_MS = 15_000;
 const PRODUTO_FOTOS_BUCKET = "produto-fotos";
@@ -159,17 +189,17 @@ function supabasePublicObjectUrl(bucket: string, path: string): string {
 }
 
 function supabaseHeaders(): HeadersInit {
-  const anonKey = requireEnv("SUPABASE_ANON_KEY");
+  const key = requireSupabaseServerKey();
 
   return {
-    apikey: anonKey,
-    authorization: `Bearer ${anonKey}`,
+    apikey: key,
+    authorization: `Bearer ${key}`,
     "content-type": "application/json",
   };
 }
 
 function supabaseStorageHeaders(contentType?: string): HeadersInit {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || requireEnv("SUPABASE_ANON_KEY");
+  const key = requireSupabaseServerKey();
 
   return {
     apikey: key,
@@ -229,6 +259,33 @@ async function selectOptional<T>(path: string): Promise<T[]> {
   }
 }
 
+async function listarVendasDashboard(inicioHistorico: Date): Promise<VendaRow[]> {
+  const inicioIso = inicioHistorico.toISOString();
+  const params = new URLSearchParams({
+    select: "id,total,lucro,status,status_pagamento,criado_em,atualizado_em,faturado_em",
+    or: `(criado_em.gte.${inicioIso},atualizado_em.gte.${inicioIso},faturado_em.gte.${inicioIso})`,
+    order: "criado_em.desc",
+  });
+
+  try {
+    return await selectFromSupabase<VendaRow>(`/vendas?${params}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("faturado_em")) {
+      console.error("[dashboard] erro_vendas", error);
+      return [];
+    }
+  }
+
+  const fallbackParams = new URLSearchParams({
+    select: "id,total,lucro,status,status_pagamento,criado_em,atualizado_em",
+    or: `(criado_em.gte.${inicioIso},atualizado_em.gte.${inicioIso})`,
+    order: "criado_em.desc",
+  });
+
+  return selectOptional<VendaRow>(`/vendas?${fallbackParams}`);
+}
+
 function parsePesoPetKg(value: unknown): number | undefined {
   if (typeof value === "string" && !value.trim()) return undefined;
   const texto =
@@ -260,6 +317,12 @@ function normalizarPetDetalhe(value: unknown): PetDetalhe | null {
     parsePesoPetKg(item.pesoKg) ?? (especie === "gato" ? PESO_PADRAO_GATO_KG : undefined);
   const raca = typeof item.raca === "string" ? item.raca.trim() || undefined : undefined;
   const idade = typeof item.idade === "string" ? item.idade.trim() || undefined : undefined;
+  const nascimento =
+    typeof item.nascimento === "string"
+      ? item.nascimento.trim() || undefined
+      : typeof item.dataNascimento === "string"
+        ? item.dataNascimento.trim() || undefined
+        : undefined;
   const observacao =
     typeof item.observacao === "string"
       ? item.observacao.trim().slice(0, 300) || undefined
@@ -273,11 +336,12 @@ function normalizarPetDetalhe(value: unknown): PetDetalhe | null {
     !porte &&
     !pesoKg &&
     !idade &&
+    !nascimento &&
     !observacao
   )
     return null;
 
-  return { nome, especie, castrado, raca, porte, pesoKg, idade, observacao };
+  return { nome, especie, castrado, raca, porte, pesoKg, idade, nascimento, observacao };
 }
 
 function normalizarPetsDetalhes(value: unknown): PetDetalhe[] {
@@ -397,7 +461,7 @@ async function writeCliente(
   body: unknown,
   prefer = "return=representation",
 ): Promise<Cliente> {
-  const response = await fetch(supabaseUrl(path), {
+  let response = await fetch(supabaseUrl(path), {
     method,
     headers: {
       ...supabaseHeaders(),
@@ -408,6 +472,32 @@ async function writeCliente(
 
   if (!response.ok) {
     const errorBody = await response.text();
+    if (
+      body &&
+      typeof body === "object" &&
+      "pets_detalhes" in body &&
+      /pets_detalhes/i.test(errorBody)
+    ) {
+      const fallbackBody = { ...(body as Record<string, unknown>) };
+      delete fallbackBody.pets_detalhes;
+
+      response = await fetch(supabaseUrl(path), {
+        method,
+        headers: {
+          ...supabaseHeaders(),
+          Prefer: prefer,
+        },
+        body: JSON.stringify(fallbackBody),
+      });
+
+      if (response.ok) {
+        const rows = (await response.json()) as ClienteRow[];
+        if (!rows[0]) throw new Error("Cliente nao retornado pelo Supabase");
+
+        return mapCliente(rows[0]);
+      }
+    }
+
     throw new Error(`Supabase cliente write failed (${response.status}): ${errorBody}`);
   }
 
@@ -832,12 +922,20 @@ export function comprovanteStoragePath(
 
 async function listarClientesDashboard(): Promise<ClienteDashboardRow[]> {
   return selectAllFromSupabase<ClienteDashboardRow>(
-    "/clientes?select=perfil,ultima,total_gasto,lucro_liquido,pedidos,prox_recompra",
+    "/clientes?select=perfil,criado_em,total_gasto,lucro_liquido,pedidos,prox_recompra",
   );
 }
 
 async function listarProdutosDashboard(): Promise<ProdutoDashboardRow[]> {
-  return selectFromSupabase<ProdutoDashboardRow>("/produtos?select=estoque,minimo");
+  return selectFromSupabase<ProdutoDashboardRow>(
+    "/produtos?select=sku,nome,categoria,fornecedor,estoque,minimo",
+  );
+}
+
+async function listarVendaItensDashboard(): Promise<VendaItemDashboardRow[]> {
+  return selectOptional<VendaItemDashboardRow>(
+    "/venda_itens?select=venda_id,sku,nome,quantidade,preco",
+  );
 }
 
 function dataLocalSaoPaulo(date: Date): string {
@@ -854,6 +952,19 @@ function dataLocalSaoPauloDiasAtras(date: Date, days: number): string {
   const localNoonUtc = new Date(Date.UTC(year, month - 1, day, 15));
   localNoonUtc.setUTCDate(localNoonUtc.getUTCDate() - days);
   return dataLocalSaoPaulo(localNoonUtc);
+}
+
+function inicioMesLocalSaoPaulo(date: Date, monthOffset = 0): string {
+  const [year, month] = dataLocalSaoPaulo(date).split("-").map(Number);
+  return dataLocalSaoPaulo(new Date(Date.UTC(year, month - 1 + monthOffset, 1, 15)));
+}
+
+function dataContabilVenda(venda: VendaRow): Date {
+  return new Date(venda.faturado_em ?? venda.atualizado_em ?? venda.criado_em);
+}
+
+function dataContabilLocalVenda(venda: VendaRow): string {
+  return dataLocalSaoPaulo(dataContabilVenda(venda));
 }
 
 function labelDiaSemanaSaoPaulo(dataLocal: string): string {
@@ -877,6 +988,128 @@ function sum(rows: VendaRow[], field: "total" | "lucro"): number {
 function percent(part: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round((part / total) * 100);
+}
+
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function isProdutoFormulaNatural(
+  item: VendaItemDashboardRow,
+  produto: ProdutoDashboardRow | undefined,
+): boolean {
+  const texto = normalizeText(
+    [item.nome, item.sku, produto?.nome, produto?.categoria, produto?.fornecedor].join(" "),
+  );
+
+  return texto.includes("formula natural");
+}
+
+function isProdutoFormulaNaturalEstoque(produto: ProdutoDashboardRow): boolean {
+  const texto = normalizeText(
+    [produto.nome, produto.sku, produto.categoria, produto.fornecedor].join(" "),
+  );
+
+  return texto.includes("formula natural");
+}
+
+function agregarItensVendidos({
+  itens,
+  vendaIds,
+  produtosPorSku,
+  formulaNaturalOnly = false,
+}: {
+  itens: VendaItemDashboardRow[];
+  vendaIds: Set<string>;
+  produtosPorSku: Map<string, ProdutoDashboardRow>;
+  formulaNaturalOnly?: boolean;
+}): DashboardData["itensVendidosHoje"] {
+  const agregados = new Map<
+    string,
+    DashboardData["itensVendidosHoje"][number] & { pedidosIds: Set<string> }
+  >();
+
+  for (const item of itens) {
+    if (!vendaIds.has(item.venda_id)) continue;
+
+    const sku = item.sku ?? "";
+    const produto = sku ? produtosPorSku.get(sku) : undefined;
+    if (formulaNaturalOnly && !isProdutoFormulaNatural(item, produto)) continue;
+
+    const nome = item.nome ?? produto?.nome ?? (sku || "Item sem nome");
+    const key = sku || nome;
+    const quantidade = Math.max(0, numeroSeguro(item.quantidade));
+    const receita = quantidade * Math.max(0, numeroSeguro(item.preco));
+    const atual =
+      agregados.get(key) ??
+      ({
+        sku,
+        nome,
+        quantidade: 0,
+        receita: 0,
+        pedidos: 0,
+        pedidosIds: new Set<string>(),
+      } satisfies DashboardData["itensVendidosHoje"][number] & { pedidosIds: Set<string> });
+
+    atual.quantidade += quantidade;
+    atual.receita += receita;
+    atual.pedidosIds.add(item.venda_id);
+    agregados.set(key, atual);
+  }
+
+  return Array.from(agregados.values())
+    .map(({ pedidosIds, ...item }) => ({ ...item, pedidos: pedidosIds.size }))
+    .sort(
+      (a, b) =>
+        b.quantidade - a.quantidade || b.receita - a.receita || a.nome.localeCompare(b.nome),
+    );
+}
+
+function agregarFormulaNaturalSemana({
+  itens,
+  vendaIds,
+  produtosPorSku,
+}: {
+  itens: VendaItemDashboardRow[];
+  vendaIds: Set<string>;
+  produtosPorSku: Map<string, ProdutoDashboardRow>;
+}): DashboardData["formulaNaturalSemana"] {
+  const vendidos = agregarItensVendidos({
+    itens,
+    vendaIds,
+    produtosPorSku,
+    formulaNaturalOnly: true,
+  });
+  const porChave = new Map<string, DashboardData["formulaNaturalSemana"][number]>();
+
+  for (const item of vendidos) {
+    const chave = item.sku || item.nome;
+    porChave.set(chave, {
+      ...item,
+      categoria: item.sku ? (produtosPorSku.get(item.sku)?.categoria ?? null) : null,
+    });
+  }
+
+  for (const produto of produtosPorSku.values()) {
+    if (!isProdutoFormulaNaturalEstoque(produto)) continue;
+
+    const atual = porChave.get(produto.sku);
+    porChave.set(produto.sku, {
+      sku: produto.sku,
+      nome: atual?.nome ?? produto.nome,
+      categoria: produto.categoria,
+      quantidade: atual?.quantidade ?? 0,
+      receita: atual?.receita ?? 0,
+      pedidos: atual?.pedidos ?? 0,
+    });
+  }
+
+  return Array.from(porChave.values()).sort(
+    (a, b) => b.quantidade - a.quantidade || b.receita - a.receita || a.nome.localeCompare(b.nome),
+  );
 }
 
 function monthLabel(date: Date): string {
@@ -928,13 +1161,11 @@ export function invalidarDashboardCache(): void {
 async function carregarDashboardSemCache(): Promise<DashboardData> {
   const agora = new Date();
   const inicioHistorico = new Date(agora.getFullYear(), agora.getMonth() - 7, 1);
-  const vendasPath = `/vendas?select=id,total,lucro,status,status_pagamento,criado_em&criado_em=gte.${encodeURIComponent(
-    inicioHistorico.toISOString(),
-  )}&order=criado_em.desc`;
-  const [clientes, produtos, vendas, conversasRows] = await Promise.all([
+  const [clientes, produtos, vendas, vendaItens, conversasRows] = await Promise.all([
     listarClientesDashboard(),
     listarProdutosDashboard(),
-    selectOptional<VendaRow>(vendasPath),
+    listarVendasDashboard(inicioHistorico),
+    listarVendaItensDashboard(),
     selectOptional<ConversaDashboardRow>(
       "/conversas?select=id,telefone,nome_cliente,historico,aguardando_humano,atualizado_em&order=atualizado_em.desc&limit=5",
     ),
@@ -942,23 +1173,27 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
 
   const hojeLocal = dataLocalSaoPaulo(agora);
   const inicioSemanaLocal = dataLocalSaoPauloDiasAtras(agora, 6);
-  const mes = new Date(agora.getFullYear(), agora.getMonth(), 1);
+  const inicioMesLocal = inicioMesLocalSaoPaulo(agora);
   const vendasPagas = vendas.filter(
     (venda) =>
       venda.status_pagamento === "pago" &&
       venda.status !== "cancelado" &&
       venda.status !== "cancelada",
   );
-  const vendasHoje = vendasPagas.filter(
-    (venda) => dataLocalSaoPaulo(new Date(venda.criado_em)) === hojeLocal,
-  );
+  const vendasHoje = vendasPagas.filter((venda) => dataContabilLocalVenda(venda) === hojeLocal);
+  // "Pedidos hoje" conta apenas vendas pagas de hoje: pedidos pendentes/fantasma
+  // detectados pela IA nao devem inflar o KPI. Usa a data contabil (faturado_em)
+  // igual aos demais KPIs de venda paga.
+  const pedidosHoje = vendasHoje;
   const vendasSemanaAtual = vendasPagas.filter(
-    (venda) => dataLocalSaoPaulo(new Date(venda.criado_em)) >= inicioSemanaLocal,
+    (venda) => dataContabilLocalVenda(venda) >= inicioSemanaLocal,
   );
-  const vendasMes = vendasPagas.filter((venda) => new Date(venda.criado_em) >= mes);
-  const leadsHoje = clientes.filter((cliente) => cliente.ultima === "hoje").length;
+  const vendasMes = vendasPagas.filter((venda) => dataContabilLocalVenda(venda) >= inicioMesLocal);
+  const leadsHoje = clientes.filter(
+    (cliente) => dataLocalSaoPaulo(new Date(cliente.criado_em)) === hojeLocal,
+  ).length;
   const leadsSemana = clientes.filter(
-    (cliente) => cliente.ultima === "hoje" || (cliente.ultima ?? "").includes("dia"),
+    (cliente) => dataLocalSaoPaulo(new Date(cliente.criado_em)) >= inicioSemanaLocal,
   ).length;
   const faturamentoMes = vendas.length
     ? sum(vendasMes, "total")
@@ -975,6 +1210,35 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
   ).length;
   const clientesVip = clientes.filter((cliente) => cliente.perfil === "VIP").length;
   const clientesRisco = clientes.filter((cliente) => cliente.perfil === "Risco").length;
+  const produtosPorSku = new Map(produtos.map((produto) => [produto.sku, produto]));
+  const vendaIdsPagas = new Set(vendasPagas.map((venda) => venda.id));
+  const vendaIdsHoje = new Set(vendasHoje.map((venda) => venda.id));
+  const vendaIdsSemanaAtual = new Set(vendasSemanaAtual.map((venda) => venda.id));
+  const quantidadeItensPorVenda = new Map<string, number>();
+
+  for (const item of vendaItens) {
+    if (!vendaIdsPagas.has(item.venda_id)) continue;
+    quantidadeItensPorVenda.set(
+      item.venda_id,
+      (quantidadeItensPorVenda.get(item.venda_id) ?? 0) +
+        Math.max(0, numeroSeguro(item.quantidade)),
+    );
+  }
+
+  const vendasComUpsell = vendasPagas.filter(
+    (venda) => (quantidadeItensPorVenda.get(venda.id) ?? 1) > 1,
+  ).length;
+  const itensVendidosHoje = agregarItensVendidos({
+    itens: vendaItens,
+    vendaIds: vendaIdsHoje,
+    produtosPorSku,
+  });
+  const formulaNaturalSemana = agregarFormulaNaturalSemana({
+    itens: vendaItens,
+    vendaIds: vendaIdsSemanaAtual,
+    produtosPorSku,
+  });
+  const taxaUpsell = percent(vendasComUpsell, vendasPagas.length);
   const estoqueCritico = produtos.filter(
     (produto) => numeroSeguro(produto.estoque) < numeroSeguro(produto.minimo),
   ).length;
@@ -986,7 +1250,7 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
   const vendasSemana = Array.from({ length: 7 }, (_, index) => {
     const diaLocal = dataLocalSaoPauloDiasAtras(agora, 6 - index);
     const vendasDia = vendasPagas.filter((venda) => {
-      return dataLocalSaoPaulo(new Date(venda.criado_em)) === diaLocal;
+      return dataContabilLocalVenda(venda) === diaLocal;
     });
 
     return {
@@ -997,15 +1261,15 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
   });
 
   const crescimentoMensal = Array.from({ length: 8 }, (_, index) => {
-    const inicio = new Date(agora.getFullYear(), agora.getMonth() - 7 + index, 1);
-    const fim = new Date(inicio.getFullYear(), inicio.getMonth() + 1, 1);
+    const inicioLocal = inicioMesLocalSaoPaulo(agora, -7 + index);
+    const fimLocal = inicioMesLocalSaoPaulo(agora, -6 + index);
     const vendasDoMes = vendasPagas.filter((venda) => {
-      const criadoEm = new Date(venda.criado_em);
-      return criadoEm >= inicio && criadoEm < fim;
+      const dataLocal = dataContabilLocalVenda(venda);
+      return dataLocal >= inicioLocal && dataLocal < fimLocal;
     });
 
     return {
-      mes: monthLabel(inicio),
+      mes: monthLabel(new Date(`${inicioLocal}T12:00:00-03:00`)),
       valor: sum(vendasDoMes, "total"),
     };
   });
@@ -1021,9 +1285,9 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
       faturamentoMes,
       lucroMes,
       ticketMedio,
-      pedidosHoje: vendasHoje.length,
+      pedidosHoje: pedidosHoje.length,
       taxaRecompra: percent(clientesComRecompra, clientes.length),
-      taxaUpsell: 0,
+      taxaUpsell,
       clientesVip,
       clientesRisco,
       estoqueCritico,
@@ -1036,6 +1300,8 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
       recompraPrevista: clientesComRecompra,
     },
     vendasSemana,
+    itensVendidosHoje,
+    formulaNaturalSemana,
     crescimentoMensal,
     funilDados: [
       { etapa: "Leads", valor: leads, cor: "var(--color-chart-4)" },

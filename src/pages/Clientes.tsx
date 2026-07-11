@@ -1,4 +1,4 @@
-import type { Cliente, Cupom, CupomTipo } from "@/lib/crm-types";
+import type { Cliente, Cupom, CupomTipo, PetDetalhe } from "@/lib/crm-types";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   Search,
@@ -51,8 +51,19 @@ type ClienteFormState = {
   endereco: string;
   bairro: string;
   pets: string;
+  petsDetalhes: ClientePetForm[];
   perfil: Cliente["perfil"];
   origem: string;
+};
+
+type ClientePetForm = {
+  nome: string;
+  nascimento: string;
+  especie: "" | NonNullable<PetDetalhe["especie"]>;
+  raca: string;
+  porte: "" | NonNullable<PetDetalhe["porte"]>;
+  pesoKg: string;
+  observacao: string;
 };
 
 type ManualToolsState = {
@@ -74,9 +85,100 @@ function clienteFormVazio(): ClienteFormState {
     endereco: "",
     bairro: "",
     pets: "",
+    petsDetalhes: [petFormVazio()],
     perfil: "Novo",
     origem: "CRM manual",
   };
+}
+
+function petFormVazio(): ClientePetForm {
+  return {
+    nome: "",
+    nascimento: "",
+    especie: "",
+    raca: "",
+    porte: "",
+    pesoKg: "",
+    observacao: "",
+  };
+}
+
+function petFormFromDetalhe(pet: PetDetalhe): ClientePetForm {
+  return {
+    nome: pet.nome ?? "",
+    nascimento: pet.nascimento ?? "",
+    especie: pet.especie ?? "",
+    raca: pet.raca ?? "",
+    porte: pet.porte ?? "",
+    pesoKg: pet.pesoKg ? String(pet.pesoKg).replace(".", ",") : "",
+    observacao: pet.observacao ?? "",
+  };
+}
+
+function petFormsFromCliente(cliente: Cliente): ClientePetForm[] {
+  const detalhes = cliente.petsDetalhes?.length
+    ? cliente.petsDetalhes.map(petFormFromDetalhe)
+    : cliente.pets.map((nome) => ({ ...petFormVazio(), nome }));
+
+  return detalhes.length ? detalhes : [petFormVazio()];
+}
+
+function petDetalhesFromForm(pets: ClientePetForm[]): PetDetalhe[] {
+  return pets
+    .map((pet) => {
+      const nome = pet.nome.trim();
+      const nascimento = pet.nascimento.trim();
+      const raca = pet.raca.trim();
+      const observacao = pet.observacao.trim();
+      const pesoTexto = pet.pesoKg.trim().replace(",", ".");
+      const pesoKg = pesoTexto ? Number(pesoTexto) : Number.NaN;
+
+      if (
+        !nome &&
+        !nascimento &&
+        !pet.especie &&
+        !raca &&
+        !pet.porte &&
+        !Number.isFinite(pesoKg) &&
+        !observacao
+      ) {
+        return null;
+      }
+
+      return {
+        nome,
+        ...(nascimento ? { nascimento } : {}),
+        ...(pet.especie ? { especie: pet.especie } : {}),
+        ...(raca ? { raca } : {}),
+        ...(pet.porte ? { porte: pet.porte } : {}),
+        ...(Number.isFinite(pesoKg) && pesoKg > 0 ? { pesoKg } : {}),
+        ...(observacao ? { observacao } : {}),
+      } satisfies PetDetalhe;
+    })
+    .filter((pet): pet is PetDetalhe => pet !== null);
+}
+
+function petsResumoCliente(cliente: Cliente): PetDetalhe[] {
+  if (cliente.petsDetalhes?.length) return cliente.petsDetalhes;
+  return cliente.pets.map((nome) => ({ nome }));
+}
+
+function petLinhaResumo(pet: PetDetalhe): string {
+  return [
+    pet.nascimento ? `Nasc. ${pet.nascimento}` : null,
+    pet.especie,
+    pet.raca,
+    pet.porte ? `porte ${pet.porte}` : null,
+    pet.pesoKg ? `${pet.pesoKg} kg` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function nomesResumoPetsCliente(cliente: Cliente): string {
+  const nomes = petsResumoCliente(cliente).map((pet) => pet.nome || pet.especie || "Pet sem nome");
+
+  return nomes.length ? nomes.join(", ") : "Sem pets";
 }
 
 function manualToolsFromCliente(cliente: Cliente | null): ManualToolsState {
@@ -226,6 +328,7 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
       endereco: clienteAtual.endereco,
       bairro: clienteAtual.bairro,
       pets: clienteAtual.pets.join(", "),
+      petsDetalhes: petFormsFromCliente(clienteAtual),
       perfil: clienteAtual.perfil,
       origem: clienteAtual.origem,
     });
@@ -247,6 +350,33 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
     });
   }
 
+  function atualizarPetForm(index: number, patch: Partial<ClientePetForm>) {
+    setClienteForm((state) => ({
+      ...state,
+      petsDetalhes: state.petsDetalhes.map((pet, petIndex) =>
+        petIndex === index ? { ...pet, ...patch } : pet,
+      ),
+    }));
+  }
+
+  function adicionarPetForm() {
+    setClienteForm((state) => ({
+      ...state,
+      petsDetalhes: [...state.petsDetalhes, petFormVazio()],
+    }));
+  }
+
+  function removerPetForm(index: number) {
+    setClienteForm((state) => {
+      const petsDetalhes = state.petsDetalhes.filter((_, petIndex) => petIndex !== index);
+
+      return {
+        ...state,
+        petsDetalhes: petsDetalhes.length ? petsDetalhes : [petFormVazio()],
+      };
+    });
+  }
+
   async function salvarCliente() {
     const estavaEditando = Boolean(clienteEditando);
     const nome = clienteForm.nome.trim();
@@ -255,6 +385,13 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
       toast.error("Informe nome e telefone validos");
       return;
     }
+
+    const petsDetalhes = petDetalhesFromForm(clienteForm.petsDetalhes);
+    const petsDoFormulario = petsDetalhes.map((pet) => pet.nome).filter(Boolean);
+    const petsLegados = clienteForm.pets
+      .split(",")
+      .map((pet) => pet.trim())
+      .filter(Boolean);
 
     setSalvandoCliente(true);
     try {
@@ -267,7 +404,8 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
           telefone,
           endereco: clienteForm.endereco,
           bairro: clienteForm.bairro,
-          pets: clienteForm.pets,
+          pets: petsDoFormulario.length ? petsDoFormulario : petsLegados,
+          petsDetalhes,
           perfil: clienteForm.perfil,
           origem: clienteForm.origem,
         }),
@@ -374,32 +512,34 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold">Clientes</h1>
           <p className="text-sm text-muted-foreground">
             {clientesAtuais.length} tutores ·{" "}
             {clientesAtuais.reduce((s, c) => s + c.pets.length, 0)} pets cadastrados
           </p>
         </div>
-        <button
-          onClick={abrirNovoCliente}
-          className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2"
-        >
-          <Plus className="size-4" /> Novo cliente
-        </button>
-        <button
-          onClick={sincronizarWhatsApp}
-          disabled={sincronizandoWhatsapp}
-          className="h-10 px-4 rounded-xl bg-secondary text-sm font-semibold inline-flex items-center gap-2 hover:bg-secondary/80 disabled:opacity-60"
-        >
-          <MessageCircle className="size-4" />
-          {sincronizandoWhatsapp ? "Sincronizando..." : "Sincronizar WhatsApp"}
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+          <button
+            onClick={abrirNovoCliente}
+            className="h-10 justify-center px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2"
+          >
+            <Plus className="size-4" /> Novo cliente
+          </button>
+          <button
+            onClick={sincronizarWhatsApp}
+            disabled={sincronizandoWhatsapp}
+            className="h-10 justify-center px-4 rounded-xl bg-secondary text-sm font-semibold inline-flex items-center gap-2 hover:bg-secondary/80 disabled:opacity-60"
+          >
+            <MessageCircle className="size-4" />
+            {sincronizandoWhatsapp ? "Sincronizando..." : "Sincronizar WhatsApp"}
+          </button>
+        </div>
       </div>
 
-      <div className="card-soft p-3 flex gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[220px]">
+      <div className="card-soft p-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <div className="relative w-full sm:min-w-[220px] sm:flex-1">
           <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             value={search}
@@ -408,18 +548,84 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
             placeholder="Buscar por nome, pet ou telefone..."
           />
         </div>
-        {["Todos", "VIP", "Premium", "Econômico", "Risco"].map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`h-10 px-3.5 rounded-lg text-sm font-medium ${filter === f ? "bg-foreground text-background" : "bg-secondary hover:bg-secondary/70"}`}
-          >
-            {f}
-          </button>
-        ))}
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 scrollbar-thin sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+          {["Todos", "VIP", "Premium", "Econômico", "Risco"].map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`h-10 shrink-0 px-3.5 rounded-lg text-sm font-medium ${filter === f ? "bg-foreground text-background" : "bg-secondary hover:bg-secondary/70"}`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="card-soft overflow-hidden">
+      <div className="grid gap-3 md:hidden">
+        {list.length === 0 ? (
+          <div className="card-soft px-5 py-10 text-center text-sm text-muted-foreground">
+            Nenhum cliente encontrado.
+          </div>
+        ) : (
+          list.map((c) => {
+            const ativos = cuponsAtivosPorCliente.get(c.id) || 0;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  setActive(c);
+                  setTab("perfil");
+                }}
+                className="card-soft p-4 text-left"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary/15 text-xs font-semibold text-primary">
+                    {c.nome
+                      .split(" ")
+                      .map((n) => n[0])
+                      .slice(0, 2)
+                      .join("")}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">{c.nome}</div>
+                        <div className="text-xs text-muted-foreground">{c.telefone}</div>
+                      </div>
+                      <StatusBadge value={c.perfil} />
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-lg bg-secondary p-2">
+                        <div className="text-[10px] uppercase text-muted-foreground">Pets</div>
+                        <div className="mt-0.5 truncate font-semibold">
+                          {nomesResumoPetsCliente(c)}
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-secondary p-2">
+                        <div className="text-[10px] uppercase text-muted-foreground">Ticket</div>
+                        <div className="mt-0.5 font-semibold">{brl(c.ticket)}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs text-muted-foreground">
+                        {c.bairro || c.origem}
+                      </span>
+                      {ativos > 0 && (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent/15 px-2 py-1 text-[11px] font-bold text-accent">
+                          <Ticket className="size-3" /> {ativos}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      <div className="card-soft hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-secondary/50">
@@ -461,7 +667,7 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">{c.pets.map((p) => "🐾 " + p).join(", ")}</td>
+                    <td className="px-4 py-3">{nomesResumoPetsCliente(c)}</td>
                     <td className="px-4 py-3 hidden md:table-cell">
                       <span className="text-[11px] font-semibold px-2 py-1 rounded-md bg-primary/10 text-primary">
                         {c.origem}
@@ -574,16 +780,116 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
                   ))}
                 </select>
               </FormField>
-              <FormField label="Pets" full>
-                <input
-                  value={clienteForm.pets}
-                  onChange={(event) =>
-                    setClienteForm((state) => ({ ...state, pets: event.target.value }))
-                  }
-                  placeholder="Nomes separados por virgula"
-                  className="h-10 w-full px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
-                />
-              </FormField>
+              <div className="col-span-2 space-y-3 rounded-xl border border-border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
+                      Pets
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Nome do pet e nascimento, quando tiver no cadastro.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={adicionarPetForm}
+                    className="h-8 px-3 rounded-lg bg-secondary text-xs font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="size-3.5" /> Pet
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {clienteForm.petsDetalhes.map((pet, index) => (
+                    <div key={index} className="space-y-2 rounded-lg bg-secondary/60 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-muted-foreground">
+                          Pet {index + 1}
+                        </div>
+                        {clienteForm.petsDetalhes.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removerPetForm(index)}
+                            className="size-7 rounded-md text-destructive hover:bg-destructive/10 grid place-items-center"
+                            title="Remover pet"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input
+                          value={pet.nome}
+                          onChange={(event) =>
+                            atualizarPetForm(index, { nome: event.target.value })
+                          }
+                          placeholder="Nome do pet"
+                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                        />
+                        <input
+                          type="date"
+                          value={pet.nascimento}
+                          onChange={(event) =>
+                            atualizarPetForm(index, { nascimento: event.target.value })
+                          }
+                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                        />
+                        <select
+                          value={pet.especie}
+                          onChange={(event) =>
+                            atualizarPetForm(index, {
+                              especie: event.target.value as ClientePetForm["especie"],
+                            })
+                          }
+                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                        >
+                          <option value="">Especie</option>
+                          <option value="cachorro">Cachorro</option>
+                          <option value="gato">Gato</option>
+                        </select>
+                        <input
+                          value={pet.raca}
+                          onChange={(event) =>
+                            atualizarPetForm(index, { raca: event.target.value })
+                          }
+                          placeholder="Raca"
+                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                        />
+                        <select
+                          value={pet.porte}
+                          onChange={(event) =>
+                            atualizarPetForm(index, {
+                              porte: event.target.value as ClientePetForm["porte"],
+                            })
+                          }
+                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                        >
+                          <option value="">Porte</option>
+                          <option value="pequeno">Pequeno</option>
+                          <option value="medio">Medio</option>
+                          <option value="grande">Grande</option>
+                        </select>
+                        <input
+                          value={pet.pesoKg}
+                          onChange={(event) =>
+                            atualizarPetForm(index, { pesoKg: event.target.value })
+                          }
+                          inputMode="decimal"
+                          placeholder="Peso kg"
+                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                        />
+                        <input
+                          value={pet.observacao}
+                          onChange={(event) =>
+                            atualizarPetForm(index, { observacao: event.target.value })
+                          }
+                          placeholder="Observacao"
+                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30 sm:col-span-2"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <FormField label="Endereco" full>
                 <input
                   value={clienteForm.endereco}
@@ -725,14 +1031,30 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
                       Pets
                     </div>
                     <div className="grid sm:grid-cols-2 gap-2">
-                      {active.pets.map((p) => (
-                        <div key={p} className="rounded-xl bg-secondary p-3">
-                          <div className="font-semibold text-sm">🐾 {p}</div>
-                          <div className="text-xs text-muted-foreground">
-                            Frequência: {active.frequencia}
+                      {petsResumoCliente(active).map((pet, index) => {
+                        const resumo = petLinhaResumo(pet);
+
+                        return (
+                          <div key={`${pet.nome}-${index}`} className="rounded-xl bg-secondary p-3">
+                            <div className="font-semibold text-sm">
+                              Pet: {pet.nome || "Sem nome"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {resumo || `Frequencia: ${active.frequencia || "sem dados"}`}
+                            </div>
+                            {pet.observacao && (
+                              <div className="text-[11px] text-muted-foreground mt-1">
+                                {pet.observacao}
+                              </div>
+                            )}
                           </div>
+                        );
+                      })}
+                      {petsResumoCliente(active).length === 0 && (
+                        <div className="rounded-xl bg-secondary p-3 text-xs text-muted-foreground">
+                          Nenhum pet cadastrado.
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 </>

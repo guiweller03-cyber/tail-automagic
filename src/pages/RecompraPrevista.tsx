@@ -1,12 +1,16 @@
 import type {
+  Cliente,
   DemandaBairro,
+  ModeloRecompraRacao,
+  Produto,
   ProdutoPrevisto,
   RecompraPrevista,
   RecompraStatus,
   ComportamentoIA,
   TendenciaIA,
 } from "@/lib/crm-types";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   MessageCircle,
   ShoppingBag,
@@ -35,6 +39,8 @@ import {
   Truck,
   Map as MapIcon,
   ShoppingCart,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -48,6 +54,37 @@ type RecompraApiData = {
   produtos: ProdutoPrevisto[];
   bairros: DemandaBairro[];
   alertas: { tipo: string; cliente: string; msg: string }[];
+  modelos: ModeloRecompraRacao[];
+};
+
+type VendaManualForm = {
+  clienteId: string;
+  petNome: string;
+  petNomes: string[];
+  modoDistribuicao: "compartilhada" | "por_pet";
+  sku: string;
+  compraEm: string;
+  diasRecompra: string;
+  quantidade: string;
+  pesoKg: string;
+  consumoDiarioG: string;
+};
+
+function todayInputValue(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const VENDA_MANUAL_INICIAL: VendaManualForm = {
+  clienteId: "",
+  petNome: "",
+  petNomes: [],
+  modoDistribuicao: "compartilhada",
+  sku: "",
+  compraEm: todayInputValue(),
+  diasRecompra: "30",
+  quantidade: "1",
+  pesoKg: "",
+  consumoDiarioG: "",
 };
 
 const statusMap: Record<RecompraStatus, { label: string; cls: string; dot: string }> = {
@@ -99,9 +136,18 @@ const filtros: Filtro[] = [
 export function RecompraPrevista() {
   const [items, setItems] = useState<RecompraPrevista[]>(recomprasPrevistas);
   const [produtos, setProdutos] = useState<ProdutoPrevisto[]>(produtosPrevistos);
+  const [catalogoProdutos, setCatalogoProdutos] = useState<Produto[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [clienteManualBusca, setClienteManualBusca] = useState("");
+  const [modelosRacao, setModelosRacao] = useState<ModeloRecompraRacao[]>([]);
+  const [vendaManual, setVendaManual] = useState<VendaManualForm>(VENDA_MANUAL_INICIAL);
+  const [salvandoVendaManual, setSalvandoVendaManual] = useState(false);
+  const [salvandoModelo, setSalvandoModelo] = useState(false);
   const [bairrosDemanda, setBairrosDemanda] = useState<DemandaBairro[]>(demandaBairros);
-  const [alertasIa, setAlertasIa] = useState<{ tipo: string; cliente: string; msg: string }[]>(iaRecompraAlertas);
+  const [alertasIa, setAlertasIa] =
+    useState<{ tipo: string; cliente: string; msg: string }[]>(iaRecompraAlertas);
   const [loading, setLoading] = useState(true);
+  const [recalculando, setRecalculando] = useState(false);
   const [filtro, setFiltro] = useState<Filtro>("Todos");
   const [busca, setBusca] = useState("");
   const [cidade, setCidade] = useState("Todas");
@@ -124,36 +170,273 @@ export function RecompraPrevista() {
     () => ["Todos", ...Array.from(new Set(items.map((r) => r.bairro)))],
     [items],
   );
+  const produtosRacao = useMemo(() => {
+    return catalogoProdutos.filter((produto) => {
+      const texto = `${produto.nome} ${produto.categoria} ${produto.fornecedor ?? ""}`
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      return (
+        texto.includes("racao") ||
+        texto.includes("formula natural") ||
+        texto.includes("golden") ||
+        texto.includes("premier") ||
+        texto.includes("special") ||
+        texto.includes("gran plus") ||
+        texto.includes("nd ") ||
+        texto.includes("n&d")
+      );
+    });
+  }, [catalogoProdutos]);
+  const clienteManual = clientes.find((cliente) => cliente.id === vendaManual.clienteId) ?? null;
+  const produtoManual = catalogoProdutos.find((produto) => produto.sku === vendaManual.sku) ?? null;
+  const modeloManual = modelosRacao.find((modelo) => modelo.sku === vendaManual.sku) ?? null;
+  const petsClienteManual = useMemo(() => {
+    if (!clienteManual) return [];
+    const detalhes = clienteManual.petsDetalhes?.map((pet) => pet.nome).filter(Boolean) ?? [];
+    return Array.from(new Set([...detalhes, ...(clienteManual.pets ?? [])])).filter(Boolean);
+  }, [clienteManual]);
+  const clientesManualFiltrados = useMemo(() => {
+    const termo = clienteManualBusca.trim().toLowerCase();
+    const lista = termo
+      ? clientes.filter((cliente) =>
+          [cliente.nome, cliente.telefone, cliente.bairro, cliente.pets?.join(" ")]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(termo),
+        )
+      : clientes;
+
+    return lista.slice(0, 80);
+  }, [clienteManualBusca, clientes]);
+
+  const carregar = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/crm/recompra-prevista", { cache: "no-store" });
+      const data = (await response.json()) as RecompraApiData | { erro?: string };
+      if (!response.ok) {
+        const erro = "erro" in data ? data.erro : undefined;
+        throw new Error(erro ?? "Nao foi possivel carregar recompra");
+      }
+      const payload = data as RecompraApiData;
+      setItems(payload.recompras ?? []);
+      setProdutos(payload.produtos ?? []);
+      setBairrosDemanda(payload.bairros ?? []);
+      setAlertasIa(payload.alertas ?? []);
+      setModelosRacao(payload.modelos ?? []);
+    } catch (error) {
+      setItems([]);
+      setProdutos([]);
+      setBairrosDemanda([]);
+      setAlertasIa([]);
+      setModelosRacao([]);
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel carregar recompra");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
 
   useEffect(() => {
     let alive = true;
-    async function load() {
+
+    async function carregarApoio() {
       try {
-        setLoading(true);
-        const response = await fetch("/api/crm/recompra-prevista", { cache: "no-store" });
-        const data = (await response.json()) as RecompraApiData | { erro?: string };
+        const [clientesRes, produtosRes] = await Promise.all([
+          fetch("/api/crm/clientes", { cache: "no-store" }),
+          fetch("/api/crm/produtos", { cache: "no-store" }),
+        ]);
+        const [clientesData, produtosData] = await Promise.all([
+          clientesRes.json() as Promise<Cliente[] | { erro?: string }>,
+          produtosRes.json() as Promise<Produto[] | { erro?: string }>,
+        ]);
         if (!alive) return;
-        if (!response.ok) throw new Error("erro" in data ? data.erro : "Nao foi possivel carregar recompra");
-        setItems(data.recompras ?? []);
-        setProdutos(data.produtos ?? []);
-        setBairrosDemanda(data.bairros ?? []);
-        setAlertasIa(data.alertas ?? []);
+        if (Array.isArray(clientesData)) setClientes(clientesData);
+        if (Array.isArray(produtosData)) setCatalogoProdutos(produtosData);
       } catch {
         if (alive) {
-          setItems([]);
-          setProdutos([]);
-          setBairrosDemanda([]);
-          setAlertasIa([]);
+          setClientes([]);
+          setCatalogoProdutos([]);
         }
-      } finally {
-        if (alive) setLoading(false);
       }
     }
-    void load();
+
+    void carregarApoio();
+
     return () => {
       alive = false;
     };
   }, []);
+
+  async function recalcular() {
+    if (recalculando) return;
+    setRecalculando(true);
+    try {
+      const response = await fetch("/api/crm/recompra-prevista", { method: "POST" });
+      const data = (await response.json()) as { ok?: boolean; vendas?: number; erro?: string };
+      if (!response.ok || !data.ok) throw new Error(data.erro ?? "Falha ao recalcular previsoes");
+      toast.success(`Previsoes recalculadas · ${data.vendas ?? 0} vendas analisadas`);
+      await carregar();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao recalcular previsoes");
+    } finally {
+      setRecalculando(false);
+    }
+  }
+
+  function updateVendaManual(patch: Partial<VendaManualForm>) {
+    setVendaManual((current) => ({ ...current, ...patch }));
+  }
+
+  function clienteManualLabel(cliente: Cliente): string {
+    return `${cliente.nome} - ${cliente.telefone}`;
+  }
+
+  function escolherClienteManualPorTexto(value: string) {
+    setClienteManualBusca(value);
+    const cliente = clientes.find(
+      (item) => clienteManualLabel(item) === value || item.nome === value || item.id === value,
+    );
+    updateVendaManual({
+      clienteId: cliente?.id ?? "",
+      petNome: "",
+      petNomes: [],
+    });
+  }
+
+  function escolherProdutoManual(sku: string) {
+    const produto = catalogoProdutos.find((item) => item.sku === sku);
+    const modelo = modelosRacao.find((item) => item.sku === sku);
+    updateVendaManual({
+      sku,
+      diasRecompra: String(modelo?.diasRecompra ?? (vendaManual.diasRecompra || 30)),
+      consumoDiarioG: modelo?.consumoDiarioG
+        ? String(modelo.consumoDiarioG)
+        : vendaManual.consumoDiarioG,
+      pesoKg: produto?.detalhesTecnicos?.peso?.match(/\d+(?:[,.]\d+)?/)?.[0] ?? vendaManual.pesoKg,
+    });
+  }
+
+  function petsSelecionadosManual(): string[] {
+    return Array.from(
+      new Set(
+        [
+          ...vendaManual.petNomes,
+          ...(vendaManual.petNome.trim() ? [vendaManual.petNome.trim()] : []),
+        ].map((pet) => pet.trim()).filter(Boolean),
+      ),
+    );
+  }
+
+  function togglePetManual(pet: string) {
+    updateVendaManual({
+      petNomes: vendaManual.petNomes.includes(pet)
+        ? vendaManual.petNomes.filter((item) => item !== pet)
+        : [...vendaManual.petNomes, pet],
+    });
+  }
+
+  async function salvarModeloAtual() {
+    if (!produtoManual) {
+      toast.error("Escolha uma racao do catalogo");
+      return;
+    }
+    const diasRecompra = Number(vendaManual.diasRecompra);
+    if (!Number.isFinite(diasRecompra) || diasRecompra <= 0) {
+      toast.error("Informe o ciclo em dias dessa racao");
+      return;
+    }
+
+    setSalvandoModelo(true);
+    try {
+      const response = await fetch("/api/crm/recompra-prevista", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          tipo: "modelo_racao",
+          sku: produtoManual.sku,
+          produtoNome: produtoManual.nome,
+          diasRecompra,
+          consumoDiarioG: vendaManual.consumoDiarioG,
+          ativo: true,
+        }),
+      });
+      const data = (await response.json()) as ModeloRecompraRacao | { erro?: string };
+      if (!response.ok || !("sku" in data)) {
+        throw new Error("erro" in data ? data.erro : "Falha ao salvar modelo");
+      }
+      setModelosRacao((current) => {
+        const exists = current.some((item) => item.sku === data.sku);
+        return exists
+          ? current.map((item) => (item.sku === data.sku ? data : item))
+          : [...current, data].sort((a, b) => a.produtoNome.localeCompare(b.produtoNome));
+      });
+      toast.success("Modelo da racao salvo");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao salvar modelo");
+    } finally {
+      setSalvandoModelo(false);
+    }
+  }
+
+  async function registrarVendaManual() {
+    const petNomes = petsSelecionadosManual();
+    if (!clienteManual || !produtoManual || petNomes.length === 0) {
+      toast.error("Escolha cliente, pelo menos um pet e racao");
+      return;
+    }
+    const diasRecompra = Number(vendaManual.diasRecompra);
+    if (!Number.isFinite(diasRecompra) || diasRecompra <= 0) {
+      toast.error("Informe em quantos dias deve recomprar");
+      return;
+    }
+    const quantidade = Number(vendaManual.quantidade);
+    if (!Number.isFinite(quantidade) || quantidade <= 0) {
+      toast.error("Informe uma quantidade maior que zero");
+      return;
+    }
+
+    setSalvandoVendaManual(true);
+    try {
+      const response = await fetch("/api/crm/recompra-prevista", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          tipo: "venda_manual",
+          clienteId: clienteManual.id,
+          petNome: petNomes[0],
+          petNomes,
+          modoDistribuicao: vendaManual.modoDistribuicao,
+          sku: produtoManual.sku,
+          produtoNome: produtoManual.nome,
+          compraEm: vendaManual.compraEm,
+          diasRecompra,
+          quantidade: vendaManual.quantidade,
+          pesoKg: vendaManual.pesoKg,
+          consumoDiarioG: vendaManual.consumoDiarioG,
+        }),
+      });
+      const data = (await response.json()) as RecompraPrevista | RecompraPrevista[] | { erro?: string };
+      if (!response.ok || (!Array.isArray(data) && !("id" in data))) {
+        throw new Error("erro" in data ? data.erro : "Falha ao registrar recompra");
+      }
+      const total = Array.isArray(data) ? data.length : 1;
+      toast.success(
+        total > 1 ? `${total} recompras previstas registradas` : "Recompra prevista registrada",
+      );
+      setVendaManual((current) => ({ ...VENDA_MANUAL_INICIAL, clienteId: current.clienteId }));
+      await carregar();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao registrar recompra");
+    } finally {
+      setSalvandoVendaManual(false);
+    }
+  }
 
   const filtrados = useMemo(() => {
     return items.filter((r) => {
@@ -195,9 +478,7 @@ export function RecompraPrevista() {
   );
   const clientesEmRecompra = items.length;
   const taxaPrevista = produtos.length
-    ? Math.round(
-        produtos.reduce((s, p) => s + p.taxaRecompra, 0) / produtos.length,
-      )
+    ? Math.round(produtos.reduce((s, p) => s + p.taxaRecompra, 0) / produtos.length)
     : 0;
   const atrasados = items.filter((r) => r.diasRestantes < 0).length;
   const urgentes = items.filter((r) => r.diasRestantes >= 0 && r.diasRestantes <= 3).length;
@@ -253,6 +534,14 @@ export function RecompraPrevista() {
           >
             <Settings2 className="size-3.5" /> Config IA
           </button>
+          <button
+            onClick={() => void recalcular()}
+            disabled={recalculando}
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-secondary text-foreground text-xs font-semibold hover:bg-secondary/70 disabled:opacity-60"
+          >
+            <RefreshCw className={`size-3.5 ${recalculando ? "animate-spin" : ""}`} />
+            {recalculando ? "Recalculando..." : "Recalcular"}
+          </button>
           <button className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90">
             <Sparkles className="size-3.5" /> Disparar todos via IA
           </button>
@@ -298,6 +587,243 @@ export function RecompraPrevista() {
       </div>
 
       {/* IA ADAPTATIVA — DASHBOARD */}
+      <section className="card-soft p-4 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
+              <ShoppingBag className="size-4 text-primary" /> Registrar racao vendida
+            </h2>
+            <p className="text-[11px] text-muted-foreground">
+              Cada pet gera uma previsao propria. Dois pets ou duas racoes viram ciclos separados.
+            </p>
+          </div>
+          <span className="rounded-lg bg-secondary px-3 py-1.5 text-[11px] font-bold text-muted-foreground">
+            {modelosRacao.length} modelo(s) de ciclo
+          </span>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-4">
+          <label className="space-y-1.5">
+            <span className="text-[10px] font-bold uppercase text-muted-foreground">Cliente</span>
+            <input
+              list="clientes-recompra"
+              value={clienteManualBusca}
+              onChange={(event) => escolherClienteManualPorTexto(event.target.value)}
+              className="input h-10"
+              placeholder="Digite nome ou telefone"
+              autoComplete="off"
+            />
+            <datalist id="clientes-recompra">
+              {clientesManualFiltrados.map((cliente) => (
+                <option key={cliente.id} value={clienteManualLabel(cliente)} />
+              ))}
+            </datalist>
+            {clienteManual && (
+              <div className="text-[10px] font-semibold text-primary truncate">
+                Selecionado: {clienteManual.nome}
+              </div>
+            )}
+            {!clienteManual && clienteManualBusca && (
+              <div className="text-[10px] font-semibold text-destructive">
+                Selecione um cliente da lista.
+              </div>
+            )}
+          </label>
+
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-bold uppercase text-muted-foreground">Pets</span>
+            <div className="min-h-10 rounded-lg border border-border bg-background px-2 py-1.5">
+              {petsClienteManual.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {petsClienteManual.map((pet) => {
+                    const selected = vendaManual.petNomes.includes(pet);
+                    return (
+                      <button
+                        key={pet}
+                        type="button"
+                        onClick={() => togglePetManual(pet)}
+                        className={`h-7 rounded-md border px-2 text-[11px] font-bold transition ${
+                          selected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-secondary/50 hover:bg-secondary"
+                        }`}
+                      >
+                        {pet}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="pt-1 text-[11px] font-semibold text-muted-foreground">
+                  Selecione um cliente com pets cadastrados
+                </div>
+              )}
+            </div>
+            <input
+              list="pets-recompra"
+              value={vendaManual.petNome}
+              onChange={(event) => updateVendaManual({ petNome: event.target.value })}
+              className="input h-9"
+              placeholder="Adicionar pet manual"
+            />
+            <datalist id="pets-recompra">
+              {petsClienteManual.map((pet) => (
+                <option key={pet} value={pet} />
+              ))}
+            </datalist>
+          </div>
+
+          <label className="space-y-1.5 lg:col-span-2">
+            <span className="text-[10px] font-bold uppercase text-muted-foreground">Racao</span>
+            <select
+              value={vendaManual.sku}
+              onChange={(event) => escolherProdutoManual(event.target.value)}
+              className="input h-10"
+            >
+              <option value="">Selecione a racao vendida</option>
+              {produtosRacao.map((produto) => (
+                <option key={produto.sku} value={produto.sku}>
+                  {produto.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="rounded-lg border border-border bg-secondary/30 p-3">
+            <div className="text-[10px] font-bold uppercase text-muted-foreground">
+              Pets na acao
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {petsSelecionadosManual().length > 0 ? (
+                petsSelecionadosManual().map((pet) => (
+                  <span
+                    key={pet}
+                    className="inline-flex h-7 items-center gap-1 rounded-md bg-background px-2 text-[11px] font-bold"
+                  >
+                    {pet}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateVendaManual({
+                          petNomes: vendaManual.petNomes.filter((item) => item !== pet),
+                          petNome: vendaManual.petNome.trim() === pet ? "" : vendaManual.petNome,
+                        })
+                      }
+                      className="text-muted-foreground hover:text-foreground"
+                      title="Remover pet"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))
+              ) : (
+                <span className="text-[11px] font-semibold text-muted-foreground">
+                  Nenhum pet selecionado.
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="rounded-lg border border-border bg-secondary/30 p-3">
+            <div className="text-[10px] font-bold uppercase text-muted-foreground">
+              Distribuicao
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-background p-1">
+              <button
+                type="button"
+                onClick={() => updateVendaManual({ modoDistribuicao: "compartilhada" })}
+                className={`h-8 rounded-md text-[11px] font-bold ${
+                  vendaManual.modoDistribuicao === "compartilhada"
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-secondary"
+                }`}
+              >
+                Compartilhada
+              </button>
+              <button
+                type="button"
+                onClick={() => updateVendaManual({ modoDistribuicao: "por_pet" })}
+                className={`h-8 rounded-md text-[11px] font-bold ${
+                  vendaManual.modoDistribuicao === "por_pet"
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-secondary"
+                }`}
+              >
+                Por pet
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <RecompraInput
+            label="Comprada em"
+            type="date"
+            value={vendaManual.compraEm}
+            onChange={(compraEm) => updateVendaManual({ compraEm })}
+          />
+          <RecompraInput
+            label="Recomprar em dias"
+            type="number"
+            value={vendaManual.diasRecompra}
+            onChange={(diasRecompra) => updateVendaManual({ diasRecompra })}
+          />
+          <RecompraInput
+            label={vendaManual.modoDistribuicao === "por_pet" ? "Qtd por pet" : "Qtd total"}
+            type="number"
+            value={vendaManual.quantidade}
+            onChange={(quantidade) => updateVendaManual({ quantidade })}
+          />
+          <RecompraInput
+            label="Peso kg"
+            value={vendaManual.pesoKg}
+            onChange={(pesoKg) => updateVendaManual({ pesoKg })}
+          />
+          <RecompraInput
+            label="Consumo g/dia"
+            type="number"
+            value={vendaManual.consumoDiarioG}
+            onChange={(consumoDiarioG) => updateVendaManual({ consumoDiarioG })}
+          />
+          <div className="rounded-lg bg-secondary/60 p-3 text-xs">
+            <div className="text-[10px] font-bold uppercase text-muted-foreground">Modelo</div>
+            <div className="mt-1 font-bold">
+              {modeloManual ? `${modeloManual.diasRecompra} dias` : "Sem modelo"}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void registrarVendaManual()}
+            disabled={salvandoVendaManual}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-50"
+          >
+            {salvandoVendaManual ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <CheckCheck className="size-4" />
+            )}
+            Registrar previsao
+          </button>
+          <button
+            type="button"
+            onClick={() => void salvarModeloAtual()}
+            disabled={salvandoModelo || !produtoManual}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-secondary px-4 text-sm font-bold hover:bg-secondary/70 disabled:opacity-50"
+          >
+            {salvandoModelo ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Settings2 className="size-4" />
+            )}
+            Salvar modelo dessa racao
+          </button>
+        </div>
+      </section>
+
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
@@ -682,6 +1208,30 @@ export function RecompraPrevista() {
   );
 }
 
+function RecompraInput({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="space-y-1.5">
+      <span className="text-[10px] font-bold uppercase text-muted-foreground">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="input h-10"
+      />
+    </label>
+  );
+}
+
 function Kpi({
   icon,
   label,
@@ -1010,6 +1560,15 @@ export function SpeciePill({
 
 // ───────────────────────── PRODUTOS PREVISTOS ─────────────────────────
 const SEMANAS = ["Todas semanas", "Semana 1", "Semana 2", "Semana 3", "Semana 4"] as const;
+const PERIODOS_COMPRA = [
+  { label: "1 semana", semanas: 1 },
+  { label: "2 semanas", semanas: 2 },
+  { label: "3 semanas", semanas: 3 },
+  { label: "4 semanas", semanas: 4 },
+  { label: "6 semanas", semanas: 6 },
+  { label: "2 meses", semanas: 8 },
+  { label: "3 meses", semanas: 12 },
+] as const;
 
 function brl2(n: number) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -1017,6 +1576,12 @@ function brl2(n: number) {
 
 function unidadesNaSemana(p: ProdutoPrevisto, s: 0 | 1 | 2 | 3 | 4) {
   return s === 0 ? p.semanas.reduce((a, b) => a + b, 0) : p.semanas[s - 1];
+}
+
+function unidadesNoPeriodo(p: ProdutoPrevisto, semanas: number) {
+  if (semanas <= 4) return p.semanas.slice(0, semanas).reduce((a, b) => a + b, 0);
+  const quatroSemanas = p.semanas.reduce((a, b) => a + b, 0);
+  return Math.round((quatroSemanas / 4) * semanas);
 }
 
 function PrevisaoProdutos({
@@ -1028,6 +1593,8 @@ function PrevisaoProdutos({
   semana: 0 | 1 | 2 | 3 | 4;
   setSemana: (s: 0 | 1 | 2 | 3 | 4) => void;
 }) {
+  const [periodoCompra, setPeriodoCompra] =
+    useState<(typeof PERIODOS_COMPRA)[number]["semanas"]>(4);
   const totals = useMemo(() => {
     let unidades = 0,
       receita = 0,
@@ -1047,6 +1614,25 @@ function PrevisaoProdutos({
   const rupturas = produtosPrevistos.filter(
     (p) => p.rupturaSemana && (semana === 0 || p.rupturaSemana <= semana),
   );
+  const resumoPeriodo = useMemo(() => {
+    return produtosPrevistos
+      .map((p) => {
+        const unidades = unidadesNoPeriodo(p, periodoCompra);
+        const livre = Math.max(0, p.estoqueAtual - p.estoqueReservado);
+        const comprar = Math.max(0, unidades - livre);
+        return {
+          id: p.id,
+          nome: p.nome,
+          categoria: p.categoria,
+          unidades,
+          comprar,
+          valor: unidades * p.precoUnit * (p.taxaRecompra / 100),
+        };
+      })
+      .filter((item) => item.unidades > 0 || item.comprar > 0)
+      .sort((a, b) => b.comprar - a.comprar || b.unidades - a.unidades || b.valor - a.valor)
+      .slice(0, 8);
+  }, [periodoCompra, produtosPrevistos]);
 
   return (
     <section className="space-y-3">
@@ -1107,6 +1693,65 @@ function PrevisaoProdutos({
       </div>
 
       {/* Alertas logísticos */}
+      <div className="card-soft p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <ShoppingCart className="size-4 text-primary" /> Resumo de compra do periodo
+            </h3>
+            <p className="text-[11px] text-muted-foreground">
+              Quantidade prevista por produto para orientar a recompra do fornecedor.
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {PERIODOS_COMPRA.map((periodo) => (
+              <button
+                key={periodo.semanas}
+                onClick={() => setPeriodoCompra(periodo.semanas)}
+                className={`h-8 rounded-full border px-3 text-[11px] font-bold transition ${
+                  periodoCompra === periodo.semanas
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border bg-card hover:border-foreground/30"
+                }`}
+              >
+                {periodo.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          {resumoPeriodo.map((item) => (
+            <div key={item.id} className="rounded-lg border border-border bg-card p-3">
+              <div className="truncate text-xs font-bold">{item.nome}</div>
+              <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                {item.categoria}
+              </div>
+              <div className="mt-3 flex items-end justify-between gap-2">
+                <div>
+                  <div className="text-[10px] uppercase text-muted-foreground">Previsto</div>
+                  <div className="text-lg font-bold tabular-nums">{item.unidades}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase text-muted-foreground">Comprar</div>
+                  <div
+                    className={`text-lg font-bold tabular-nums ${
+                      item.comprar > 0 ? "text-primary" : "text-success"
+                    }`}
+                  >
+                    {item.comprar > 0 ? `+${item.comprar}` : "ok"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+          {resumoPeriodo.length === 0 && (
+            <div className="rounded-lg border border-border bg-card p-3 text-sm text-muted-foreground">
+              Sem produtos previstos para o periodo.
+            </div>
+          )}
+        </div>
+      </div>
+
       {rupturas.length > 0 && (
         <div className="card-soft p-3">
           <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
@@ -1386,26 +2031,128 @@ type RegraCategoria = {
   categoria: string;
   emoji: string;
   ativo: boolean;
-  cicloBaseDias: number;       // padrão sugerido (a IA adapta por cliente)
-  diasAntes: number;           // antecedência da 1ª mensagem
-  qtdMensagens: number;        // quantas mensagens enviar
-  mensagem: string;            // template
-  aprendeIA: boolean;          // se IA pode sobrescrever ciclo por cliente
+  cicloBaseDias: number; // padrão sugerido (a IA adapta por cliente)
+  diasAntes: number; // antecedência da 1ª mensagem
+  qtdMensagens: number; // quantas mensagens enviar
+  mensagem: string; // template
+  aprendeIA: boolean; // se IA pode sobrescrever ciclo por cliente
   perguntaConfirmacao?: string; // ex: vermífugo
 };
 
 const REGRAS_KEY = "recompra_regras_categoria_v1";
 const REGRAS_DEFAULT: RegraCategoria[] = [
-  { id: "areia",       categoria: "Areia para gato",     emoji: "🪨", ativo: true,  cicloBaseDias: 25, diasAntes: 5, qtdMensagens: 2, mensagem: "Oi {nome}! 🐱 A areia do {pet} deve estar acabando. Posso já separar?", aprendeIA: true },
-  { id: "tapete",      categoria: "Tapete higiênico",    emoji: "🧻", ativo: true,  cicloBaseDias: 20, diasAntes: 4, qtdMensagens: 2, mensagem: "Oi {nome}! Os tapetes do {pet} costumam acabar nessa altura. Quer renovar?", aprendeIA: true },
-  { id: "vermifugo",   categoria: "Vermífugo",           emoji: "💊", ativo: true,  cicloBaseDias: 90, diasAntes: 7, qtdMensagens: 2, mensagem: "Oi {nome}! 🐾 A proteção do {pet} contra vermes vai vencer em {dias}d.", aprendeIA: false, perguntaConfirmacao: "Você conseguiu administrar o vermífugo no {pet}? (sim/não)" },
-  { id: "antipulgas",  categoria: "Antipulgas",          emoji: "🛡️", ativo: true,  cicloBaseDias: 30, diasAntes: 5, qtdMensagens: 1, mensagem: "Oi {nome}! Está chegando a próxima dose de antipulgas do {pet}.", aprendeIA: false },
-  { id: "racao",       categoria: "Ração",               emoji: "🥣", ativo: true,  cicloBaseDias: 35, diasAntes: 6, qtdMensagens: 2, mensagem: "Oi {nome}! 🐶 A ração do {pet} está perto do fim — quer que eu separe?", aprendeIA: true },
-  { id: "saches",      categoria: "Sachês",              emoji: "🥫", ativo: true,  cicloBaseDias: 15, diasAntes: 3, qtdMensagens: 1, mensagem: "Oi {nome}! Os sachês do {pet} acabam logo. Quer reposição?", aprendeIA: true },
-  { id: "petiscos",    categoria: "Petiscos",            emoji: "🦴", ativo: false, cicloBaseDias: 30, diasAntes: 4, qtdMensagens: 1, mensagem: "Oi {nome}! Que tal renovar os petiscos do {pet}?", aprendeIA: true },
-  { id: "suplementos", categoria: "Suplementos",         emoji: "💪", ativo: true,  cicloBaseDias: 30, diasAntes: 5, qtdMensagens: 1, mensagem: "Oi {nome}! O suplemento do {pet} está acabando. Renovar?", aprendeIA: false },
-  { id: "shampoos",    categoria: "Shampoos",            emoji: "🧴", ativo: false, cicloBaseDias: 60, diasAntes: 7, qtdMensagens: 1, mensagem: "Oi {nome}! Já pensou em renovar o shampoo do {pet}?", aprendeIA: true },
-  { id: "medcont",     categoria: "Medicamentos contínuos", emoji: "💉", ativo: true, cicloBaseDias: 30, diasAntes: 7, qtdMensagens: 3, mensagem: "Oi {nome}! ⚠️ O medicamento contínuo do {pet} acaba em {dias}d. Não pode faltar.", aprendeIA: false, perguntaConfirmacao: "O {pet} segue tomando o medicamento normalmente?" },
+  {
+    id: "areia",
+    categoria: "Areia para gato",
+    emoji: "🪨",
+    ativo: true,
+    cicloBaseDias: 25,
+    diasAntes: 5,
+    qtdMensagens: 2,
+    mensagem: "Oi {nome}! 🐱 A areia do {pet} deve estar acabando. Posso já separar?",
+    aprendeIA: true,
+  },
+  {
+    id: "tapete",
+    categoria: "Tapete higiênico",
+    emoji: "🧻",
+    ativo: true,
+    cicloBaseDias: 20,
+    diasAntes: 4,
+    qtdMensagens: 2,
+    mensagem: "Oi {nome}! Os tapetes do {pet} costumam acabar nessa altura. Quer renovar?",
+    aprendeIA: true,
+  },
+  {
+    id: "vermifugo",
+    categoria: "Vermífugo",
+    emoji: "💊",
+    ativo: true,
+    cicloBaseDias: 90,
+    diasAntes: 7,
+    qtdMensagens: 2,
+    mensagem: "Oi {nome}! 🐾 A proteção do {pet} contra vermes vai vencer em {dias}d.",
+    aprendeIA: false,
+    perguntaConfirmacao: "Você conseguiu administrar o vermífugo no {pet}? (sim/não)",
+  },
+  {
+    id: "antipulgas",
+    categoria: "Antipulgas",
+    emoji: "🛡️",
+    ativo: true,
+    cicloBaseDias: 30,
+    diasAntes: 5,
+    qtdMensagens: 1,
+    mensagem: "Oi {nome}! Está chegando a próxima dose de antipulgas do {pet}.",
+    aprendeIA: false,
+  },
+  {
+    id: "racao",
+    categoria: "Ração",
+    emoji: "🥣",
+    ativo: true,
+    cicloBaseDias: 35,
+    diasAntes: 6,
+    qtdMensagens: 2,
+    mensagem: "Oi {nome}! 🐶 A ração do {pet} está perto do fim — quer que eu separe?",
+    aprendeIA: true,
+  },
+  {
+    id: "saches",
+    categoria: "Sachês",
+    emoji: "🥫",
+    ativo: true,
+    cicloBaseDias: 15,
+    diasAntes: 3,
+    qtdMensagens: 1,
+    mensagem: "Oi {nome}! Os sachês do {pet} acabam logo. Quer reposição?",
+    aprendeIA: true,
+  },
+  {
+    id: "petiscos",
+    categoria: "Petiscos",
+    emoji: "🦴",
+    ativo: false,
+    cicloBaseDias: 30,
+    diasAntes: 4,
+    qtdMensagens: 1,
+    mensagem: "Oi {nome}! Que tal renovar os petiscos do {pet}?",
+    aprendeIA: true,
+  },
+  {
+    id: "suplementos",
+    categoria: "Suplementos",
+    emoji: "💪",
+    ativo: true,
+    cicloBaseDias: 30,
+    diasAntes: 5,
+    qtdMensagens: 1,
+    mensagem: "Oi {nome}! O suplemento do {pet} está acabando. Renovar?",
+    aprendeIA: false,
+  },
+  {
+    id: "shampoos",
+    categoria: "Shampoos",
+    emoji: "🧴",
+    ativo: false,
+    cicloBaseDias: 60,
+    diasAntes: 7,
+    qtdMensagens: 1,
+    mensagem: "Oi {nome}! Já pensou em renovar o shampoo do {pet}?",
+    aprendeIA: true,
+  },
+  {
+    id: "medcont",
+    categoria: "Medicamentos contínuos",
+    emoji: "💉",
+    ativo: true,
+    cicloBaseDias: 30,
+    diasAntes: 7,
+    qtdMensagens: 3,
+    mensagem: "Oi {nome}! ⚠️ O medicamento contínuo do {pet} acaba em {dias}d. Não pode faltar.",
+    aprendeIA: false,
+    perguntaConfirmacao: "O {pet} segue tomando o medicamento normalmente?",
+  },
 ];
 
 function loadRegras(): RegraCategoria[] {
@@ -1418,7 +2165,9 @@ function loadRegras(): RegraCategoria[] {
     const ids = new Set(parsed.map((r) => r.id));
     const extra = REGRAS_DEFAULT.filter((r) => !ids.has(r.id));
     return [...parsed, ...extra];
-  } catch { return REGRAS_DEFAULT; }
+  } catch {
+    return REGRAS_DEFAULT;
+  }
 }
 
 function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: ProdutoPrevisto[] }) {
@@ -1428,13 +2177,21 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
   function update(id: string, patch: Partial<RegraCategoria>) {
     setRegras((arr) => {
       const next = arr.map((r) => (r.id === id ? { ...r, ...patch } : r));
-      try { window.localStorage.setItem(REGRAS_KEY, JSON.stringify(next)); } catch { /* noop */ }
+      try {
+        window.localStorage.setItem(REGRAS_KEY, JSON.stringify(next));
+      } catch {
+        /* noop */
+      }
       return next;
     });
   }
   function resetar() {
     setRegras(REGRAS_DEFAULT);
-    try { window.localStorage.removeItem(REGRAS_KEY); } catch { /* noop */ }
+    try {
+      window.localStorage.removeItem(REGRAS_KEY);
+    } catch {
+      /* noop */
+    }
   }
 
   // Faturamento recorrente previsto por categoria (de produtosPrevistos)
@@ -1443,10 +2200,13 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
     produtosPrevistos.forEach((p) => {
       const r = p.unidadesPrevistas * p.precoUnit * (p.taxaRecompra / 100);
       const cur = map.get(p.categoria) || { receita: 0, unidades: 0 };
-      cur.receita += r; cur.unidades += p.unidadesPrevistas;
+      cur.receita += r;
+      cur.unidades += p.unidadesPrevistas;
       map.set(p.categoria, cur);
     });
-    return Array.from(map.entries()).map(([cat, v]) => ({ cat, ...v })).sort((a, b) => b.receita - a.receita);
+    return Array.from(map.entries())
+      .map(([cat, v]) => ({ cat, ...v }))
+      .sort((a, b) => b.receita - a.receita);
   }, [produtosPrevistos]);
 
   const totalRecorrente = recorrentePorCat.reduce((s, c) => s + c.receita, 0);
@@ -1459,8 +2219,15 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
           <Settings2 className="size-4 text-primary" /> Automações por categoria de produto
         </h2>
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-muted-foreground">{ativos}/{regras.length} ativas · IA adapta ciclo por cliente</span>
-          <button onClick={resetar} className="text-[11px] font-semibold text-muted-foreground hover:text-foreground">Restaurar padrão</button>
+          <span className="text-[11px] text-muted-foreground">
+            {ativos}/{regras.length} ativas · IA adapta ciclo por cliente
+          </span>
+          <button
+            onClick={resetar}
+            className="text-[11px] font-semibold text-muted-foreground hover:text-foreground"
+          >
+            Restaurar padrão
+          </button>
         </div>
       </div>
 
@@ -1468,9 +2235,13 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
       <div className="card-soft p-4">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Faturamento recorrente previsto</div>
+            <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
+              Faturamento recorrente previsto
+            </div>
             <div className="text-2xl font-bold text-success mt-0.5">{brl(totalRecorrente)}</div>
-            <div className="text-[11px] text-muted-foreground">próximas 4 semanas · ponderado por taxa de recompra</div>
+            <div className="text-[11px] text-muted-foreground">
+              próximas 4 semanas · ponderado por taxa de recompra
+            </div>
           </div>
           <BarChart3 className="size-8 text-success/40" />
         </div>
@@ -1481,9 +2252,14 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
               <div key={c.cat} className="grid grid-cols-[100px_1fr_90px] items-center gap-2">
                 <div className="text-[11px] font-semibold truncate">{c.cat}</div>
                 <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-success to-primary" style={{ width: `${pct}%` }} />
+                  <div
+                    className="h-full bg-gradient-to-r from-success to-primary"
+                    style={{ width: `${pct}%` }}
+                  />
                 </div>
-                <div className="text-[11px] font-bold tabular-nums text-right">{brl(c.receita)}</div>
+                <div className="text-[11px] font-bold tabular-nums text-right">
+                  {brl(c.receita)}
+                </div>
               </div>
             );
           })}
@@ -1495,7 +2271,10 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
         {regras.map((r) => {
           const editando = editandoId === r.id;
           return (
-            <div key={r.id} className={`card-soft p-4 space-y-2.5 transition ${r.ativo ? "" : "opacity-60"}`}>
+            <div
+              key={r.id}
+              className={`card-soft p-4 space-y-2.5 transition ${r.ativo ? "" : "opacity-60"}`}
+            >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-xl shrink-0">{r.emoji}</span>
@@ -1511,7 +2290,9 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
                   className={`relative w-10 h-5 rounded-full shrink-0 transition ${r.ativo ? "bg-success" : "bg-border"}`}
                   title={r.ativo ? "Desativar" : "Ativar"}
                 >
-                  <span className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition ${r.ativo ? "left-5" : "left-0.5"}`} />
+                  <span
+                    className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition ${r.ativo ? "left-5" : "left-0.5"}`}
+                  />
                 </button>
               </div>
 
@@ -1543,9 +2324,21 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
               ) : (
                 <div className="space-y-2 pt-1">
                   <div className="grid grid-cols-3 gap-2">
-                    <NumInline label="Ciclo (d)"  value={r.cicloBaseDias} onChange={(v) => update(r.id, { cicloBaseDias: v })} />
-                    <NumInline label="D-antes"    value={r.diasAntes}     onChange={(v) => update(r.id, { diasAntes: v })} />
-                    <NumInline label="Nº msg"     value={r.qtdMensagens}  onChange={(v) => update(r.id, { qtdMensagens: v })} />
+                    <NumInline
+                      label="Ciclo (d)"
+                      value={r.cicloBaseDias}
+                      onChange={(v) => update(r.id, { cicloBaseDias: v })}
+                    />
+                    <NumInline
+                      label="D-antes"
+                      value={r.diasAntes}
+                      onChange={(v) => update(r.id, { diasAntes: v })}
+                    />
+                    <NumInline
+                      label="Nº msg"
+                      value={r.qtdMensagens}
+                      onChange={(v) => update(r.id, { qtdMensagens: v })}
+                    />
                   </div>
                   <textarea
                     rows={3}
@@ -1564,8 +2357,15 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
                     />
                   )}
                   <label className="flex items-center justify-between rounded-md bg-secondary/60 px-2.5 py-1.5 cursor-pointer">
-                    <span className="text-[11px] font-semibold flex items-center gap-1.5"><Brain className="size-3 text-accent" /> IA adapta ciclo por cliente</span>
-                    <input type="checkbox" checked={r.aprendeIA} onChange={(e) => update(r.id, { aprendeIA: e.target.checked })} className="size-3.5 accent-accent" />
+                    <span className="text-[11px] font-semibold flex items-center gap-1.5">
+                      <Brain className="size-3 text-accent" /> IA adapta ciclo por cliente
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={r.aprendeIA}
+                      onChange={(e) => update(r.id, { aprendeIA: e.target.checked })}
+                      className="size-3.5 accent-accent"
+                    />
                   </label>
                   <button
                     onClick={() => setEditandoId(null)}
@@ -1583,12 +2383,25 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
   );
 }
 
-function NumInline({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function NumInline({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
   return (
     <label className="rounded-md bg-secondary/60 px-2 py-1.5 block">
-      <div className="text-[9px] uppercase font-bold tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-[9px] uppercase font-bold tracking-wide text-muted-foreground">
+        {label}
+      </div>
       <input
-        type="number" min={0} max={365} value={value}
+        type="number"
+        min={0}
+        max={365}
+        value={value}
         onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
         className="w-full bg-transparent text-xs font-bold tabular-nums outline-none"
       />

@@ -1,0 +1,97 @@
+[
+  {
+    "sku": "PREMIER-NUTRICAO-CLINICA-GATOS-URINA-15KG",
+    "nome": "Premier Nutrição Clínica Gatos Urinária 1,5 kg",
+    "marca": "Premier",
+    "linha": "Nutrição Clínica Gatos Urinária",
+    "peso": "1,5 kg",
+    "idade": "Adulto",
+    "score": 96,
+    "why": [
+      "brand",
+      "weight",
+      "core=2/3",
+      "age"
+    ],
+    "title": "Ración de estruvita urinaria Premier Clinical Nutrition para gatos, 1,5 ...",
+    "image": "https://http2.mlstatic.com/D_NQ_NP_965693-MLU74830285540_032024-O.webp",
+    "page": "https://www.mercadolibre.cl/racion-de-estruvita-urinaria-premier-clinical-nutrition-para-gatos-15-kg/p/MLC29753292",
+    "reject": "peso_conflitante_titulo:15kg"
+  },
+  {
+    "sku": "FORMULA-FRESH-MEAT-SENIOR-ADULTO-MIN-7KG",
+    "nome": "Formula Natural Fresh Meat Sênior Adulto Mini e Pequeno Cordeiro 7 kg",
+    "marca": "Formula Natural",
+    "linha": "Fresh Meat Sênior Adulto Mini e Pequeno Cordeiro",
+    "peso": "7 kg",
+    "idade": "Sênior",
+    "score": 92,
+    "why": [
+      "brand",
+      "weight",
+      "core=3/3"
+    ],
+    "title": "Ração Fórmula Natural Fresh Meat Sensitive Cães Adultos Mini e Pequeno ...",
+    "image": "https://images.tcdn.com.br/img/img_prod/1128337/racao_formula_natural_fresh_meat_sensitive_caes_adultos_mini_e_pequenos_cordeiro_7_kg_2739_2_815f59e46a87900ee9b1bd01ad0de3e5.jpg",
+    "page": "https://www.emporiodosanimais.com.br/caes/racao-formula-natural-fresh-meat-sensitive-caes-adultos-mini-e-pequenos-cordeiro-7-kg",
+    "reject": "termo_conflitante:sensitive"
+  },
+  {
+    "sku": "FORMULA-LIFE-FILHOTE-PORTE-MINI-E-PE-25KG",
+    "nome": "Formula Natural Life Filhote Porte Mini e Pequeno 2,5 kg",
+    "marca": "Formula Natural",
+    "linha": "Life Filhote Porte Mini e Pequeno",
+    "peso": "2,5 kg",
+    "idade": "Filhote",
+    "score": 82,
+    "why": [
+      "brand",
+      "weight",
+      "core=1/1",
+      "age"
+    ],
+    "title": "Ração Fórmula Natural Life para Cães Filhotes de Porte Mini e Pequeno 2 ...",
+    "image": "https://files.terrazoo.com.br/uploads/2023/08/568767.jpg",
+    "page": "https://terrazoo.com.br/produto/racao-formula-natural-life-para-caes-filhotes-de-porte-mini-e-pequeno-25kg/",
+    "reject": "peso_conflitante_titulo:25kg"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-TODAS-101KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL TODAS AS RAÇAS MEDIAS E GRANDES 10.1KG",
+    "marca": "Bino",
+    "linha": "BINO PREMIUM ESPECIAL TODAS AS RAÇAS MEDIAS E GRANDES",
+    "peso": "10.1KG",
+    "idade": "Adulto",
+    "score": 75,
+    "why": [
+      "brand",
+      "weight",
+      "core=3/3",
+      "age",
+      "extra-filhote"
+    ],
+    "title": "Ração Bino Premium Cachorros Filhotes de Todas as Raças Sabor Frango e ...",
+    "image": "https://cdn.iset.io/assets/62344/produtos/2334/dbe1606dc9554695466fdef0adbcd69e64dfae9932d40.png",
+    "page": "https://www.honjopet.com.br/racao-bino-premium-cachorros-filhotes-de-todas-as-racas-sabor-frango-e-arroz-10,1kg-p2334",
+    "reject": "idade_conflitante_filhote"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-ESPECIAL-FRA-3KG",
+    "nome": "Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 3KG",
+    "marca": "Bob Dog",
+    "linha": "BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS",
+    "peso": "3KG",
+    "idade": "Adulto",
+    "score": 78,
+    "why": [
+      "brand",
+      "no-weight",
+      "core=5/5",
+      "age"
+    ],
+    "title": "RAÇÃO BOB DOG GOLD PREMIUM ESPECIAL MINI BITS FRANGO E ARROZ 15 KG ...",
+    "image": "https://reinodasracoes.com.br/wp-content/uploads/2025/06/15346705145-bling-1000-x-1000-px-2025-05-09t165305-410.png",
+    "page": "https://reinodasracoes.com.br/produto/racao-bob-dog-gold-premium-especial-mini-bits-frango-e-arroz-15-kg/",
+    "reject": "peso_conflitante_titulo:15kg"
+  }
+]

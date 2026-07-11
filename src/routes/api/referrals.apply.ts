@@ -17,7 +17,10 @@ export const Route = createFileRoute("/api/referrals/apply")({
           typeof body.order_id !== "string" ||
           typeof body.referred_id !== "string"
         ) {
-          return Response.json({ ok: false, erro: "referral_code, order_id e referred_id sao obrigatorios" }, { status: 400 });
+          return Response.json(
+            { ok: false, erro: "referral_code, order_id e referred_id sao obrigatorios" },
+            { status: 400 },
+          );
         }
 
         return Response.json(

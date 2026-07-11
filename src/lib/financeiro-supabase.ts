@@ -3,6 +3,8 @@
 // "sumiam" quando o usuário trocava de navegador/dispositivo ou limpava o cache.
 // Tabelas criadas na migration 20260616000000_financeiro_lancamentos_manuais.sql.
 
+import { requireSupabaseServerKey } from "./server-env";
+
 /* ============================================================
    Helpers Supabase REST
    ============================================================ */
@@ -20,7 +22,7 @@ function supabaseUrl(path: string): string {
 }
 
 function supabaseHeaders(prefer?: string): HeadersInit {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || requireEnv("SUPABASE_ANON_KEY");
+  const key = requireSupabaseServerKey();
   return {
     apikey: key,
     authorization: `Bearer ${key}`,

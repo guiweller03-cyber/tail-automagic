@@ -59,12 +59,21 @@ function mediaInfo(messageType: string, mimeType: string): string {
   return "WhatsApp Document Keys";
 }
 
-async function deriveMediaKeys(mediaKey: string, info: string): Promise<{
+async function deriveMediaKeys(
+  mediaKey: string,
+  info: string,
+): Promise<{
   iv: Uint8Array;
   cipherKey: Uint8Array;
   macKey: Uint8Array;
 }> {
-  const inputKey = await crypto.subtle.importKey("raw", bytesBody(base64ToBytes(mediaKey)), "HKDF", false, ["deriveBits"]);
+  const inputKey = await crypto.subtle.importKey(
+    "raw",
+    bytesBody(base64ToBytes(mediaKey)),
+    "HKDF",
+    false,
+    ["deriveBits"],
+  );
   const bits = await crypto.subtle.deriveBits(
     {
       name: "HKDF",
@@ -97,18 +106,37 @@ async function decryptWhatsappMedia({
 }): Promise<Uint8Array> {
   if (encrypted.byteLength <= 10) throw new Error("Arquivo de midia invalido");
 
-  const { iv, cipherKey, macKey } = await deriveMediaKeys(mediaKey, mediaInfo(messageType, mimeType));
+  const { iv, cipherKey, macKey } = await deriveMediaKeys(
+    mediaKey,
+    mediaInfo(messageType, mimeType),
+  );
   const cipherText = encrypted.slice(0, -10);
   const receivedMac = encrypted.slice(-10);
 
-  const hmacKey = await crypto.subtle.importKey("raw", bytesBody(macKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const expectedMac = new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, bytesBody(concatBytes(iv, cipherText)))).slice(0, 10);
+  const hmacKey = await crypto.subtle.importKey(
+    "raw",
+    bytesBody(macKey),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const expectedMac = new Uint8Array(
+    await crypto.subtle.sign("HMAC", hmacKey, bytesBody(concatBytes(iv, cipherText))),
+  ).slice(0, 10);
   if (!timingSafeEqual(receivedMac, expectedMac)) {
     throw new Error("Assinatura da midia invalida");
   }
 
-  const aesKey = await crypto.subtle.importKey("raw", bytesBody(cipherKey), "AES-CBC", false, ["decrypt"]);
-  return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-CBC", iv: bytesBody(iv) }, aesKey, bytesBody(cipherText)));
+  const aesKey = await crypto.subtle.importKey("raw", bytesBody(cipherKey), "AES-CBC", false, [
+    "decrypt",
+  ]);
+  return new Uint8Array(
+    await crypto.subtle.decrypt(
+      { name: "AES-CBC", iv: bytesBody(iv) },
+      aesKey,
+      bytesBody(cipherText),
+    ),
+  );
 }
 
 function safeMimeType(value: string): string {
@@ -129,9 +157,24 @@ function isUazapiUrl(url: URL): boolean {
   }
 }
 
+function isSupabasePublicUrl(url: URL): boolean {
+  const supabaseUrl = optionalEnv("SUPABASE_URL");
+  if (!supabaseUrl) return false;
+
+  try {
+    return (
+      url.origin === new URL(supabaseUrl).origin &&
+      url.pathname.includes("/storage/v1/object/public/")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isAllowedMediaUrl(url: URL): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
   if (url.protocol === "https:" && url.hostname.endsWith("whatsapp.net")) return true;
+  if (isSupabasePublicUrl(url)) return true;
 
   return isUazapiUrl(url);
 }
@@ -159,14 +202,20 @@ export const Route = createFileRoute("/api/crm/media")({
 
           const parsed = new URL(mediaUrl);
           if (!isAllowedMediaUrl(parsed)) {
-            return Response.json({ ok: false, erro: "url de midia nao permitida" }, { status: 400 });
+            return Response.json(
+              { ok: false, erro: "url de midia nao permitida" },
+              { status: 400 },
+            );
           }
 
           const response = await fetch(parsed.toString(), {
             headers: mediaFetchHeaders(parsed),
           });
           if (!response.ok) {
-            return Response.json({ ok: false, erro: "nao foi possivel baixar a midia" }, { status: 502 });
+            return Response.json(
+              { ok: false, erro: "nao foi possivel baixar a midia" },
+              { status: 502 },
+            );
           }
 
           const responseMimeType = safeMimeType(response.headers.get("content-type") ?? mimeType);

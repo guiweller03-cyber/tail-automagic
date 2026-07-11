@@ -1,3 +1,5 @@
+import { requireSupabaseServerKey } from "./server-env";
+
 export type CampanhaStatus = "rascunho" | "ativa" | "pausada" | "encerrada";
 
 export type CampanhaManual = {
@@ -52,7 +54,7 @@ function supabaseUrl(path: string): string {
 }
 
 function supabaseHeaders(prefer?: string): HeadersInit {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || requireEnv("SUPABASE_ANON_KEY");
+  const key = requireSupabaseServerKey();
 
   return {
     apikey: key,

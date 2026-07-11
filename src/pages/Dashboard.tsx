@@ -1,13 +1,34 @@
 import {
-  TrendingUp, ShoppingBag, Wallet, RefreshCw, Crown, AlertTriangle,
-  ArrowUpRight, Sparkles, Target, Users, Zap, AlertCircle, TrendingDown,
-  Lightbulb, Loader2, X,
+  TrendingUp,
+  ShoppingBag,
+  Wallet,
+  RefreshCw,
+  PackageSearch,
+  Crown,
+  AlertTriangle,
+  ArrowUpRight,
+  Sparkles,
+  Target,
+  Users,
+  Zap,
+  AlertCircle,
+  TrendingDown,
+  Lightbulb,
+  Loader2,
+  X,
 } from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-  LineChart, Line,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  LineChart,
+  Line,
 } from "recharts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { VelocidadeOperacional } from "@/features/velocidade/VelocidadeOperacional";
 import type { DashboardData } from "@/lib/crm-supabase";
@@ -31,6 +52,7 @@ const emptyDashboard: DashboardData = {
     clientesVip: 0,
     clientesRisco: 0,
     estoqueCritico: 0,
+    leadsTotais: 0,
     leadsHoje: 0,
     leadsSemana: 0,
     conversaoHoje: 0,
@@ -39,6 +61,8 @@ const emptyDashboard: DashboardData = {
     recompraPrevista: 0,
   },
   vendasSemana: [],
+  itensVendidosHoje: [],
+  formulaNaturalSemana: [],
   crescimentoMensal: [],
   funilDados: [],
   conversas: [],
@@ -46,13 +70,49 @@ const emptyDashboard: DashboardData = {
 
 export function Dashboard({ data }: { data: DashboardData | null }) {
   const [dashboard, setDashboard] = useState<DashboardData | null>(data);
-  const { kpis, vendasSemana, funilDados, crescimentoMensal, conversas } = dashboard ?? emptyDashboard;
+  const [greeting, setGreeting] = useState("Bom dia");
+  const {
+    kpis,
+    vendasSemana,
+    itensVendidosHoje,
+    formulaNaturalSemana,
+    funilDados,
+    crescimentoMensal,
+    conversas,
+  } = dashboard ?? emptyDashboard;
   const [showRelatorio, setShowRelatorio] = useState(false);
   const [enviandoRel, setEnviandoRel] = useState(false);
+  const pedidosDetalhesRef = useRef<HTMLDivElement | null>(null);
+  const formulaNaturalVendidasSemana = formulaNaturalSemana.reduce(
+    (total, item) => total + item.quantidade,
+    0,
+  );
+  const formulaNaturalComVendaSemana = formulaNaturalSemana.filter(
+    (item) => item.quantidade > 0,
+  ).length;
+  const formulaNaturalSubtitle =
+    formulaNaturalSemana.length > 0
+      ? `${formulaNaturalVendidasSemana} unidade${formulaNaturalVendidasSemana === 1 ? "" : "s"} vendida${formulaNaturalVendidasSemana === 1 ? "" : "s"} nos últimos 7 dias · ${formulaNaturalComVendaSemana}/${formulaNaturalSemana.length} SKUs com venda`
+      : "contagem dos últimos 7 dias";
 
   useEffect(() => {
     setDashboard(data);
   }, [data]);
+
+  useEffect(() => {
+    if (dashboard) return;
+
+    let alive = true;
+    void fetch("/api/crm/dashboard?refresh=1", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((nextData: DashboardData | null) => {
+        if (alive && nextData) setDashboard(nextData);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [dashboard]);
 
   useEffect(() => {
     return onCrmReload(() => {
@@ -64,13 +124,26 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
     });
   }, []);
 
+  useEffect(() => {
+    const updateGreeting = () => setGreeting(getGreetingByHour(new Date()));
+
+    updateGreeting();
+    const interval = window.setInterval(updateGreeting, 60 * 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
   async function enviarRelatorio() {
     setEnviandoRel(true);
     try {
       const r = await fetch(WEBHOOK_RELATORIO, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trigger: "manual", timestamp: new Date().toISOString(), origem: "dashboard" }),
+        body: JSON.stringify({
+          trigger: "manual",
+          timestamp: new Date().toISOString(),
+          origem: "dashboard",
+        }),
       });
       if (!r.ok) throw new Error();
       toast.success("Relatório enviado no WhatsApp ✅");
@@ -86,7 +159,9 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Bom dia, Ana 👋</h1>
+          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">
+            {greeting}, Guilherme 👋
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Painel de crescimento — Mundo Pet em tempo real
           </p>
@@ -95,7 +170,10 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
           <button className="h-10 px-4 rounded-xl border border-border bg-card text-sm font-medium hover:bg-secondary transition">
             Hoje
           </button>
-          <button onClick={()=>setShowRelatorio(true)} className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2">
+          <button
+            onClick={() => setShowRelatorio(true)}
+            className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2"
+          >
             <Sparkles className="size-4" /> Relatório IA
           </button>
         </div>
@@ -104,33 +182,141 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
       {/* LINHA 1 — Receita */}
       <Section title="Receita" subtitle="visão financeira do período">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<Wallet />} label="Faturamento hoje" value={brl(kpis.faturamentoHoje)} delta="ao vivo" tone="primary" />
-          <Kpi icon={<TrendingUp />} label="Faturamento semana" value={brl(kpis.faturamentoSemana)} delta="+9%" tone="primary" />
-          <Kpi icon={<TrendingUp />} label="Faturamento mês" value={brl(kpis.faturamentoMes)} delta="+12%" tone="primary" />
-          <Kpi icon={<Crown />} label="Lucro líquido mês" value={brl(kpis.lucroMes)} delta="+14%" tone="success" />
+          <Kpi
+            icon={<Wallet />}
+            label="Faturamento hoje"
+            value={brl(kpis.faturamentoHoje)}
+            delta="ao vivo"
+            tone="primary"
+          />
+          <Kpi
+            icon={<TrendingUp />}
+            label="Faturamento semana"
+            value={brl(kpis.faturamentoSemana)}
+            delta="+9%"
+            tone="primary"
+          />
+          <Kpi
+            icon={<TrendingUp />}
+            label="Faturamento mês"
+            value={brl(kpis.faturamentoMes)}
+            delta="+12%"
+            tone="primary"
+          />
+          <Kpi
+            icon={<Crown />}
+            label="Lucro líquido mês"
+            value={brl(kpis.lucroMes)}
+            delta="+14%"
+            tone="success"
+          />
         </div>
       </Section>
 
       {/* LINHA 2 — Aquisição & Conversão */}
-      <Section title="Aquisição & Conversão" subtitle="leads novos e taxas">
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <Kpi icon={<Users />} label="Leads hoje" value={String(kpis.leadsHoje)} delta="+5" tone="accent" />
-          <Kpi icon={<Users />} label="Leads semana" value={String(kpis.leadsSemana)} delta="+22" tone="accent" />
-          <Kpi icon={<Target />} label="Conversão hoje" value={`${kpis.conversaoHoje}%`} delta="+3pp" tone="success" />
-          <Kpi icon={<Target />} label="Conversão semana" value={`${kpis.conversaoSemana}%`} delta="+1pp" tone="success" />
-          <Kpi icon={<Target />} label="Conversão mês" value={`${kpis.conversaoMes}%`} delta="-1pp" tone="warning" />
+      <Section title="Aquisição & Conversão" subtitle="leads novos, total e taxas">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <Kpi
+            icon={<Users />}
+            label="Leads totais"
+            value={String(kpis.leadsTotais)}
+            delta="sempre"
+            tone="primary"
+            href="/leads-totais"
+          />
+          <Kpi
+            icon={<Users />}
+            label="Leads hoje"
+            value={String(kpis.leadsHoje)}
+            delta="+5"
+            tone="accent"
+          />
+          <Kpi
+            icon={<Users />}
+            label="Leads semana"
+            value={String(kpis.leadsSemana)}
+            delta="+22"
+            tone="accent"
+          />
+          <Kpi
+            icon={<Target />}
+            label="Conversão hoje"
+            value={`${kpis.conversaoHoje}%`}
+            delta="+3pp"
+            tone="success"
+          />
+          <Kpi
+            icon={<Target />}
+            label="Conversão semana"
+            value={`${kpis.conversaoSemana}%`}
+            delta="+1pp"
+            tone="success"
+          />
+          <Kpi
+            icon={<Target />}
+            label="Conversão mês"
+            value={`${kpis.conversaoMes}%`}
+            delta="-1pp"
+            tone="warning"
+          />
         </div>
       </Section>
 
       {/* LINHA 3 — Operação */}
       <Section title="Operação" subtitle="pedidos, recompra e risco">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi icon={<ShoppingBag />} label="Pedidos hoje" value={String(kpis.pedidosHoje)} delta="ao vivo" tone="primary" />
-          <Kpi icon={<RefreshCw />} label="Recompra prevista" value={String(kpis.recompraPrevista)} delta="hoje" tone="success" />
-          <Kpi icon={<AlertTriangle />} label="Clientes em risco" value={String(kpis.clientesRisco)} delta="-2" tone="destructive" />
-          <Kpi icon={<Zap />} label="Taxa upsell" value={`${kpis.taxaUpsell}%`} delta="+4pp" tone="accent" />
+          <Kpi
+            icon={<ShoppingBag />}
+            label="Pedidos hoje"
+            value={String(kpis.pedidosHoje)}
+            delta="ver itens"
+            tone="primary"
+            onClick={() =>
+              pedidosDetalhesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+          />
+          <Kpi
+            icon={<RefreshCw />}
+            label="Recompra prevista"
+            value={String(kpis.recompraPrevista)}
+            delta="clientes"
+            tone="success"
+          />
+          <Kpi
+            icon={<AlertTriangle />}
+            label="Clientes em risco"
+            value={String(kpis.clientesRisco)}
+            delta="atual"
+            tone="destructive"
+          />
+          <Kpi
+            icon={<Zap />}
+            label="Taxa upsell"
+            value={`${kpis.taxaUpsell}%`}
+            delta="+1 item"
+            tone="accent"
+          />
         </div>
       </Section>
+
+      <div ref={pedidosDetalhesRef} className="grid lg:grid-cols-2 gap-4 scroll-mt-4">
+        <RankingPanel
+          icon={<ShoppingBag className="size-4" />}
+          title="Itens vendidos hoje"
+          subtitle={`${kpis.pedidosHoje} pedido${kpis.pedidosHoje === 1 ? "" : "s"} pago${kpis.pedidosHoje === 1 ? "" : "s"}`}
+          empty="Nenhum item vendido hoje ainda."
+          items={itensVendidosHoje.slice(0, 8)}
+        />
+        <RankingPanel
+          icon={<PackageSearch className="size-4" />}
+          title="Rações Fórmula Natural"
+          subtitle={formulaNaturalSubtitle}
+          empty="Nenhuma ração Fórmula Natural cadastrada no estoque."
+          items={formulaNaturalSemana}
+          showCategory
+          badgeLabel={`${formulaNaturalSemana.length} rações`}
+        />
+      </div>
 
       {/* VELOCIDADE OPERACIONAL */}
       <VelocidadeOperacional />
@@ -150,20 +336,50 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={crescimentoMensal}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${v / 1000}k`} />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="var(--color-border)"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="mes"
+                  stroke="var(--color-muted-foreground)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  stroke="var(--color-muted-foreground)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `${v / 1000}k`}
+                />
                 <Tooltip
-                  contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12, fontSize: 12 }}
+                  contentStyle={{
+                    background: "var(--color-card)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 12,
+                    fontSize: 12,
+                  }}
                   formatter={(v: number) => brl(v)}
                 />
-                <Line type="monotone" dataKey="valor" stroke="var(--color-primary)" strokeWidth={3} dot={{ r: 4, fill: "var(--color-primary)" }} activeDot={{ r: 6 }} />
+                <Line
+                  type="monotone"
+                  dataKey="valor"
+                  stroke="var(--color-primary)"
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: "var(--color-primary)" }}
+                  activeDot={{ r: 6 }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
 
           <div className="mt-4 pt-4 border-t border-border">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Crescimento diário (semana)</h4>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Crescimento diário (semana)
+            </h4>
             <div className="h-32">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={vendasSemana}>
@@ -173,9 +389,29 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
                       <stop offset="100%" stopColor="var(--color-accent)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="dia" stroke="var(--color-muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 12, fontSize: 12 }} formatter={(v: number) => brl(v)} />
-                  <Area type="monotone" dataKey="vendas" stroke="var(--color-accent)" strokeWidth={2} fill="url(#dg)" />
+                  <XAxis
+                    dataKey="dia"
+                    stroke="var(--color-muted-foreground)"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--color-card)",
+                      border: "1px solid var(--color-border)",
+                      borderRadius: 12,
+                      fontSize: 12,
+                    }}
+                    formatter={(v: number) => brl(v)}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="vendas"
+                    stroke="var(--color-accent)"
+                    strokeWidth={2}
+                    fill="url(#dg)"
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -222,7 +458,9 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
               <h3 className="font-semibold inline-flex items-center gap-2">
                 <Sparkles className="size-4 text-primary" /> Alertas da IA
               </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Análise automática a cada 15 min</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Análise automática a cada 15 min
+              </p>
             </div>
           </div>
           <div className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
@@ -239,7 +477,11 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
             {conversas.slice(0, 5).map((c) => (
               <li key={c.id} className="flex items-center gap-3">
                 <div className="size-9 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 grid place-items-center font-semibold text-xs">
-                  {c.cliente.split(" ").map(n => n[0]).slice(0, 2).join("")}
+                  {c.cliente
+                    .split(" ")
+                    .map((n) => n[0])
+                    .slice(0, 2)
+                    .join("")}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline gap-2">
@@ -249,7 +491,9 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
                   <p className="text-xs text-muted-foreground truncate">{c.ultima}</p>
                 </div>
                 {c.naoLidas > 0 && (
-                  <span className="text-[10px] font-bold size-5 grid place-items-center rounded-full bg-success text-success-foreground">{c.naoLidas}</span>
+                  <span className="text-[10px] font-bold size-5 grid place-items-center rounded-full bg-success text-success-foreground">
+                    {c.naoLidas}
+                  </span>
                 )}
               </li>
             ))}
@@ -258,17 +502,49 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
       </div>
 
       {showRelatorio && (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50" onClick={()=>!enviandoRel && setShowRelatorio(false)}>
-          <div className="card-soft p-5 w-full max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50"
+          onClick={() => !enviandoRel && setShowRelatorio(false)}
+        >
+          <div
+            className="card-soft p-5 w-full max-w-sm space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between">
-              <h3 className="font-semibold inline-flex items-center gap-2"><Sparkles className="size-4 text-primary" /> Relatório IA</h3>
-              <button disabled={enviandoRel} onClick={()=>setShowRelatorio(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="size-4" /></button>
+              <h3 className="font-semibold inline-flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" /> Relatório IA
+              </h3>
+              <button
+                disabled={enviandoRel}
+                onClick={() => setShowRelatorio(false)}
+                className="p-1 rounded-lg hover:bg-secondary"
+              >
+                <X className="size-4" />
+              </button>
             </div>
-            <p className="text-sm text-muted-foreground">Gerar relatório completo do dia e enviar no WhatsApp?</p>
+            <p className="text-sm text-muted-foreground">
+              Gerar relatório completo do dia e enviar no WhatsApp?
+            </p>
             <div className="flex gap-2">
-              <button disabled={enviandoRel} onClick={()=>setShowRelatorio(false)} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold disabled:opacity-40">Cancelar</button>
-              <button disabled={enviandoRel} onClick={enviarRelatorio} className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60">
-                {enviandoRel ? <><Loader2 className="size-4 animate-spin" /> Enviando…</> : "Enviar agora"}
+              <button
+                disabled={enviandoRel}
+                onClick={() => setShowRelatorio(false)}
+                className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={enviandoRel}
+                onClick={enviarRelatorio}
+                className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {enviandoRel ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" /> Enviando…
+                  </>
+                ) : (
+                  "Enviar agora"
+                )}
               </button>
             </div>
           </div>
@@ -278,11 +554,21 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
   );
 }
 
-function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section>
       <div className="flex items-baseline gap-3 mb-2.5 px-1">
-        <h2 className="text-xs uppercase font-bold tracking-wider text-muted-foreground">{title}</h2>
+        <h2 className="text-xs uppercase font-bold tracking-wider text-muted-foreground">
+          {title}
+        </h2>
         {subtitle && <span className="text-[10px] text-muted-foreground/70">· {subtitle}</span>}
       </div>
       {children}
@@ -290,9 +576,22 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
   );
 }
 
-function Kpi({ icon, label, value, delta, tone }: {
-  icon: React.ReactNode; label: string; value: string; delta: string;
+function Kpi({
+  icon,
+  label,
+  value,
+  delta,
+  tone,
+  href,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  delta: string;
   tone: "primary" | "success" | "accent" | "warning" | "destructive";
+  href?: string;
+  onClick?: () => void;
 }) {
   const tones = {
     primary: { bg: "bg-primary/10", fg: "text-primary", delta: "text-success" },
@@ -301,22 +600,146 @@ function Kpi({ icon, label, value, delta, tone }: {
     warning: { bg: "bg-accent/10", fg: "text-accent", delta: "text-accent" },
     destructive: { bg: "bg-destructive/10", fg: "text-destructive", delta: "text-destructive" },
   }[tone];
-  return (
-    <div className="card-soft p-4 hover:shadow-md transition">
+  const content = (
+    <>
       <div className="flex items-center justify-between">
-        <div className={`size-8 rounded-lg grid place-items-center ${tones.bg} ${tones.fg} [&_svg]:size-4`}>
+        <div
+          className={`size-8 rounded-lg grid place-items-center ${tones.bg} ${tones.fg} [&_svg]:size-4`}
+        >
           {icon}
         </div>
         <span className={`text-[10px] font-bold ${tones.delta}`}>{delta}</span>
       </div>
       <div className="mt-3 text-[11px] text-muted-foreground leading-tight">{label}</div>
-      <div className="text-xl lg:text-2xl font-bold mt-0.5 tracking-tight tabular-nums">{value}</div>
+      <div className="text-xl lg:text-2xl font-bold mt-0.5 tracking-tight tabular-nums">
+        {value}
+      </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <a href={href} className="card-soft p-4 hover:shadow-md transition block">
+        {content}
+      </a>
+    );
+  }
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="card-soft p-4 hover:shadow-md transition text-left"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div className="card-soft p-4 hover:shadow-md transition">{content}</div>;
+}
+
+function RankingPanel({
+  icon,
+  title,
+  subtitle,
+  empty,
+  items,
+  showCategory = false,
+  badgeLabel,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  empty: string;
+  items: Array<{
+    sku: string;
+    nome: string;
+    quantidade: number;
+    receita: number;
+    pedidos: number;
+    categoria?: string | null;
+  }>;
+  showCategory?: boolean;
+  badgeLabel?: string;
+}) {
+  return (
+    <div className="card-soft min-w-0 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold inline-flex items-center gap-2">
+            <span className="size-8 rounded-lg bg-primary/10 text-primary grid place-items-center">
+              {icon}
+            </span>
+            {title}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+        </div>
+        {items.length > 0 && (
+          <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-1 rounded-md">
+            {badgeLabel ?? `${items.length} itens`}
+          </span>
+        )}
+      </div>
+
+      {items.length === 0 ? (
+        <div className="mt-4 rounded-xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">
+          {empty}
+        </div>
+      ) : (
+        <ul
+          className={`mt-4 divide-y divide-border ${items.length > 12 ? "max-h-[520px] overflow-y-auto pr-1" : ""}`}
+        >
+          {items.map((item, index) => (
+            <li key={`${item.sku || item.nome}-${index}`} className="py-3 first:pt-0 last:pb-0">
+              <div className="flex items-start gap-3">
+                <div className="size-7 rounded-lg bg-secondary grid place-items-center text-xs font-bold text-muted-foreground shrink-0">
+                  {index + 1}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold leading-snug truncate">{item.nome}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                        {showCategory && item.categoria ? `${item.categoria} · ` : ""}
+                        {item.pedidos} pedido{item.pedidos === 1 ? "" : "s"}
+                        {item.sku ? ` · ${item.sku}` : ""}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-left sm:text-right">
+                      <p className="text-base font-bold tabular-nums">{item.quantidade}x</p>
+                      <p className="text-[11px] text-muted-foreground">{brl(item.receita)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
-function IaAlert({ tone, icon, title, desc }: {
-  tone: "destructive" | "warning" | "success" | "primary"; icon: React.ReactNode; title: string; desc: string;
+function getGreetingByHour(date: Date): "Bom dia" | "Boa tarde" | "Boa noite" {
+  const hour = date.getHours();
+
+  if (hour >= 12 && hour < 18) return "Boa tarde";
+  if (hour >= 18 || hour < 5) return "Boa noite";
+  return "Bom dia";
+}
+
+function IaAlert({
+  tone,
+  icon,
+  title,
+  desc,
+}: {
+  tone: "destructive" | "warning" | "success" | "primary";
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
 }) {
   const [loading, setLoading] = useState(false);
   const tones = {
@@ -331,7 +754,11 @@ function IaAlert({ tone, icon, title, desc }: {
       const r = await fetch(WEBHOOK_ALERTA, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alerta: title, descricao: desc, timestamp: new Date().toISOString() }),
+        body: JSON.stringify({
+          alerta: title,
+          descricao: desc,
+          timestamp: new Date().toISOString(),
+        }),
       });
       if (!r.ok) throw new Error();
       toast.success("Ação enviada ✅");
@@ -343,12 +770,18 @@ function IaAlert({ tone, icon, title, desc }: {
   }
   return (
     <li className="flex gap-3 p-2.5 rounded-xl border border-border hover:bg-secondary/40 transition">
-      <div className={`size-8 rounded-lg grid place-items-center shrink-0 ${tones} [&_svg]:size-4`}>{icon}</div>
+      <div className={`size-8 rounded-lg grid place-items-center shrink-0 ${tones} [&_svg]:size-4`}>
+        {icon}
+      </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold leading-tight">{title}</p>
         <p className="text-[11px] text-muted-foreground mt-0.5">{desc}</p>
       </div>
-      <button onClick={agir} disabled={loading} className="self-center h-7 px-2.5 rounded-lg bg-foreground text-background text-[10px] font-bold inline-flex items-center gap-1 disabled:opacity-60">
+      <button
+        onClick={agir}
+        disabled={loading}
+        className="self-center h-7 px-2.5 rounded-lg bg-foreground text-background text-[10px] font-bold inline-flex items-center gap-1 disabled:opacity-60"
+      >
         {loading ? <Loader2 className="size-3 animate-spin" /> : "Agir"}
       </button>
     </li>

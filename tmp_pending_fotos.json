@@ -1,0 +1,758 @@
+[
+  {
+    "sku": "PREMIER-AMBIENTE-INTERNO-ADULTO-1KG",
+    "nome": "Premier Ambiente Interno Adulto 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Ambiente Interno Adulto 1 kg"
+  },
+  {
+    "sku": "PREMIER-AMBIENTE-INTERNO-ADULTO-25KG",
+    "nome": "Premier Ambiente Interno Adulto 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Ambiente Interno Adulto 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-AMBIENTE-INTERNO-FILHOTE-1KG",
+    "nome": "Premier Ambiente Interno Filhote 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Ambiente Interno Filhote 1 kg"
+  },
+  {
+    "sku": "PREMIER-AMBIENTE-INTERNO-FILHOTE-25KG",
+    "nome": "Premier Ambiente Interno Filhote 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Ambiente Interno Filhote 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-YORKSHIRE-FILHOTE-1KG",
+    "nome": "Premier Yorkshire Filhote 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Yorkshire Filhote 1 kg"
+  },
+  {
+    "sku": "PREMIER-YORKSHIRE-FILHOTE-25KG",
+    "nome": "Premier Yorkshire Filhote 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Yorkshire Filhote 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-YORKSHIRE-ADULTO-1KG",
+    "nome": "Premier Yorkshire Adulto 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Yorkshire Adulto 1 kg"
+  },
+  {
+    "sku": "PREMIER-YORKSHIRE-ADULTO-25KG",
+    "nome": "Premier Yorkshire Adulto 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Yorkshire Adulto 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-FORMULA-RACAS-PEQUENAS-1KG",
+    "nome": "Premier Fórmula Raças Pequenas 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Fórmula Raças Pequenas 1 kg"
+  },
+  {
+    "sku": "PREMIER-FORMULA-RACAS-PEQUENAS-25KG",
+    "nome": "Premier Fórmula Raças Pequenas 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Fórmula Raças Pequenas 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-FORMULA-FILHOTE-1KG",
+    "nome": "Premier Fórmula Filhote 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Fórmula Filhote 1 kg"
+  },
+  {
+    "sku": "PREMIER-NATU-MANDIOQUINHA-1KG",
+    "nome": "Premier Natu Mandioquinha 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Natu Mandioquinha 1 kg"
+  },
+  {
+    "sku": "PREMIER-NATU-MANDIOQUINHA-25KG",
+    "nome": "Premier Natu Mandioquinha 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Natu Mandioquinha 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-NATU-BETERRABA-FILHOTE-1KG",
+    "nome": "Premier Natu Beterraba Filhote 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Natu Beterraba Filhote 1 kg"
+  },
+  {
+    "sku": "PREMIER-NATU-BETERRABA-FILHOTE-25KG",
+    "nome": "Premier Natu Beterraba Filhote 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Natu Beterraba Filhote 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-NATU-BETERRABA-ADULTO-1KG",
+    "nome": "Premier Natu Beterraba Adulto 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Natu Beterraba Adulto 1 kg"
+  },
+  {
+    "sku": "PREMIER-NATU-BETERRABA-ADULTO-25KG",
+    "nome": "Premier Natu Beterraba Adulto 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Natu Beterraba Adulto 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-NATU-BROCOLIS-ADULTO-1KG",
+    "nome": "Premier Natu Brócolis Adulto 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Natu Brócolis Adulto 1 kg"
+  },
+  {
+    "sku": "PREMIER-NATU-BROCOLIS-ADULTO-25KG",
+    "nome": "Premier Natu Brócolis Adulto 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Natu Brócolis Adulto 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-SENIOR-1KG",
+    "nome": "Premier Senior 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Senior 1 kg"
+  },
+  {
+    "sku": "PREMIER-SENIOR-25KG",
+    "nome": "Premier Senior 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Senior 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-RACAS-ESPECIFICAS-SPITZ-ALEM-25KG",
+    "nome": "Premier Raças Específicas Spitz Alemão Filhote 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Raças Específicas Spitz Alemão Filhote 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-RACAS-ESPECIFICAS-SPITZ-ALEM-1KG",
+    "nome": "Premier Raças Específicas Spitz Alemão Adulto 1 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Raças Específicas Spitz Alemão Adulto 1 kg"
+  },
+  {
+    "sku": "PREMIER-RACAS-ESPECIFICAS-SPITZ-ALEM-25KG-2",
+    "nome": "Premier Raças Específicas Spitz Alemão Adulto 2,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Raças Específicas Spitz Alemão Adulto 2,5 kg"
+  },
+  {
+    "sku": "PREMIER-NUTRICAO-CLINICA-GATOS-URINA-15KG",
+    "nome": "Premier Nutrição Clínica Gatos Urinária 1,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Nutrição Clínica Gatos Urinária 1,5 kg"
+  },
+  {
+    "sku": "PREMIER-NUTRICAO-CLINICA-GATOS-RENAL-15KG",
+    "nome": "Premier Nutrição Clínica Gatos Renal 1,5 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Nutrição Clínica Gatos Renal 1,5 kg"
+  },
+  {
+    "sku": "PREMIER-NUTRICAO-CLINICA-GASTROINTES-2KG",
+    "nome": "Premier Nutrição Clínica Gastrointestinal 2 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Nutrição Clínica Gastrointestinal 2 kg"
+  },
+  {
+    "sku": "PREMIER-NUTRICAO-CLINICA-HIPOALERGEN-2KG",
+    "nome": "Premier Nutrição Clínica Hipoalergênica Cordeiro 2 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Nutrição Clínica Hipoalergênica Cordeiro 2 kg"
+  },
+  {
+    "sku": "PREMIER-NUTRICAO-CLINICA-OBESIDADE-2KG",
+    "nome": "Premier Nutrição Clínica Obesidade 2 kg",
+    "marca": "Premier",
+    "nomeBanco": "Premier Nutrição Clínica Obesidade 2 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-FRANGO-1KG",
+    "nome": "Golden Mini Bits Frango 1 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Frango 1 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-FRANGO-3KG",
+    "nome": "Golden Mini Bits Frango 3 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Frango 3 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-FRANGO-15KG",
+    "nome": "Golden Mini Bits Frango 15 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Frango 15 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-FILHOTE-CARNE-1KG",
+    "nome": "Golden Mini Bits Filhote Carne 1 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Filhote Carne 1 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-FILHOTE-CARNE-3KG",
+    "nome": "Golden Mini Bits Filhote Carne 3 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Filhote Carne 3 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-FILHOTE-CARNE-10KG",
+    "nome": "Golden Mini Bits Filhote Carne 10 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Filhote Carne 10 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-CARNE-ADULTO-1KG",
+    "nome": "Golden Mini Bits Carne Adulto 1 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Carne Adulto 1 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-CARNE-ADULTO-3KG",
+    "nome": "Golden Mini Bits Carne Adulto 3 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Carne Adulto 3 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-CARNE-ADULTO-15KG",
+    "nome": "Golden Mini Bits Carne Adulto 15 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Carne Adulto 15 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-SALMAO-ADULTO-1KG",
+    "nome": "Golden Mini Bits Salmão Adulto 1 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Salmão Adulto 1 kg"
+  },
+  {
+    "sku": "GOLDEN-MINI-BITS-SALMAO-ADULTO-15KG",
+    "nome": "Golden Mini Bits Salmão Adulto 15 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Mini Bits Salmão Adulto 15 kg"
+  },
+  {
+    "sku": "GOLDEN-SENIOR-MINI-BITS-3KG",
+    "nome": "Golden Sênior Mini Bits 3 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Sênior Mini Bits 3 kg"
+  },
+  {
+    "sku": "GOLDEN-FORMULA-SENIOR-ADULTO-15KG",
+    "nome": "Golden Fórmula Sênior Adulto 15 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Fórmula Sênior Adulto 15 kg"
+  },
+  {
+    "sku": "GOLDEN-POWER-TRAINING-ADULTO-15KG",
+    "nome": "Golden Power Training Adulto 15 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Power Training Adulto 15 kg"
+  },
+  {
+    "sku": "GOLDEN-POWER-TRAINING-FILHOTE-15KG",
+    "nome": "Golden Power Training Filhote 15 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Power Training Filhote 15 kg"
+  },
+  {
+    "sku": "GOLDEN-SELECAO-NATURAL-1KG",
+    "nome": "Golden Seleção Natural 1 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Seleção Natural 1 kg"
+  },
+  {
+    "sku": "GOLDEN-SELECAO-NATURAL-3KG",
+    "nome": "Golden Seleção Natural 3 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Seleção Natural 3 kg"
+  },
+  {
+    "sku": "GOLDEN-SELECAO-NATURAL-10KG",
+    "nome": "Golden Seleção Natural 10 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Seleção Natural 10 kg"
+  },
+  {
+    "sku": "GOLDEN-SELECAO-NATURAL-GATOS-ADULTO-101KG",
+    "nome": "Golden Seleção Natural Gatos Adulto Castrado Abóbora 10,1 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Seleção Natural Gatos Adulto Castrado Abóbora 10,1 kg"
+  },
+  {
+    "sku": "GOLDEN-FILHOTE-GATO-10KG",
+    "nome": "Golden Filhote (Gato) 10 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Filhote (Gato) 10 kg"
+  },
+  {
+    "sku": "GOLDEN-GATO-CASTRADO-FRANGO-10KG",
+    "nome": "Golden Gato Castrado Frango 10 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Gato Castrado Frango 10 kg"
+  },
+  {
+    "sku": "GOLDEN-GATO-CASTRADO-CARNE-10KG",
+    "nome": "Golden Gato Castrado Carne 10 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Gato Castrado Carne 10 kg"
+  },
+  {
+    "sku": "GOLDEN-GATO-CASTRADO-SALMAO-10KG",
+    "nome": "Golden Gato Castrado Salmão 10 kg",
+    "marca": "Golden",
+    "nomeBanco": "Golden Gato Castrado Salmão 10 kg"
+  },
+  {
+    "sku": "FORMULA-FRESH-MEAT-SENIOR-ADULTO-MIN-7KG",
+    "nome": "Formula Natural Fresh Meat Sênior Adulto Mini e Pequeno Cordeiro 7 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Fresh Meat Sênior Adulto Mini e Pequeno Cordeiro 7 kg"
+  },
+  {
+    "sku": "FORMULA-FRESH-MEAT-ADULTO-MINI-E-PEQ-7KG",
+    "nome": "Formula Natural Fresh Meat Adulto Mini e Pequeno 7 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Fresh Meat Adulto Mini e Pequeno 7 kg"
+  },
+  {
+    "sku": "FORMULA-FRESH-MEAT-FILHOTE-MINI-E-PE-7KG",
+    "nome": "Formula Natural Fresh Meat Filhote Mini e Pequeno 7 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Fresh Meat Filhote Mini e Pequeno 7 kg"
+  },
+  {
+    "sku": "FORMULA-FRESH-MEAT-ADULTO-MINI-E-PEQ-500G",
+    "nome": "Formula Natural Fresh Meat Adulto Mini e Pequeno 500 g",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Fresh Meat Adulto Mini e Pequeno 500 g"
+  },
+  {
+    "sku": "FORMULA-FRESH-MEAT-FILHOTE-MINI-E-PE-500G",
+    "nome": "Formula Natural Fresh Meat Filhote Mini e Pequeno 500 g",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Fresh Meat Filhote Mini e Pequeno 500 g"
+  },
+  {
+    "sku": "FORMULA-FRESH-MEAT-GATO-CASTRADO-SAL-7KG",
+    "nome": "Formula Natural Fresh Meat Gato Castrado Salmão 7 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Fresh Meat Gato Castrado Salmão 7 kg"
+  },
+  {
+    "sku": "FORMULA-LIFE-FILHOTE-PORTE-MINI-E-PE-25KG",
+    "nome": "Formula Natural Life Filhote Porte Mini e Pequeno 2,5 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Life Filhote Porte Mini e Pequeno 2,5 kg"
+  },
+  {
+    "sku": "FORMULA-LIFE-ADULTO-PORTE-MINI-E-PEQ-25KG",
+    "nome": "Formula Natural Life Adulto Porte Mini e Pequeno 2,5 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Life Adulto Porte Mini e Pequeno 2,5 kg"
+  },
+  {
+    "sku": "FORMULA-LIFE-FILHOTE-PORTE-MEDIO-E-G-15KG",
+    "nome": "Formula Natural Life Filhote Porte Médio e Grande 15 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Life Filhote Porte Médio e Grande 15 kg"
+  },
+  {
+    "sku": "FORMULA-LIFE-ADULTO-PORTE-MEDIO-E-GR-15KG",
+    "nome": "Formula Natural Life Adulto Porte Médio e Grande 15 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Life Adulto Porte Médio e Grande 15 kg"
+  },
+  {
+    "sku": "FORMULA-LIFE-SENIOR-PORTE-MEDIO-E-GR-15KG",
+    "nome": "Formula Natural Life Sênior Porte Médio e Grande 15 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Life Sênior Porte Médio e Grande 15 kg"
+  },
+  {
+    "sku": "FORMULA-LIFE-SENIOR-PORTE-MINI-E-PEQ-7KG",
+    "nome": "Formula Natural Life Sênior Porte Mini e Pequeno 7 kg",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Life Sênior Porte Mini e Pequeno 7 kg"
+  },
+  {
+    "sku": "FORMULA-VET-CAES-E-GATOS-RECUPERACAO-270G",
+    "nome": "Formula Natural Vet Cães e Gatos Recuperação (Úmida) 270 g",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Vet Cães e Gatos Recuperação (Úmida) 270 g"
+  },
+  {
+    "sku": "FORMULA-RECEITA-CASEIRA-CAES-ADULTO-270G",
+    "nome": "Formula Natural Receita Caseira Cães Adulto Frango 270 g",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Receita Caseira Cães Adulto Frango 270 g"
+  },
+  {
+    "sku": "FORMULA-RECEITA-CASEIRA-CAES-ADULTO-270G-2",
+    "nome": "Formula Natural Receita Caseira Cães Adulto Picaña (Carne) 270 g",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Receita Caseira Cães Adulto Picaña (Carne) 270 g"
+  },
+  {
+    "sku": "FORMULA-RECEITA-CASEIRA-GATOS-ADULTO-100G",
+    "nome": "Formula Natural Receita Caseira Gatos Adulto Carne 100 g",
+    "marca": "Formula Natural",
+    "nomeBanco": "Formula Natural Receita Caseira Gatos Adulto Carne 100 g"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-GATO-A-10KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL GATO ADULTO 10KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL GATO ADULTO 10KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-GATO-A-20KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL GATO ADULTO 20KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL GATO ADULTO 20KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-FILHOT-101KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL FILHOTE 10.1KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL FILHOTE 10.1KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-FILHOT-20KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL FILHOTE 20KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL FILHOTE 20KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-POWER-15KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL POWER TRAINING ADULTOS 15 KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL POWER TRAINING ADULTOS 15 KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-POWER-15KG-2",
+    "nome": "Bino BINO PREMIUM ESPECIAL POWER TRAINING FILHOTES 15 KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL POWER TRAINING FILHOTES 15 KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-RACAS-20KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL RAÇAS MINI E PEQUENAS 20KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL RAÇAS MINI E PEQUENAS 20KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-RACAS-101KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL RAÇAS MINI E PEQUENAS 10.1KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL RAÇAS MINI E PEQUENAS 10.1KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-TODAS-15KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL TODAS AS RACAS MEDIAS E GRANDES 15 KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL TODAS AS RACAS MEDIAS E GRANDES 15 KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-TODAS-101KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL TODAS AS RAÇAS MEDIAS E GRANDES 10.1KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL TODAS AS RAÇAS MEDIAS E GRANDES 10.1KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-ESPECIAL-TODAS-20KG",
+    "nome": "Bino BINO PREMIUM ESPECIAL TODAS AS RAÇAS MEDIAS E GRANDES 20KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM ESPECIAL TODAS AS RAÇAS MEDIAS E GRANDES 20KG"
+  },
+  {
+    "sku": "BINO-BINO-PREMIUM-TODAS-AS-RACAS-15KG",
+    "nome": "Bino BINO PREMIUM TODAS AS RACAS ESSENCIAL 15 KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO PREMIUM TODAS AS RACAS ESSENCIAL 15 KG"
+  },
+  {
+    "sku": "BINO-BINO-SENIOR-CORDEIRO-10KG",
+    "nome": "Bino BINO SENIOR CORDEIRO 10KG",
+    "marca": "Bino",
+    "nomeBanco": "Bino BINO SENIOR CORDEIRO 10KG"
+  },
+  {
+    "sku": "N-D-ND-ANCESTRAL-FELINE-CORDEIRO-15KG",
+    "nome": "N\\u0026D ND ANCESTRAL FELINE CORDEIRO 1,5KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND ANCESTRAL FELINE CORDEIRO 1,5KG"
+  },
+  {
+    "sku": "N-D-ND-ANCESTRAL-FELINE-FRANGO-15KG",
+    "nome": "N\\u0026D ND ANCESTRAL FELINE FRANGO 1,5KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND ANCESTRAL FELINE FRANGO 1,5KG"
+  },
+  {
+    "sku": "N-D-ND-ANCESTRAL-FRAN-ROMA-PUPPY-25KG",
+    "nome": "N\\u0026D ND ANCESTRAL FRAN/ROMA PUPPY MED. 2,5KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND ANCESTRAL FRAN/ROMA PUPPY MED. 2,5KG"
+  },
+  {
+    "sku": "N-D-ND-ANCESTRAL-FRAN-ROMA-PUPPY-25KG-2",
+    "nome": "N\\u0026D ND ANCESTRAL FRAN/ROMA PUPPY MINI 2,5KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND ANCESTRAL FRAN/ROMA PUPPY MINI 2,5KG"
+  },
+  {
+    "sku": "N-D-ND-ANCESTRAL-SELECTION-AD-ME-15KG",
+    "nome": "N\\u0026D ND ANCESTRAL SELECTION AD. MEDIUM BREEDS 15KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND ANCESTRAL SELECTION AD. MEDIUM BREEDS 15KG"
+  },
+  {
+    "sku": "N-D-ND-ANCESTRAL-SELECTION-AD-MA-15KG",
+    "nome": "N\\u0026D ND ANCESTRAL SELECTION AD. MAXI 15KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND ANCESTRAL SELECTION AD. MAXI 15KG"
+  },
+  {
+    "sku": "N-D-ND-BROWN-CANINE-ADULT-MINI-2KG",
+    "nome": "N\\u0026D ND BROWN CANINE ADULT MINI 2KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND BROWN CANINE ADULT MINI 2KG"
+  },
+  {
+    "sku": "N-D-ND-OCEAN-SALMAO-ADULT-MINI-800G",
+    "nome": "N\\u0026D ND OCEAN SALMAO ADULT MINI 800G",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND OCEAN SALMAO ADULT MINI 800G"
+  },
+  {
+    "sku": "N-D-ND-TROPICAL-CORDEIRO-AD-MINI-205KG",
+    "nome": "N\\u0026D ND TROPICAL CORDEIRO AD. MINI 2+0,5KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND TROPICAL CORDEIRO AD. MINI 2+0,5KG"
+  },
+  {
+    "sku": "N-D-ND-TROPICAL-CORDEIRO-PUPPY-M-205KG",
+    "nome": "N\\u0026D ND TROPICAL CORDEIRO PUPPY MINI 2+0,5KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND TROPICAL CORDEIRO PUPPY MINI 2+0,5KG"
+  },
+  {
+    "sku": "N-D-ND-TROPICAL-FELINE-ADULTO-FR-15KG",
+    "nome": "N\\u0026D ND TROPICAL FELINE ADULTO FRANGO 1,5KG",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND TROPICAL FELINE ADULTO FRANGO 1,5KG"
+  },
+  {
+    "sku": "N-D-ND-TROPICAL-FELINE-ADULTO-FR-400G",
+    "nome": "N\\u0026D ND TROPICAL FELINE ADULTO FRANGO 400G",
+    "marca": "N\\u0026D",
+    "nomeBanco": "N&D ND TROPICAL FELINE ADULTO FRANGO 400G"
+  },
+  {
+    "sku": "GRAN-NAT-GRAN-NATURE-8KG",
+    "nome": "Gran Nature GRAN NATURE 8 KG",
+    "marca": "Gran Nature",
+    "nomeBanco": "Gran Nature GRAN NATURE 8 KG"
+  },
+  {
+    "sku": "GRAN-NAT-MOLHO-GRAN-NATURE-250G",
+    "nome": "Gran Nature MOLHO GRAN NATURE 250G",
+    "marca": "Gran Nature",
+    "nomeBanco": "Gran Nature MOLHO GRAN NATURE 250G"
+  },
+  {
+    "sku": "GRAN-NAT-TAPETE-HIGIENICO-GRAN-NATURE-30UND",
+    "nome": "Gran Nature TAPETE HIGIENICO GRAN NATURE 30 UND",
+    "marca": "Gran Nature",
+    "nomeBanco": "Gran Nature TAPETE HIGIENICO GRAN NATURE 30 UND"
+  },
+  {
+    "sku": "GRAN-NAT-TAPETE-HIGIENICO-GRAN-NATURE-7UNIDAD",
+    "nome": "Gran Nature TAPETE HIGIENICO GRAN NATURE 7 UNIDADES",
+    "marca": "Gran Nature",
+    "nomeBanco": "Gran Nature TAPETE HIGIENICO GRAN NATURE 7 UNIDADES"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-ESPECIAL-FIL-1KG",
+    "nome": "Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 1KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 1KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-ESPECIAL-FIL-3KG",
+    "nome": "Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 3KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 3KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-ESPECIAL-FIL-15KG",
+    "nome": "Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 15KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 15KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-ESPECIAL-FRA-1KG",
+    "nome": "Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 1KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 1KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-ESPECIAL-FRA-3KG",
+    "nome": "Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 3KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 3KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-ESPECIAL-FRA-15KG",
+    "nome": "Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 15KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 15KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-ESPECIAL-CAR-15KG",
+    "nome": "Bob Dog BOB DOG PREMIUM ESPECIAL CARNE E FRANGO 15KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM ESPECIAL CARNE E FRANGO 15KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-ESPECIAL-FRA-15KG-2",
+    "nome": "Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ 15KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ 15KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-FRANGO-7KG",
+    "nome": "Bob Dog BOB DOG PREMIUM FRANGO 7KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM FRANGO 7KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-FRANGO-15KG",
+    "nome": "Bob Dog BOB DOG PREMIUM FRANGO 15KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM FRANGO 15KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-GOURMET-1KG",
+    "nome": "Bob Dog BOB DOG PREMIUM GOURMET 1KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM GOURMET 1KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-GOURMET-7KG",
+    "nome": "Bob Dog BOB DOG PREMIUM GOURMET 7KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM GOURMET 7KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-GOURMET-15KG",
+    "nome": "Bob Dog BOB DOG PREMIUM GOURMET 15KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM GOURMET 15KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-GOURMET-25KG",
+    "nome": "Bob Dog BOB DOG PREMIUM GOURMET 25KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM GOURMET 25KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-JUNIOR-1KG",
+    "nome": "Bob Dog BOB DOG PREMIUM JUNIOR 1KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM JUNIOR 1KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-JUNIOR-7KG",
+    "nome": "Bob Dog BOB DOG PREMIUM JUNIOR 7KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM JUNIOR 7KG"
+  },
+  {
+    "sku": "BOB-DOG-BOB-DOG-PREMIUM-JUNIOR-15KG",
+    "nome": "Bob Dog BOB DOG PREMIUM JUNIOR 15KG",
+    "marca": "Bob Dog",
+    "nomeBanco": "Bob Dog BOB DOG PREMIUM JUNIOR 15KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-FRANGO-1KG",
+    "nome": "Catsy CATSY PREMIUM FRANGO 1KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM FRANGO 1KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-FRANGO-10KG",
+    "nome": "Catsy CATSY PREMIUM FRANGO 10KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM FRANGO 10KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-ESPECIAL-GOLD-1KG",
+    "nome": "Catsy CATSY PREMIUM ESPECIAL GOLD FILHOTE 1KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM ESPECIAL GOLD FILHOTE 1KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-ESPECIAL-GOLD-10KG",
+    "nome": "Catsy CATSY PREMIUM ESPECIAL GOLD FILHOTE 10KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM ESPECIAL GOLD FILHOTE 10KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-ESPECIAL-GOLD-1KG-2",
+    "nome": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO 1KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO 1KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-ESPECIAL-GOLD-10KG-2",
+    "nome": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO 10KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO 10KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-ESPECIAL-GOLD-1KG-3",
+    "nome": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 1KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 1KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-ESPECIAL-GOLD-3KG",
+    "nome": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 3KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 3KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-ESPECIAL-GOLD-10KG-3",
+    "nome": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 10KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 10KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-ESPECIAL-GOLD-1KG-4",
+    "nome": "Catsy CATSY PREMIUM ESPECIAL GOLD SALMÃO 1KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM ESPECIAL GOLD SALMÃO 1KG"
+  },
+  {
+    "sku": "CATSY-CATSY-PREMIUM-ESPECIAL-GOLD-3KG-2",
+    "nome": "Catsy CATSY PREMIUM ESPECIAL GOLD SALMÃO 3KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATSY PREMIUM ESPECIAL GOLD SALMÃO 3KG"
+  },
+  {
+    "sku": "CATSY-CATYS-PREMIUM-ESPECIAL-GOLD-10KG",
+    "nome": "Catsy CATYS PREMIUM ESPECIAL GOLD SALMÃO 10KG",
+    "marca": "Catsy",
+    "nomeBanco": "Catsy CATYS PREMIUM ESPECIAL GOLD SALMÃO 10KG"
+  }
+]

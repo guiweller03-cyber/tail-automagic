@@ -2,6 +2,8 @@
 // 20260616120000_crm_followups.sql). Mesmo padrao REST/PostgREST usado em
 // campanhas-supabase.ts e financeiro-supabase.ts.
 
+import { requireSupabaseServerKey } from "./server-env";
+
 export type FollowupModo = "manual" | "ia";
 export type FollowupDisparo = "automatico" | "confirmar";
 export type FollowupStatus =
@@ -77,7 +79,7 @@ function supabaseUrl(path: string): string {
 }
 
 function supabaseHeaders(prefer?: string): HeadersInit {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || requireEnv("SUPABASE_ANON_KEY");
+  const key = requireSupabaseServerKey();
   return {
     apikey: key,
     authorization: `Bearer ${key}`,

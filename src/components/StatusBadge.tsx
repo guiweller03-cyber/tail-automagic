@@ -11,6 +11,7 @@ const map: Record<string, string> = {
   concluída: "bg-success/15 text-success",
   IA: "bg-primary/15 text-primary",
   Humano: "bg-secondary text-foreground",
+  "Humano + IA": "bg-primary/15 text-primary",
   Aguardando: "bg-accent/15 text-accent",
   VIP: "bg-accent/15 text-accent",
   Premium: "bg-primary/15 text-primary",

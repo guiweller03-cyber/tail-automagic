@@ -8,7 +8,10 @@ export const Route = createFileRoute("/api/referrals/validate")({
       POST: async ({ request }) => {
         const body = (await request.json()) as { referral_code?: string; user_id?: string };
         if (!body.referral_code?.trim() || !body.user_id?.trim()) {
-          return Response.json({ valid: false, error: "referral_code e user_id sao obrigatorios" }, { status: 400 });
+          return Response.json(
+            { valid: false, error: "referral_code e user_id sao obrigatorios" },
+            { status: 400 },
+          );
         }
 
         const result = await validarReferralCode(body.referral_code, body.user_id);

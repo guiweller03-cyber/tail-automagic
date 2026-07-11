@@ -9,7 +9,10 @@ export const Route = createFileRoute("/api/referrals/my-code")({
         const url = new URL(request.url);
         const userId = url.searchParams.get("user_id");
         if (!userId) {
-          return Response.json({ ok: false, erro: "user_id obrigatorio nesta aplicacao" }, { status: 400 });
+          return Response.json(
+            { ok: false, erro: "user_id obrigatorio nesta aplicacao" },
+            { status: 400 },
+          );
         }
 
         const referral_code = await garantirReferralCode(

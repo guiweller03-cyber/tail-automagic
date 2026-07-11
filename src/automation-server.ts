@@ -2,9 +2,6 @@ import http from "node:http";
 
 import { processarWebhookMercadoPago } from "./routes/api/webhook.pagamento";
 import { processarWebhookWhatsapp, type UazapiWebhook } from "./routes/api/webhook.whatsapp";
-import { processarFollowupsVencidos } from "./lib/followups-runner";
-
-const FOLLOWUP_POLL_MS = Number(process.env.FOLLOWUP_POLL_MS ?? 60_000);
 
 const port = Number(process.env.PORT ?? 3001);
 const requiredEnv = [
@@ -116,40 +113,11 @@ http
     if (missingEnv.length > 0) {
       console.warn("Variaveis obrigatorias ausentes:", missingEnv.join(", "));
     }
-    iniciarAgendadorFollowups();
   });
 
-/**
- * Agendador de follow-ups: a cada minuto varre os follow-ups pendentes ja
- * vencidos. Os de disparo automatico sao enviados; os de confirmacao ficam
- * prontos (com texto gerado pela IA quando preciso) aguardando o operador.
- * Um guard evita execucoes sobrepostas se um ciclo demorar.
- */
-function iniciarAgendadorFollowups() {
-  let rodando = false;
-
-  const tick = async () => {
-    if (rodando) return;
-    rodando = true;
-    try {
-      const resultado = await processarFollowupsVencidos();
-      if (resultado.total > 0) {
-        console.log(
-          `[followups] ${resultado.total} vencidos: ${resultado.enviados} enviados, ` +
-            `${resultado.aguardando} aguardando confirmacao, ${resultado.erros} erros`,
-        );
-      }
-    } catch (error) {
-      console.error(
-        "[followups] erro no ciclo:",
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      rodando = false;
-    }
-  };
-
-  setInterval(() => void tick(), FOLLOWUP_POLL_MS).unref();
-  void tick();
-  console.log(`Agendador de follow-ups ativo (a cada ${Math.round(FOLLOWUP_POLL_MS / 1000)}s)`);
-}
+// O agendador de follow-ups roda em processo pm2 separado: ./followups-worker.mjs
+// (sem imports de "./" / "@/", roda em Node puro). Foi tirado daqui porque esse
+// servidor importa webhook.whatsapp.ts, que usa aliases "@/lib/..." que so
+// resolvem via tsx/Vite — em alguns setups de VPS isso falhava silenciosamente e
+// o agendador embutido aqui nunca rodava. Ver followups-worker.mjs para detalhes
+// e o comando de start via pm2.

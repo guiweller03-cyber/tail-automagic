@@ -5,10 +5,10 @@ export type CategoriaRegra = {
   id: string;
   nome: string;
   emoji: string;
-  percentual: number;     // % de pontos sobre o valor da compra do indicado
+  percentual: number; // % de pontos sobre o valor da compra do indicado
   ativo: boolean;
-  limiteMax: number;      // teto em pontos por compra (0 = sem limite)
-  validadeDias: number;   // validade dos pontos gerados
+  limiteMax: number; // teto em pontos por compra (0 = sem limite)
+  validadeDias: number; // validade dos pontos gerados
 };
 
 export type ItemCompra = {
@@ -20,13 +20,13 @@ export type ItemCompra = {
 
 export type CompraIndicado = {
   id: string;
-  indicadorId: string;     // cliente que indicou
-  indicadoNome: string;    // amigo indicado
+  indicadorId: string; // cliente que indicou
+  indicadoNome: string; // amigo indicado
   indicadoTelefone?: string;
-  data: string;            // "há 2 dias"
+  data: string; // "há 2 dias"
   itens: ItemCompra[];
-  descontoAplicado?: boolean;  // 10% OFF aplicado na 1ª compra
-  dataDesconto?: string;       // ISO ou data legível
+  descontoAplicado?: boolean; // 10% OFF aplicado na 1ª compra
+  dataDesconto?: string; // ISO ou data legível
   primeiraCompra?: boolean;
 };
 
@@ -46,8 +46,7 @@ export const comprasIniciais: CompraIndicado[] = [];
 export const campanhasIniciais: CampanhaTemp[] = [];
 
 // ── Cálculos ──
-export const brl = (n: number) =>
-  n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+export const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export function totalCompra(c: CompraIndicado): number {
   return c.itens.reduce((s, i) => s + i.qtd * i.preco, 0);

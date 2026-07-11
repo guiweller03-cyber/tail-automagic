@@ -1,4 +1,4 @@
-import type { Pedido, FormaPagamento, Produto } from "@/lib/crm-types";
+import type { Cliente, Pedido, FormaPagamento, Produto } from "@/lib/crm-types";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   Plus,
@@ -11,6 +11,7 @@ import {
   Loader2,
   Trash2,
   PackagePlus,
+  Pencil,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -18,13 +19,42 @@ import { dispatchCrmReload, onCrmReload } from "@/lib/crm-refresh";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-const cols: { key: Pedido["status"]; label: string; tint: string; auto?: string; icon?: React.ReactNode }[] = [
+const cols: {
+  key: Pedido["status"];
+  label: string;
+  tint: string;
+  auto?: string;
+  icon?: React.ReactNode;
+}[] = [
   { key: "novo", label: "Novo pedido", tint: "border-t-chart-4" },
-  { key: "pago", label: "Pago", tint: "border-t-primary", auto: "Confirma pagamento", icon: <CheckCircle2 className="size-3" /> },
+  {
+    key: "pago",
+    label: "Pago",
+    tint: "border-t-primary",
+    auto: "Confirma pagamento",
+    icon: <CheckCircle2 className="size-3" />,
+  },
   { key: "separando", label: "Separando", tint: "border-t-accent" },
-  { key: "em rota", label: "Em rota", tint: "border-t-chart-2", auto: "Avisa cliente", icon: <Truck className="size-3" /> },
-  { key: "entregue", label: "Entregue", tint: "border-t-success", auto: "Pós-venda + upsell", icon: <Sparkles className="size-3" /> },
-  { key: "cancelado", label: "Cancelado", tint: "border-t-destructive", icon: <X className="size-3" /> },
+  {
+    key: "em rota",
+    label: "Em rota",
+    tint: "border-t-chart-2",
+    auto: "Avisa cliente",
+    icon: <Truck className="size-3" />,
+  },
+  {
+    key: "entregue",
+    label: "Entregue",
+    tint: "border-t-success",
+    auto: "Pós-venda + upsell",
+    icon: <Sparkles className="size-3" />,
+  },
+  {
+    key: "cancelado",
+    label: "Cancelado",
+    tint: "border-t-destructive",
+    icon: <X className="size-3" />,
+  },
 ];
 
 const FORMAS: FormaPagamento[] = ["Pix", "Cartão débito", "Cartão crédito", "Dinheiro", "Pendente"];
@@ -37,6 +67,7 @@ type NovoPedidoItem = {
   quantidade: number;
   preco: number;
   precoCompra: number;
+  petNome?: string | null;
 };
 
 type NovoPedidoForm = {
@@ -75,10 +106,55 @@ function parseMoney(value: string): number {
   return Number(value.replace(/\./g, "").replace(",", ".")) || 0;
 }
 
+function telefoneDigits(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function clienteCombinaPedido(cliente: Cliente, valorBusca: string, exact = false): boolean {
+  const termo = normalizarBusca(valorBusca);
+  const digits = telefoneDigits(valorBusca);
+  const nome = normalizarBusca(cliente.nome);
+  const telefone = telefoneDigits(cliente.telefone);
+
+  if (exact) {
+    return (termo.length > 0 && nome === termo) || (digits.length > 0 && telefone === digits);
+  }
+
+  return (
+    (termo.length > 0 && nome.includes(termo)) || (digits.length > 0 && telefone.includes(digits))
+  );
+}
+
+function petsDoCliente(cliente?: Cliente): string[] {
+  if (!cliente) return [];
+
+  const nomes = new Map<string, string>();
+
+  for (const pet of cliente.petsDetalhes ?? []) {
+    if (pet.nome.trim()) nomes.set(pet.nome.trim().toLowerCase(), pet.nome.trim());
+  }
+
+  for (const pet of cliente.pets) {
+    if (pet.trim()) nomes.set(pet.trim().toLowerCase(), pet.trim());
+  }
+
+  return Array.from(nomes.values());
+}
+
+function novoPedidoItemKey(item: Pick<NovoPedidoItem, "sku" | "petNome">): string {
+  return `${item.sku}::${item.petNome?.trim().toLowerCase() ?? ""}`;
+}
+
+function petNomeLimpo(value?: string | null): string {
+  return value?.trim() ?? "";
+}
+
 function PagamentoBadges({ p }: { p: Pedido }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1.5">
-      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${p.pago ? "bg-success/15 text-success" : p.pagamento === "Dinheiro" ? "bg-accent/15 text-accent" : "bg-amber-500/15 text-amber-600"}`}>
+      <span
+        className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${p.pago ? "bg-success/15 text-success" : p.pagamento === "Dinheiro" ? "bg-accent/15 text-accent" : "bg-amber-500/15 text-amber-600"}`}
+      >
         {p.pago ? "✅ Pago" : p.pagamento === "Dinheiro" ? "💵 Dinheiro na entrega" : "⏳ Pendente"}
       </span>
       {(p.pagamento === "Cartão crédito" || p.pagamento === "Cartão débito") && (
@@ -87,9 +163,15 @@ function PagamentoBadges({ p }: { p: Pedido }) {
         </span>
       )}
       {p.pagamento === "Pix" && !p.pago && !p.comprovante && (
-        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-destructive/15 text-destructive">⚠️ Sem comprovante</span>
+        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-destructive/15 text-destructive">
+          ⚠️ Sem comprovante
+        </span>
       )}
-      {p.notaFiscal && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">NF</span>}
+      {p.notaFiscal && (
+        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
+          NF
+        </span>
+      )}
     </div>
   );
 }
@@ -106,9 +188,11 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
   const [statusFiltro, setStatusFiltro] = useState<PedidoFiltroStatus>("todos");
   const [pagamentoFiltro, setPagamentoFiltro] = useState<PedidoFiltroPagamento>("todos");
   const [novoAberto, setNovoAberto] = useState(false);
+  const [editandoPedido, setEditandoPedido] = useState<Pedido | null>(null);
   const [novo, setNovo] = useState<NovoPedidoForm>(() => emptyNovoPedidoForm());
   const [novoItens, setNovoItens] = useState<NovoPedidoItem[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [produtoBusca, setProdutoBusca] = useState("");
   const [carregandoProdutos, setCarregandoProdutos] = useState(false);
   const [salvandoNovo, setSalvandoNovo] = useState(false);
@@ -121,7 +205,8 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
       const texto = normalizarBusca(
         [pedido.id, pedido.cliente, pedido.pet, pedido.bairro, pedido.pagamento].join(" "),
       );
-      const matchesBusca = !termo || texto.includes(termo) || (digits && pedido.id.includes(digits));
+      const matchesBusca =
+        !termo || texto.includes(termo) || (digits && pedido.id.includes(digits));
       const matchesStatus = statusFiltro === "todos" || pedido.status === statusFiltro;
       const matchesPagamento =
         pagamentoFiltro === "todos" ||
@@ -141,13 +226,26 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
   const produtosFiltrados = useMemo(() => {
     const termo = normalizarBusca(produtoBusca);
     return produtos
-      .filter((produto) => produto.estoque > 0)
+      .filter((produto) => produto.estoque > 0 && produto.preco > 0)
       .filter((produto) => {
         if (!termo) return true;
-        return normalizarBusca([produto.sku, produto.nome, produto.categoria].join(" ")).includes(termo);
+        return normalizarBusca([produto.sku, produto.nome, produto.categoria].join(" ")).includes(
+          termo,
+        );
       })
       .slice(0, 8);
   }, [produtoBusca, produtos]);
+  const clienteSelecionado = useMemo(
+    () =>
+      clientes.find((clienteAtual) => clienteCombinaPedido(clienteAtual, novo.nome, true)) ??
+      clientes.find((clienteAtual) => clienteCombinaPedido(clienteAtual, novo.telefone, true)) ??
+      clientes.find((clienteAtual) => clienteCombinaPedido(clienteAtual, novo.nome)),
+    [clientes, novo.nome, novo.telefone],
+  );
+  const petsClienteSelecionado = useMemo(
+    () => petsDoCliente(clienteSelecionado),
+    [clienteSelecionado],
+  );
 
   useEffect(() => {
     setItems(pedidosIniciais);
@@ -155,15 +253,19 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
 
   useEffect(() => {
     return onCrmReload(() => {
-      void carregarPedidos().then(setItems).catch(() => {
-        toast.error("Nao foi possivel atualizar os pedidos");
-      });
+      void carregarPedidos()
+        .then(setItems)
+        .catch(() => {
+          toast.error("Nao foi possivel atualizar os pedidos");
+        });
     });
   }, []);
 
   useEffect(() => {
     if (!confirmPago) return;
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setConfirmPago(null); };
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfirmPago(null);
+    };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [confirmPago]);
@@ -220,10 +322,20 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
   async function move(status: Pedido["status"]) {
     if (!drag) return;
     const p = items.find((i) => i.id === drag);
-    if (!p || p.status === status) { setDrag(null); return; }
-    if (salvandoStatus) { setDrag(null); return; }
+    if (!p || p.status === status) {
+      setDrag(null);
+      return;
+    }
+    if (salvandoStatus) {
+      setDrag(null);
+      return;
+    }
     if (status === "pago" && !p.pago) {
-      setForma(p.pagamento === "Pendente" ? "Pix" : p.pagamento);
+      setForma(
+        p.pagamento !== "Pendente" && FORMAS.includes(p.pagamento as FormaPagamento)
+          ? (p.pagamento as FormaPagamento)
+          : "Pix",
+      );
       setComprovante(p.comprovante);
       setConfirmPago({ pedido: p });
       setDrag(null);
@@ -242,14 +354,19 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
 
   async function abrirNovoPedido() {
     setNovoAberto(true);
-    if (produtos.length > 0 || carregandoProdutos) return;
+    if ((produtos.length > 0 && clientes.length > 0) || carregandoProdutos) return;
 
     setCarregandoProdutos(true);
     try {
-      const response = await fetch("/api/crm/produtos", { cache: "no-store" });
-      const data = await response.json().catch(() => []);
-      if (!response.ok) throw new Error("Nao foi possivel carregar os produtos");
-      setProdutos(Array.isArray(data) ? data : []);
+      const [produtosResponse, clientesResponse] = await Promise.all([
+        fetch("/api/crm/produtos", { cache: "no-store" }),
+        fetch("/api/crm/clientes", { cache: "no-store" }),
+      ]);
+      const produtosData = await produtosResponse.json().catch(() => []);
+      const clientesData = await clientesResponse.json().catch(() => []);
+      if (!produtosResponse.ok) throw new Error("Nao foi possivel carregar os produtos");
+      setProdutos(Array.isArray(produtosData) ? produtosData : []);
+      setClientes(Array.isArray(clientesData) ? clientesData : []);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Nao foi possivel carregar os produtos");
     } finally {
@@ -257,12 +374,29 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
     }
   }
 
+  function aplicarClientePedido(clienteAtual: Cliente) {
+    const pets = petsDoCliente(clienteAtual);
+
+    setNovo((current) => ({
+      ...current,
+      nome: clienteAtual.nome,
+      telefone: clienteAtual.telefone,
+      bairro: clienteAtual.bairro,
+      pet: current.pet && pets.includes(current.pet) ? current.pet : pets[0] || current.pet,
+    }));
+  }
+
   function addProduto(produto: Produto) {
     setNovoItens((current) => {
-      const exists = current.find((item) => item.sku === produto.sku);
+      const petNome = petNomeLimpo(novo.pet || petsClienteSelecionado[0]) || null;
+      const exists = current.find(
+        (item) => item.sku === produto.sku && petNomeLimpo(item.petNome) === petNomeLimpo(petNome),
+      );
       if (exists) {
         return current.map((item) =>
-          item.sku === produto.sku ? { ...item, quantidade: item.quantidade + 1 } : item,
+          novoPedidoItemKey(item) === novoPedidoItemKey(exists)
+            ? { ...item, quantidade: item.quantidade + 1 }
+            : item,
         );
       }
 
@@ -274,31 +408,89 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
           quantidade: 1,
           preco: produto.preco,
           precoCompra: produto.precoCompra,
+          petNome,
         },
       ];
     });
     setNovo((current) => ({ ...current, total: "" }));
   }
 
-  function changeItemQuantidade(sku: string, delta: number) {
+  function changeItemQuantidade(itemAtual: NovoPedidoItem, delta: number) {
     setNovoItens((current) =>
       current.flatMap((item) => {
-        if (item.sku !== sku) return [item];
+        if (novoPedidoItemKey(item) !== novoPedidoItemKey(itemAtual)) return [item];
         const quantidade = item.quantidade + delta;
         return quantidade <= 0 ? [] : [{ ...item, quantidade }];
       }),
     );
   }
 
+  function alterarPetNovoItem(itemAtual: NovoPedidoItem, petNome: string) {
+    setNovoItens((current) => {
+      const origemKey = novoPedidoItemKey(itemAtual);
+      const proximoPet = petNomeLimpo(petNome) || null;
+      let movido: NovoPedidoItem | null = null;
+      const restantes: NovoPedidoItem[] = [];
+
+      for (const item of current) {
+        if (!movido && novoPedidoItemKey(item) === origemKey) {
+          movido = { ...item, petNome: proximoPet };
+        } else {
+          restantes.push(item);
+        }
+      }
+
+      if (!movido) return current;
+
+      const destinoKey = novoPedidoItemKey(movido);
+      const destinoIndex = restantes.findIndex((item) => novoPedidoItemKey(item) === destinoKey);
+      if (destinoIndex >= 0) {
+        return restantes.map((item, index) =>
+          index === destinoIndex
+            ? { ...item, quantidade: item.quantidade + movido!.quantidade }
+            : item,
+        );
+      }
+
+      return [...restantes, movido];
+    });
+  }
+
+  function abrirEditarPedido(pedido: Pedido) {
+    setEditandoPedido(pedido);
+    setNovo({
+      nome: pedido.cliente,
+      telefone: pedido.telefone ?? "",
+      bairro: pedido.bairro,
+      pet: pedido.pet,
+      formaPagamento: FORMAS.includes(pedido.pagamento as FormaPagamento)
+        ? (pedido.pagamento as FormaPagamento)
+        : "Pendente",
+      pago: pedido.pago,
+      total: pedido.total.toLocaleString("pt-BR", { minimumFractionDigits: 2 }),
+      observacao: pedido.observacao ?? "",
+      cupomCodigo: "",
+    });
+    setNovoItens([]);
+    setProdutoBusca("");
+    setNovoAberto(true);
+  }
+
   function fecharNovoPedido() {
     if (salvandoNovo) return;
     setNovoAberto(false);
+    setEditandoPedido(null);
     setProdutoBusca("");
   }
 
-  async function criarNovoPedido() {
+  async function salvarPedidoForm() {
     const nome = novo.nome.trim();
     const total = totalNovo;
+    const petPedido =
+      novo.pet.trim() ||
+      novoItens.find((item) => item.petNome)?.petNome ||
+      petsClienteSelecionado[0] ||
+      "";
 
     if (!nome) {
       toast.error("Informe o nome do cliente");
@@ -312,14 +504,16 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
 
     setSalvandoNovo(true);
     try {
+      const editando = editandoPedido !== null;
       const response = await fetch("/api/crm/pedidos", {
-        method: "POST",
+        method: editando ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id: editandoPedido?.id,
           nome,
           telefone: novo.telefone,
           bairro: novo.bairro,
-          pet: novo.pet,
+          pet: petPedido,
           formaPagamento: novo.formaPagamento,
           pago: novo.pago,
           total,
@@ -331,26 +525,62 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
             quantidade: item.quantidade,
             preco: item.preco,
             precoCompra: item.precoCompra,
+            petNome: item.petNome || petPedido || null,
           })),
         }),
       });
       const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (!response.ok) {
-        throw new Error(typeof data.erro === "string" ? data.erro : "Nao foi possivel criar o pedido");
+        throw new Error(
+          typeof data.erro === "string" ? data.erro : "Nao foi possivel salvar o pedido",
+        );
       }
 
       const pedido = normalizarPedido(data);
-      setItems((current) => [pedido, ...current.filter((item) => item.id !== pedido.id)]);
+      setItems((current) =>
+        editando
+          ? current.map((item) => (item.id === pedido.id ? pedido : item))
+          : [pedido, ...current.filter((item) => item.id !== pedido.id)],
+      );
       setNovo(emptyNovoPedidoForm());
       setNovoItens([]);
       setProdutoBusca("");
       setNovoAberto(false);
+      setEditandoPedido(null);
       dispatchCrmReload();
-      toast.success("Pedido criado");
+      toast.success(editando ? "Pedido atualizado" : "Pedido criado");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Erro ao criar pedido");
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar pedido");
     } finally {
       setSalvandoNovo(false);
+    }
+  }
+
+  async function apagarPedido(pedido: Pedido) {
+    if (!window.confirm(`Apagar o pedido ${pedido.id} de ${pedido.cliente}?`)) return;
+
+    const anteriores = items;
+    setItems((current) => current.filter((item) => item.id !== pedido.id));
+    setSalvandoStatus(pedido.id);
+
+    try {
+      const response = await fetch("/api/crm/pedidos", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: pedido.id }),
+      });
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok) {
+        throw new Error(typeof data.erro === "string" ? data.erro : "Nao foi possivel apagar");
+      }
+
+      dispatchCrmReload();
+      toast.success("Pedido apagado");
+    } catch (error) {
+      setItems(anteriores);
+      toast.error(error instanceof Error ? error.message : "Erro ao apagar pedido");
+    } finally {
+      setSalvandoStatus(null);
     }
   }
 
@@ -359,7 +589,9 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Pedidos</h1>
-          <p className="text-sm text-muted-foreground">Arraste entre colunas — automações disparam ao mover</p>
+          <p className="text-sm text-muted-foreground">
+            Arraste entre colunas — automações disparam ao mover
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -395,7 +627,9 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
           >
             <option value="todos">Todos os status</option>
             {cols.map((col) => (
-              <option key={col.key} value={col.key}>{col.label}</option>
+              <option key={col.key} value={col.key}>
+                {col.label}
+              </option>
             ))}
           </select>
           <select
@@ -407,7 +641,9 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
             <option value="Pago">Pago</option>
             <option value="Pendente">Pendente</option>
             {FORMAS.filter((formaItem) => formaItem !== "Pendente").map((formaItem) => (
-              <option key={formaItem} value={formaItem}>{formaItem}</option>
+              <option key={formaItem} value={formaItem}>
+                {formaItem}
+              </option>
             ))}
           </select>
           <button
@@ -423,7 +659,7 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="flex gap-3 overflow-x-auto pb-3 lg:grid lg:grid-cols-3 xl:grid-cols-6">
         {cols.map((col) => {
           const list = filteredItems.filter((p) => p.status === col.key);
           const total = list.reduce((s, i) => s + i.total, 0);
@@ -432,12 +668,14 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
               key={col.key}
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => void move(col.key)}
-              className={`bg-secondary/40 rounded-2xl p-3 min-h-[320px] border-t-4 ${col.tint} flex flex-col`}
+              className={`bg-secondary/40 rounded-2xl p-3 min-h-[320px] min-w-[260px] lg:min-w-0 shrink-0 border-t-4 ${col.tint} flex flex-col`}
             >
               <div className="flex items-center justify-between px-1 pb-2.5">
                 <div className="flex items-center gap-1.5">
                   <span className="font-semibold text-sm">{col.label}</span>
-                  <span className="text-[10px] font-bold size-5 grid place-items-center rounded-md bg-card text-muted-foreground">{list.length}</span>
+                  <span className="text-[10px] font-bold size-5 grid place-items-center rounded-md bg-card text-muted-foreground">
+                    {list.length}
+                  </span>
                 </div>
                 <span className="text-[10px] font-bold text-success">{brl(total)}</span>
               </div>
@@ -453,15 +691,50 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                     draggable={!salvandoStatus}
                     onDragStart={() => setDrag(p.id)}
                     onDragEnd={() => setDrag(null)}
-                    className={`card-soft p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition touch-none ${drag === p.id ? "opacity-40" : ""}`}
+                    className={`card-soft p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition lg:touch-none ${drag === p.id ? "opacity-40" : ""}`}
                   >
                     <div className="flex justify-between items-start">
-                      <span className="font-mono text-[11px] font-semibold text-muted-foreground">{p.id}</span>
-                      <span className="text-[10px] text-muted-foreground">{p.hora}</span>
+                      <span className="font-mono text-[11px] font-semibold text-muted-foreground">
+                        {p.id}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground">{p.hora}</span>
+                        <button
+                          type="button"
+                          title="Editar pedido"
+                          aria-label={`Editar pedido ${p.id}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            abrirEditarPedido(p);
+                          }}
+                          className="size-7 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground grid place-items-center"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Apagar pedido"
+                          aria-label={`Apagar pedido ${p.id}`}
+                          disabled={salvandoStatus === p.id}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void apagarPedido(p);
+                          }}
+                          className="size-7 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 grid place-items-center"
+                        >
+                          {salvandoStatus === p.id ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="size-3.5" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                     <div className="font-semibold text-sm mt-1 truncate">{p.cliente}</div>
                     <div className="text-[11px] text-muted-foreground truncate">{p.pet}</div>
-                    <div className="text-[11px] text-muted-foreground mt-1 truncate">📍 {p.bairro}</div>
+                    <div className="text-[11px] text-muted-foreground mt-1 truncate">
+                      📍 {p.bairro}
+                    </div>
                     <PagamentoBadges p={p} />
                     <div className="flex justify-between items-center mt-2.5 pt-2.5 border-t border-border">
                       <StatusBadge value={p.status} />
@@ -470,7 +743,9 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                   </div>
                 ))}
                 {list.length === 0 && (
-                  <div className="text-center text-[11px] text-muted-foreground py-6 border border-dashed border-border rounded-xl">Solte aqui</div>
+                  <div className="text-center text-[11px] text-muted-foreground py-6 border border-dashed border-border rounded-xl">
+                    Solte aqui
+                  </div>
                 )}
               </div>
             </div>
@@ -483,14 +758,29 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
       </div>
 
       {novoAberto && (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50" onClick={fecharNovoPedido}>
-          <div className="card-soft w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50"
+          onClick={fecharNovoPedido}
+        >
+          <div
+            className="card-soft w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="p-4 border-b border-border flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-semibold inline-flex items-center gap-2">
-                  <PackagePlus className="size-4" /> Novo pedido
+                  {editandoPedido ? (
+                    <Pencil className="size-4" />
+                  ) : (
+                    <PackagePlus className="size-4" />
+                  )}
+                  {editandoPedido ? "Editar pedido" : "Novo pedido"}
                 </h3>
-                <p className="text-xs text-muted-foreground">Registre um pedido manual no CRM</p>
+                <p className="text-xs text-muted-foreground">
+                  {editandoPedido
+                    ? `${editandoPedido.id} · ajuste os dados do pedido`
+                    : "Registre um pedido manual no CRM"}
+                </p>
               </div>
               <button onClick={fecharNovoPedido} className="p-1 rounded-lg hover:bg-secondary">
                 <X className="size-4" />
@@ -502,15 +792,35 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                 <Field label="Cliente">
                   <input
                     value={novo.nome}
-                    onChange={(event) => setNovo((current) => ({ ...current, nome: event.target.value }))}
+                    list="clientes-pedido"
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      const clienteEncontrado = clientes.find((clienteAtual) =>
+                        clienteCombinaPedido(clienteAtual, value, true),
+                      );
+
+                      if (clienteEncontrado) {
+                        aplicarClientePedido(clienteEncontrado);
+                        return;
+                      }
+
+                      setNovo((current) => ({ ...current, nome: value }));
+                    }}
                     className="input-soft h-10 w-full"
                     placeholder="Nome do cliente"
                   />
+                  <datalist id="clientes-pedido">
+                    {clientes.map((clienteAtual) => (
+                      <option key={clienteAtual.id} value={clienteAtual.nome} />
+                    ))}
+                  </datalist>
                 </Field>
                 <Field label="Telefone">
                   <input
                     value={novo.telefone}
-                    onChange={(event) => setNovo((current) => ({ ...current, telefone: event.target.value }))}
+                    onChange={(event) =>
+                      setNovo((current) => ({ ...current, telefone: event.target.value }))
+                    }
                     className="input-soft h-10 w-full"
                     placeholder="WhatsApp ou telefone"
                   />
@@ -518,103 +828,213 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                 <Field label="Bairro">
                   <input
                     value={novo.bairro}
-                    onChange={(event) => setNovo((current) => ({ ...current, bairro: event.target.value }))}
+                    onChange={(event) =>
+                      setNovo((current) => ({ ...current, bairro: event.target.value }))
+                    }
                     className="input-soft h-10 w-full"
                     placeholder="Bairro de entrega"
                   />
                 </Field>
                 <Field label="Pet">
-                  <input
-                    value={novo.pet}
-                    onChange={(event) => setNovo((current) => ({ ...current, pet: event.target.value }))}
-                    className="input-soft h-10 w-full"
-                    placeholder="Nome do pet"
-                  />
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_160px] gap-3">
-                <Field label="Produto do estoque">
-                  <div className="relative">
-                    <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  {petsClienteSelecionado.length > 0 ? (
+                    <select
+                      value={novo.pet || petsClienteSelecionado[0]}
+                      onChange={(event) =>
+                        setNovo((current) => ({ ...current, pet: event.target.value }))
+                      }
+                      className="input-soft h-10 w-full"
+                    >
+                      {petsClienteSelecionado.map((pet) => (
+                        <option key={pet} value={pet}>
+                          {pet}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
                     <input
-                      value={produtoBusca}
-                      onChange={(event) => setProdutoBusca(event.target.value)}
-                      className="input-soft h-10 w-full pl-9"
-                      placeholder="Buscar produto"
+                      value={novo.pet}
+                      onChange={(event) =>
+                        setNovo((current) => ({ ...current, pet: event.target.value }))
+                      }
+                      className="input-soft h-10 w-full"
+                      placeholder="Nome do pet"
                     />
-                  </div>
-                </Field>
-                <Field label="Pagamento">
-                  <select
-                    value={novo.formaPagamento}
-                    onChange={(event) => setNovo((current) => ({ ...current, formaPagamento: event.target.value as FormaPagamento }))}
-                    className="input-soft h-10 w-full"
-                  >
-                    {FORMAS.map((formaItem) => (
-                      <option key={formaItem} value={formaItem}>{formaItem}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Total avulso">
-                  <input
-                    value={novo.total}
-                    onChange={(event) => setNovo((current) => ({ ...current, total: event.target.value }))}
-                    disabled={novoItens.length > 0}
-                    className="input-soft h-10 w-full disabled:opacity-50"
-                    placeholder="0,00"
-                  />
+                  )}
                 </Field>
               </div>
 
-              <div className="rounded-xl border border-border overflow-hidden">
-                <div className="p-3 bg-secondary/60 flex items-center justify-between">
-                  <span className="text-sm font-semibold">Itens</span>
-                  {carregandoProdutos && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-                </div>
-                {produtosFiltrados.length > 0 && (
-                  <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-2 border-b border-border">
-                    {produtosFiltrados.map((produto) => (
-                      <button
-                        key={produto.sku}
-                        onClick={() => addProduto(produto)}
-                        className="text-left rounded-lg border border-border p-2 hover:bg-secondary"
-                      >
-                        <div className="text-sm font-semibold truncate">{produto.nome}</div>
-                        <div className="text-xs text-muted-foreground">{produto.sku} · {brl(produto.preco)} · estoque {produto.estoque}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <div className="p-2 space-y-2">
-                  {novoItens.map((item) => (
-                    <div key={item.sku} className="flex items-center gap-2 rounded-lg bg-secondary/50 p-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold truncate">{item.nome}</div>
-                        <div className="text-xs text-muted-foreground">{brl(item.preco)} cada</div>
-                      </div>
-                      <button onClick={() => changeItemQuantidade(item.sku, -1)} className="size-8 rounded-lg border border-border hover:bg-card">-</button>
-                      <span className="w-8 text-center text-sm font-semibold">{item.quantidade}</span>
-                      <button onClick={() => changeItemQuantidade(item.sku, 1)} className="size-8 rounded-lg border border-border hover:bg-card">+</button>
-                      <span className="w-20 text-right text-sm font-bold">{brl(item.preco * item.quantidade)}</span>
-                      <button onClick={() => setNovoItens((current) => current.filter((row) => row.sku !== item.sku))} className="size-8 rounded-lg hover:bg-destructive/10 text-destructive">
-                        <Trash2 className="size-4 mx-auto" />
-                      </button>
+              {!editandoPedido && (
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_160px] gap-3">
+                  <Field label="Produto do estoque">
+                    <div className="relative">
+                      <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={produtoBusca}
+                        onChange={(event) => setProdutoBusca(event.target.value)}
+                        className="input-soft h-10 w-full pl-9"
+                        placeholder="Buscar produto"
+                      />
                     </div>
-                  ))}
-                  {novoItens.length === 0 && (
-                    <div className="text-center text-xs text-muted-foreground py-5">
-                      Adicione produtos ou informe um total avulso.
+                  </Field>
+                  <Field label="Pagamento">
+                    <select
+                      value={novo.formaPagamento}
+                      onChange={(event) =>
+                        setNovo((current) => ({
+                          ...current,
+                          formaPagamento: event.target.value as FormaPagamento,
+                        }))
+                      }
+                      className="input-soft h-10 w-full"
+                    >
+                      {FORMAS.map((formaItem) => (
+                        <option key={formaItem} value={formaItem}>
+                          {formaItem}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Total avulso">
+                    <input
+                      value={novo.total}
+                      onChange={(event) =>
+                        setNovo((current) => ({ ...current, total: event.target.value }))
+                      }
+                      disabled={novoItens.length > 0}
+                      className="input-soft h-10 w-full disabled:opacity-50"
+                      placeholder="0,00"
+                    />
+                  </Field>
+                </div>
+              )}
+
+              {editandoPedido && (
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_160px] gap-3">
+                  <Field label="Pagamento">
+                    <select
+                      value={novo.formaPagamento}
+                      onChange={(event) =>
+                        setNovo((current) => ({
+                          ...current,
+                          formaPagamento: event.target.value as FormaPagamento,
+                        }))
+                      }
+                      className="input-soft h-10 w-full"
+                    >
+                      {FORMAS.map((formaItem) => (
+                        <option key={formaItem} value={formaItem}>
+                          {formaItem}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Total">
+                    <input
+                      value={novo.total}
+                      onChange={(event) =>
+                        setNovo((current) => ({ ...current, total: event.target.value }))
+                      }
+                      className="input-soft h-10 w-full"
+                      placeholder="0,00"
+                    />
+                  </Field>
+                </div>
+              )}
+
+              {!editandoPedido && (
+                <div className="rounded-xl border border-border overflow-hidden">
+                  <div className="p-3 bg-secondary/60 flex items-center justify-between">
+                    <span className="text-sm font-semibold">Itens</span>
+                    {carregandoProdutos && (
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                  {produtosFiltrados.length > 0 && (
+                    <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-2 border-b border-border">
+                      {produtosFiltrados.map((produto) => (
+                        <button
+                          key={produto.sku}
+                          onClick={() => addProduto(produto)}
+                          className="text-left rounded-lg border border-border p-2 hover:bg-secondary"
+                        >
+                          <div className="text-sm font-semibold truncate">{produto.nome}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {produto.sku} · {brl(produto.preco)} · estoque {produto.estoque}
+                          </div>
+                        </button>
+                      ))}
                     </div>
                   )}
+                  <div className="p-2 space-y-2">
+                    {novoItens.map((item) => (
+                      <div
+                        key={novoPedidoItemKey(item)}
+                        className="flex items-center gap-2 rounded-lg bg-secondary/50 p-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold truncate">{item.nome}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {brl(item.preco)} cada
+                          </div>
+                          {petsClienteSelecionado.length > 0 && (
+                            <select
+                              value={item.petNome ?? ""}
+                              onChange={(event) => alterarPetNovoItem(item, event.target.value)}
+                              className="mt-1 h-8 w-full rounded-lg bg-card px-2 text-xs outline-none"
+                            >
+                              <option value="">Sem pet especifico</option>
+                              {petsClienteSelecionado.map((pet) => (
+                                <option key={pet} value={pet}>
+                                  {pet}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => changeItemQuantidade(item, -1)}
+                          className="size-8 rounded-lg border border-border hover:bg-card"
+                        >
+                          -
+                        </button>
+                        <span className="w-8 text-center text-sm font-semibold">
+                          {item.quantidade}
+                        </span>
+                        <button
+                          onClick={() => changeItemQuantidade(item, 1)}
+                          className="size-8 rounded-lg border border-border hover:bg-card"
+                        >
+                          +
+                        </button>
+                        <span className="w-20 text-right text-sm font-bold">
+                          {brl(item.preco * item.quantidade)}
+                        </span>
+                        <button
+                          onClick={() =>
+                            setNovoItens((current) => current.filter((row) => row.sku !== item.sku))
+                          }
+                          className="size-8 rounded-lg hover:bg-destructive/10 text-destructive"
+                        >
+                          <Trash2 className="size-4 mx-auto" />
+                        </button>
+                      </div>
+                    ))}
+                    {novoItens.length === 0 && (
+                      <div className="text-center text-xs text-muted-foreground py-5">
+                        Adicione produtos ou informe um total avulso.
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-[1fr_160px] gap-3">
                 <Field label="Observacao">
                   <input
                     value={novo.observacao}
-                    onChange={(event) => setNovo((current) => ({ ...current, observacao: event.target.value }))}
+                    onChange={(event) =>
+                      setNovo((current) => ({ ...current, observacao: event.target.value }))
+                    }
                     className="input-soft h-10 w-full"
                     placeholder="Detalhes do pedido"
                   />
@@ -622,7 +1042,9 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                 <Field label="Cupom">
                   <input
                     value={novo.cupomCodigo}
-                    onChange={(event) => setNovo((current) => ({ ...current, cupomCodigo: event.target.value }))}
+                    onChange={(event) =>
+                      setNovo((current) => ({ ...current, cupomCodigo: event.target.value }))
+                    }
                     className="input-soft h-10 w-full"
                     placeholder="Opcional"
                   />
@@ -633,7 +1055,9 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                 <input
                   type="checkbox"
                   checked={novo.pago}
-                  onChange={(event) => setNovo((current) => ({ ...current, pago: event.target.checked }))}
+                  onChange={(event) =>
+                    setNovo((current) => ({ ...current, pago: event.target.checked }))
+                  }
                 />
                 Pedido ja esta pago
               </label>
@@ -645,16 +1069,19 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                 <div className="text-lg font-bold">{brl(totalNovo)}</div>
               </div>
               <div className="flex gap-2">
-                <button onClick={fecharNovoPedido} className="h-10 px-4 rounded-xl bg-secondary text-sm font-semibold">
+                <button
+                  onClick={fecharNovoPedido}
+                  className="h-10 px-4 rounded-xl bg-secondary text-sm font-semibold"
+                >
                   Cancelar
                 </button>
                 <button
-                  onClick={() => void criarNovoPedido()}
+                  onClick={() => void salvarPedidoForm()}
                   disabled={salvandoNovo}
                   className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-60"
                 >
                   {salvandoNovo && <Loader2 className="size-4 animate-spin" />}
-                  Criar pedido
+                  {editandoPedido ? "Salvar alteracoes" : "Criar pedido"}
                 </button>
               </div>
             </div>
@@ -663,27 +1090,62 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
       )}
 
       {confirmPago && (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50" onClick={()=>setConfirmPago(null)}>
-          <div className="card-soft p-5 w-full max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/50"
+          onClick={() => setConfirmPago(null)}
+        >
+          <div
+            className="card-soft p-5 w-full max-w-sm space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="font-semibold inline-flex items-center gap-2"><CheckCircle2 className="size-4 text-success" /> Confirmar pagamento</h3>
-                <p className="text-xs text-muted-foreground">{confirmPago.pedido.id} · {confirmPago.pedido.cliente} · {brl(confirmPago.pedido.total)}</p>
+                <h3 className="font-semibold inline-flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-success" /> Confirmar pagamento
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  {confirmPago.pedido.id} · {confirmPago.pedido.cliente} ·{" "}
+                  {brl(confirmPago.pedido.total)}
+                </p>
               </div>
-              <button onClick={()=>setConfirmPago(null)} className="p-1 rounded-lg hover:bg-secondary"><X className="size-4" /></button>
+              <button
+                onClick={() => setConfirmPago(null)}
+                className="p-1 rounded-lg hover:bg-secondary"
+              >
+                <X className="size-4" />
+              </button>
             </div>
             <div>
-              <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-1.5">Forma de pagamento</div>
-              <select value={forma} onChange={e=>setForma(e.target.value as FormaPagamento)} className="w-full h-10 px-3 rounded-lg bg-secondary text-sm outline-none">
-                {FORMAS.filter(f=>f!=="Pendente").map(f=><option key={f} value={f}>{f}</option>)}
+              <div className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground mb-1.5">
+                Forma de pagamento
+              </div>
+              <select
+                value={forma}
+                onChange={(e) => setForma(e.target.value as FormaPagamento)}
+                className="w-full h-10 px-3 rounded-lg bg-secondary text-sm outline-none"
+              >
+                {FORMAS.filter((f) => f !== "Pendente").map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
               </select>
             </div>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={comprovante} onChange={e=>setComprovante(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={comprovante}
+                onChange={(e) => setComprovante(e.target.checked)}
+              />
               Comprovante recebido
             </label>
             <div className="flex gap-2">
-              <button onClick={()=>setConfirmPago(null)} className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold">Cancelar</button>
+              <button
+                onClick={() => setConfirmPago(null)}
+                className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold"
+              >
+                Cancelar
+              </button>
               <button
                 onClick={() => void confirmarPagamento()}
                 disabled={Boolean(salvandoStatus)}
@@ -702,7 +1164,9 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
+        {label}
+      </span>
       {children}
     </label>
   );
@@ -723,6 +1187,7 @@ function normalizarPedido(pedido: Record<string, unknown>): Pedido {
   return {
     id: String(pedido.id ?? ""),
     cliente: String(pedido.cliente ?? "Cliente"),
+    telefone: String(pedido.telefone ?? ""),
     pet: String(pedido.pet ?? ""),
     total: Number(pedido.total ?? 0),
     status,
@@ -731,8 +1196,9 @@ function normalizarPedido(pedido: Record<string, unknown>): Pedido {
     pagamento,
     pago: statusPagamento.toLowerCase() === "pago" || status === "pago",
     comprovante: statusPagamento.toLowerCase() === "pago",
-    taxaMaquina: 0,
+    taxaMaquina: Number(pedido.taxaMaquina ?? pedido.taxa_maquininha ?? 0),
     notaFiscal: false,
+    observacao: String(pedido.observacao ?? ""),
   };
 }
 

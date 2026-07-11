@@ -10,7 +10,7 @@ function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
 }
 
-function isProdutoFotoArquivo(value: FormDataEntryValue | null): value is ProdutoFotoArquivo {
+function isProdutoFotoArquivo(value: unknown): value is ProdutoFotoArquivo {
   return (
     typeof value === "object" &&
     value !== null &&

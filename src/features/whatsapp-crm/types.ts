@@ -47,10 +47,10 @@ export type LeadCard = {
   anuncio?: string;
   influenciador?: string;
   cupom?: string;
-  custoLead: number;          // custo individual do lead (não da campanha global)
-  primeiroContato: string;    // data
-  tempoAteCompra?: number;    // dias
-  ultimaInteracao: string;    // ex: "2h", "3d"
+  custoLead: number; // custo individual do lead (não da campanha global)
+  primeiroContato: string; // data
+  tempoAteCompra?: number; // dias
+  ultimaInteracao: string; // ex: "2h", "3d"
   diasSemInteracao: number;
   comprasRealizadas: number;
   ticketMedio: number;
@@ -62,7 +62,7 @@ export type LeadCard = {
   statusRelacionamento: string;
   intent: LeadIntent;
   priority: LeadPriority;
-  churnRisk: number;          // 0-100
+  churnRisk: number; // 0-100
   column: SmartColumn;
   tab: KanbanTab;
   valorPotencial: number;

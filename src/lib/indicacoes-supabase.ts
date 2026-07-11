@@ -1,3 +1,5 @@
+import { requireSupabaseServerKey } from "./server-env";
+
 type InfluenciadorStatus = "ativo" | "pausado" | "encerrado";
 type CupomStatus = "ativo" | "pausado" | "expirado";
 type TipoDesconto = "percentual" | "valor_fixo";
@@ -154,7 +156,7 @@ function supabaseHeaders(prefer?: string): HeadersInit {
 }
 
 function supabaseAdminHeaders(prefer?: string): HeadersInit {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || requireEnv("SUPABASE_ANON_KEY");
+  const key = requireSupabaseServerKey();
   return {
     apikey: key,
     authorization: `Bearer ${key}`,

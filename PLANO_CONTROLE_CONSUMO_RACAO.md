@@ -317,4 +317,3 @@ Se estiver em outro backend, pode ser um endpoint protegido executado por schedu
 - A pagina `RecompraPrevista` ja existe, mas hoje ela opera como previsao geral. Este projeto precisa ligar a previsao ao consumo real salvo por cliente e produto.
 - O controle de alerta nao deve ficar preso em estado local do navegador.
 - Se o cron nao estiver disponivel no ambiente, a versao minima deve rodar a cada abertura do dashboard ou a cada envio de venda nova.
-

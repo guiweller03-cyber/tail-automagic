@@ -51,7 +51,9 @@ export function ReferralInput({
           placeholder="JOAO-X4K2"
           className="input pl-9 pr-10"
         />
-        {loading ? <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin" /> : null}
+        {loading ? (
+          <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin" />
+        ) : null}
       </div>
       {valid ? (
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
@@ -59,7 +61,9 @@ export function ReferralInput({
           Voce e seu amigo ganham 10% de desconto
         </span>
       ) : null}
-      {valid === false ? <span className="text-xs text-destructive">Codigo invalido ou pertence a voce</span> : null}
+      {valid === false ? (
+        <span className="text-xs text-destructive">Codigo invalido ou pertence a voce</span>
+      ) : null}
     </label>
   );
 }

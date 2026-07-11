@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 import { extrairPerfilClienteDaConversa, gerarResposta, limparRespostaCliente } from "@/lib/openai";
+import { processarComprovantesHistorico } from "@/lib/comprovantes";
 import {
   adicionarMensagemConversa,
   atualizarConversaAguardandoHumano,
@@ -10,19 +11,29 @@ import {
   buscarIaPromptConfig,
   buscarAprendizados,
   buscarIaStatus,
+  buscarClientePorTelefone,
   definirIaGlobalDesativada,
+  definirConversaBloqueada,
+  listarConversasBloqueadas,
+  listarTelefonesBloqueados,
+  marcarConversaLida,
   salvarIaPromptConfig,
-  listarPedidos,
   listarConversas,
+  resumoFinanceiroPorTelefone,
+  salvarCadastroCliente,
   upsertConversas,
   type Conversa,
 } from "@/lib/supabase";
 import {
   atualizarClienteCrm,
   criarClienteCrm,
+  excluirClienteCrm,
   listarClientes,
   type ClienteCrmInput,
 } from "@/lib/crm-supabase";
+import { removerLeadTotal } from "@/lib/leads-totais-supabase";
+import type { PetDetalhe } from "@/lib/crm-types";
+import type { PerfilClienteExtraido } from "@/lib/openai";
 import { salvarDadosObservadosCliente } from "@/lib/recompra-supabase";
 import { BASE_SYSTEM_PROMPT, type IaRegraCustomizada } from "@/lib/openai";
 import {
@@ -33,20 +44,257 @@ import {
   type ChatWhatsApp,
   type MensagemWhatsApp,
 } from "@/lib/uazapi";
+import { normalizarNomeContatoWhatsapp } from "@/lib/whatsapp-nomes";
+
+const MEDIA_URL_RESPONSE_KEYS = [
+  "fileURL",
+  "fileUrl",
+  "mediaUrl",
+  "mediaURL",
+  "url",
+  "downloadUrl",
+  "downloadURL",
+];
+
+const MAX_MIDIA_REMOTA_BYTES = 10 * 1024 * 1024;
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
+}
+
+function apiErrorResponse(error: unknown): Response {
+  const rawMessage = error instanceof Error ? error.message : "Erro desconhecido";
+  const isOpenAiError =
+    /OpenAI/i.test(rawMessage) ||
+    /api\.openai\.com/i.test(rawMessage) ||
+    /invalid_api_key/i.test(rawMessage) ||
+    /Incorrect API key/i.test(rawMessage);
+
+  if (isOpenAiError) {
+    const isInvalidKey = /invalid_api_key|Incorrect API key/i.test(rawMessage);
+
+    console.error("[crm.conversas] openai_error", maskSensitiveError(rawMessage));
+
+    return json(
+      {
+        ok: false,
+        erro: isInvalidKey
+          ? "A chave da OpenAI configurada no servidor esta invalida. Atualize o secret OPENAI_API_KEY no Cloudflare e publique novamente."
+          : "Nao foi possivel consultar a OpenAI agora. Tente novamente em instantes.",
+      },
+      { status: 502 },
+    );
+  }
+
+  console.error("[crm.conversas] api_error", maskSensitiveError(rawMessage));
+
+  return json({ ok: false, erro: maskSensitiveError(rawMessage) }, { status: 500 });
+}
+
+function maskSensitiveError(message: string): string {
+  return message.replace(/sk-[A-Za-z0-9_-]+/g, (key) => {
+    if (key.length <= 12) return "sk-***";
+    return `${key.slice(0, 7)}...${key.slice(-4)}`;
+  });
 }
 
 function normalizarTelefone(value: string): string {
   return value.replace("@s.whatsapp.net", "").replace(/\D/g, "");
 }
 
-function nomeClienteSeguro(value?: string | null): string | undefined {
-  const nome = value?.trim();
-  if (!nome || /^cliente\s+\d+$/i.test(nome)) return undefined;
+function normalizarMediaUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error("URL da midia vazia");
 
-  return nome;
+  const url = new URL(trimmed);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("URL da midia invalida");
+  }
+
+  return url.toString();
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary);
+}
+
+async function baixarMidiaUrlComoBase64(
+  mediaUrl: string,
+): Promise<{ base64: string; mimeType: string }> {
+  const response = await fetch(mediaUrl);
+  if (!response.ok) throw new Error("Foto indisponivel");
+
+  const contentLength = Number(response.headers.get("content-length") ?? 0);
+  if (contentLength > MAX_MIDIA_REMOTA_BYTES) throw new Error("Foto muito grande");
+
+  const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() || "image/jpeg";
+  if (!mimeType.startsWith("image/")) throw new Error("URL nao retornou uma imagem");
+
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength > MAX_MIDIA_REMOTA_BYTES) throw new Error("Foto muito grande");
+
+  return { base64: arrayBufferToBase64(buffer), mimeType };
+}
+
+function nomeClienteSeguro(value?: string | null): string | undefined {
+  return normalizarNomeContatoWhatsapp(value) ?? undefined;
+}
+
+const PESO_PADRAO_GATO_KG = 3.5;
+
+function pesoPadraoPet(especie?: "cachorro" | "gato", pesoKg?: number): number | undefined {
+  return pesoKg ?? (especie === "gato" ? PESO_PADRAO_GATO_KG : undefined);
+}
+
+function normalizarNomePet(value?: string | null): string {
+  return value?.trim() ?? "";
+}
+
+function chaveNomePet(value?: string | null): string {
+  return normalizarNomePet(value).toLowerCase();
+}
+
+function petTemDados(pet: PetDetalhe): boolean {
+  return Boolean(
+    normalizarNomePet(pet.nome) ||
+    pet.especie ||
+    pet.castrado !== undefined ||
+    pet.raca ||
+    pet.porte ||
+    pet.pesoKg ||
+    pet.idade ||
+    pet.nascimento ||
+    pet.observacao,
+  );
+}
+
+function mesclarNomesPets(atuais: string[] = [], extraidos: string[] = []): string[] {
+  const resultado: string[] = [];
+  const vistos = new Set<string>();
+
+  for (const nome of [...atuais, ...extraidos]) {
+    const limpo = normalizarNomePet(nome);
+    const chave = chaveNomePet(limpo);
+    if (!limpo || vistos.has(chave)) continue;
+
+    vistos.add(chave);
+    resultado.push(limpo);
+  }
+
+  return resultado.slice(0, 20);
+}
+
+function mesclarPetDetalhe(atual: PetDetalhe, extraido: PetDetalhe): PetDetalhe {
+  const observacaoAtual = atual.observacao?.trim();
+  const observacaoExtraida = extraido.observacao?.trim();
+  const observacao =
+    observacaoAtual && observacaoExtraida && observacaoAtual !== observacaoExtraida
+      ? `${observacaoAtual} | ${observacaoExtraida}`
+      : observacaoExtraida || observacaoAtual || undefined;
+
+  return {
+    ...atual,
+    nome: normalizarNomePet(extraido.nome) || normalizarNomePet(atual.nome),
+    especie: extraido.especie ?? atual.especie,
+    castrado: extraido.castrado ?? atual.castrado,
+    raca: extraido.raca?.trim() || atual.raca,
+    porte: extraido.porte ?? atual.porte,
+    pesoKg: pesoPadraoPet(extraido.especie ?? atual.especie, extraido.pesoKg ?? atual.pesoKg),
+    idade: extraido.idade?.trim() || atual.idade,
+    nascimento: extraido.nascimento?.trim() || atual.nascimento,
+    observacao,
+  };
+}
+
+function mesclarPetsDetalhes(
+  atuais: PetDetalhe[] = [],
+  extraidos: PetDetalhe[] = [],
+): PetDetalhe[] {
+  const resultado = atuais
+    .map((pet) => ({ ...pet, nome: normalizarNomePet(pet.nome) }))
+    .filter(petTemDados);
+  const indicePorNome = new Map<string, number>();
+
+  resultado.forEach((pet, index) => {
+    const chave = chaveNomePet(pet.nome);
+    if (chave) indicePorNome.set(chave, index);
+  });
+
+  for (const extraido of extraidos) {
+    const pet = { ...extraido, nome: normalizarNomePet(extraido.nome) };
+    if (!petTemDados(pet)) continue;
+
+    const chave = chaveNomePet(pet.nome);
+    const index = chave ? indicePorNome.get(chave) : undefined;
+    if (index !== undefined) {
+      resultado[index] = mesclarPetDetalhe(resultado[index], pet);
+      continue;
+    }
+
+    if (chave) indicePorNome.set(chave, resultado.length);
+    resultado.push(pet);
+  }
+
+  return resultado.slice(0, 20);
+}
+
+/** Converte o perfil extraido pela IA em sugestoes de dados do pet editaveis. */
+function petsDetalhesDoPerfil(perfil: PerfilClienteExtraido): PetDetalhe[] {
+  const observados = perfil.dadosObservados?.pets ?? [];
+  const especiePadrao = perfil.especies?.[0];
+  const pets: PetDetalhe[] = [];
+  const vistos = new Set<string>();
+  const chave = (nome?: string) => (nome ?? "").trim().toLowerCase();
+
+  for (const obs of observados) {
+    const nome = obs.nome?.trim() ?? "";
+    const especie = obs.especie ?? especiePadrao;
+    pets.push({
+      nome,
+      especie,
+      castrado: obs.castrado,
+      raca: obs.raca,
+      porte: obs.porte,
+      pesoKg: pesoPadraoPet(especie, obs.pesoKg),
+      idade: obs.idade,
+      nascimento: obs.nascimento,
+      observacao: obs.observacao ?? (obs.apetite ? `Apetite ${obs.apetite}` : undefined),
+    });
+    if (nome) vistos.add(chave(nome));
+  }
+
+  for (const nome of perfil.pets ?? []) {
+    if (vistos.has(chave(nome))) continue;
+    pets.push({
+      nome: nome.trim(),
+      especie: especiePadrao,
+      pesoKg: pesoPadraoPet(especiePadrao),
+    });
+    vistos.add(chave(nome));
+  }
+
+  return pets
+    .filter(
+      (pet) =>
+        pet.nome ||
+        pet.especie ||
+        pet.castrado !== undefined ||
+        pet.raca ||
+        pet.porte ||
+        pet.pesoKg ||
+        pet.idade ||
+        pet.nascimento ||
+        pet.observacao,
+    )
+    .slice(0, 20);
 }
 
 function chatIdFromChat(chat: ChatWhatsApp): string | undefined {
@@ -260,14 +508,20 @@ async function sincronizarWhatsapp({
 }) {
   const limiteChatsSeguro = Math.min(Math.max(chatsLimite, 1), 12);
   const limiteMensagensSeguro = Math.min(Math.max(mensagensLimite, 1), 40);
-  const [chats, conversasExistentes] = await Promise.all([
+  const [chats, conversasExistentes, clientesExistentes, telefonesBloqueados] = await Promise.all([
     listarChatsWhatsApp({ limit: limiteChatsSeguro, offset: 0 }),
     listarConversas(),
+    listarClientes(),
+    listarTelefonesBloqueados(),
   ]);
   const conversasPorTelefone = new Map(
     conversasExistentes.map((conversa) => [normalizarTelefone(conversa.telefone), conversa]),
   );
+  const clientesPorTelefone = new Set(
+    clientesExistentes.map((cliente) => normalizarTelefone(cliente.telefone)),
+  );
   const payloads: Parameters<typeof upsertConversas>[0] = [];
+  const clientesParaRegistrar: Array<{ telefone: string; nome?: string | null }> = [];
   let sincronizadas = 0;
   let mensagensImportadas = 0;
   let ignoradas = 0;
@@ -276,6 +530,13 @@ async function sincronizarWhatsapp({
     const chatid = chatIdFromChat(chat);
     const telefone = normalizarTelefone(chatid ?? chat.phone ?? "");
     if (!chatid || !telefone || chat.wa_isGroup) {
+      ignoradas += 1;
+      continue;
+    }
+
+    // Nao reintroduz contatos bloqueados: a listarConversas os esconde, entao sem
+    // este filtro o sync recriaria a conversa a partir do historico do WhatsApp.
+    if (telefonesBloqueados.has(telefone)) {
       ignoradas += 1;
       continue;
     }
@@ -296,15 +557,23 @@ async function sincronizarWhatsapp({
       continue;
     }
 
+    const nomeCliente = nomeClienteSeguro(existente?.nome_cliente) ?? nomeFromChat(chat);
     payloads.push({
       telefone,
       historico,
-      nome_cliente: existente?.nome_cliente ?? nomeFromChat(chat),
+      nome_cliente: nomeCliente,
       aguardando_humano: existente?.aguardando_humano ?? false,
       ia_ativa: existente?.ia_ativa ?? null,
       estagio: existente?.estagio ?? "novo",
       atualizado_em: ultimoHorarioHistorico(historico),
     });
+
+    // Garante que todo contato sincronizado vire tambem um lead (cliente),
+    // assim o painel de "Leads" nao diverge das conversas importadas.
+    if (!clientesPorTelefone.has(telefone)) {
+      clientesParaRegistrar.push({ telefone, nome: nomeCliente });
+      clientesPorTelefone.add(telefone);
+    }
 
     sincronizadas += 1;
     mensagensImportadas += adicionadas;
@@ -312,13 +581,48 @@ async function sincronizarWhatsapp({
 
   await upsertConversas(payloads);
 
+  let clientesRegistrados = 0;
+  for (const novoCliente of clientesParaRegistrar) {
+    try {
+      await salvarCadastroCliente({ telefone: novoCliente.telefone, nome: novoCliente.nome });
+      clientesRegistrados += 1;
+    } catch (error) {
+      console.error(
+        "[crm.conversas] erro_registrar_cliente_sync",
+        maskSensitiveError(String(error)),
+      );
+    }
+  }
+
   return {
     ok: true,
     chats_analisados: chats.length,
     conversas_sincronizadas: sincronizadas,
+    clientes_registrados: clientesRegistrados,
     mensagens_importadas: mensagensImportadas,
     ignoradas,
   };
+}
+
+/**
+ * Remove o lead/cliente de um contato bloqueado das tabelas clientes e
+ * leads_totais. Tolerante a erro: o bloqueio da conversa ja vale por si, entao
+ * uma falha aqui nao deve derrubar a resposta da API.
+ */
+async function removerLeadDoContatoBloqueado(telefone: string): Promise<void> {
+  const telefoneLimpo = normalizarTelefone(telefone);
+  if (!telefoneLimpo) return;
+
+  try {
+    const cliente = await buscarClientePorTelefone(telefoneLimpo);
+    if (cliente) await excluirClienteCrm(cliente.id);
+    await removerLeadTotal(telefoneLimpo);
+  } catch (error) {
+    console.error(
+      "[crm.conversas] erro_remover_cliente_bloqueado",
+      maskSensitiveError(String(error)),
+    );
+  }
 }
 
 function pipelineFromKanban(stage: unknown): {
@@ -342,6 +646,24 @@ function pipelineFromKanban(stage: unknown): {
   }
 }
 
+async function confirmarComprovantesDoHistorico({
+  telefone,
+  nomeCliente,
+  historico,
+}: {
+  telefone: string;
+  nomeCliente?: string | null;
+  historico: Conversa["historico"];
+}) {
+  return processarComprovantesHistorico({
+    telefone,
+    nomeCliente,
+    historico,
+    maxMensagens: 8,
+    dedupPersistente: true,
+  });
+}
+
 async function salvarPerfilExtraidoCliente({
   telefone,
   nomeCliente,
@@ -354,11 +676,24 @@ async function salvarPerfilExtraidoCliente({
   const telefoneNormalizado = normalizarTelefone(telefone);
   if (!telefoneNormalizado) throw new Error("Telefone invalido");
 
-  const extraido = await extrairPerfilClienteDaConversa(historico);
+  const [extraido, comprovantesPix] = await Promise.all([
+    extrairPerfilClienteDaConversa(historico),
+    confirmarComprovantesDoHistorico({
+      telefone: telefoneNormalizado,
+      nomeCliente,
+      historico,
+    }),
+  ]);
   const clientes = await listarClientes();
   const existente = clientes.find(
     (cliente) => normalizarTelefone(cliente.telefone) === telefoneNormalizado,
   );
+  const petsDetalhesExtraidos = petsDetalhesDoPerfil(extraido);
+  const petsExtraidos = mesclarNomesPets(
+    extraido.pets ?? [],
+    petsDetalhesExtraidos.map((pet) => pet.nome),
+  );
+  const petsDetalhes = mesclarPetsDetalhes(existente?.petsDetalhes ?? [], petsDetalhesExtraidos);
   const input: ClienteCrmInput = {
     nome:
       extraido.nome ??
@@ -368,7 +703,8 @@ async function salvarPerfilExtraidoCliente({
     telefone: telefoneNormalizado,
     endereco: extraido.endereco ?? existente?.endereco,
     bairro: extraido.bairro ?? existente?.bairro,
-    pets: extraido.pets ?? existente?.pets ?? [],
+    pets: mesclarNomesPets(existente?.pets ?? [], petsExtraidos),
+    petsDetalhes: petsDetalhes.length > 0 ? petsDetalhes : undefined,
     perfil: existente?.perfil ?? "Novo",
     origem: existente?.origem ?? "WhatsApp IA",
     observacoes: extraido.observacoes ?? existente?.observacoes,
@@ -403,7 +739,7 @@ async function salvarPerfilExtraidoCliente({
     });
   }
 
-  return { ok: true, cliente, extraido };
+  return { ok: true, cliente, extraido, comprovantesPix };
 }
 
 export const Route = createFileRoute("/api/crm/conversas")({
@@ -425,47 +761,70 @@ export const Route = createFileRoute("/api/crm/conversas")({
             return json({ ...config, baseSystemPrompt: BASE_SYSTEM_PROMPT, aprendizado });
           }
 
-          const [conversas, pedidos] = await Promise.all([listarConversas(), listarPedidos()]);
-          const valorPorTelefone = new Map<string, { valor: number; pedidos: number }>();
-
-          for (const pedido of pedidos) {
-            if (pedido.status === "cancelado") continue;
-
-            const telefone = normalizarTelefone(pedido.telefone);
-            const atual = valorPorTelefone.get(telefone) ?? { valor: 0, pedidos: 0 };
-            valorPorTelefone.set(telefone, {
-              valor: atual.valor + pedido.total,
-              pedidos: atual.pedidos + 1,
-            });
+          if (url.searchParams.get("bloqueados") === "lista") {
+            return json(await listarConversasBloqueadas());
           }
 
+          const [conversas, resumoFinanceiro] = await Promise.all([
+            listarConversas(),
+            resumoFinanceiroPorTelefone(),
+          ]);
+
           const conversasComValores = conversas.map((conversa) => {
-            const resumo = valorPorTelefone.get(normalizarTelefone(conversa.telefone));
+            const resumo = resumoFinanceiro.get(normalizarTelefone(conversa.telefone));
 
             return {
               ...conversa,
-              valor_potencial: resumo?.valor ?? 0,
+              valor_potencial: resumo?.totalGasto ?? 0,
               pedidos_total: resumo?.pedidos ?? 0,
+              resumo_financeiro: resumo
+                ? {
+                    total_gasto: resumo.totalGasto,
+                    lucro_liquido: resumo.lucroLiquido,
+                    total_descontos: resumo.totalDescontos,
+                    ticket_medio: resumo.ticketMedio,
+                    pedidos: resumo.pedidos,
+                  }
+                : null,
             };
           });
 
           return json(conversasComValores);
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Erro desconhecido";
-
-          return json({ ok: false, erro: message }, { status: 500 });
+          return apiErrorResponse(error);
         }
       },
       PATCH: async ({ request }) => {
         try {
           const body = (await request.json()) as
-            | { tipo: "conversa"; id: string; aguardandoHumano: boolean }
+            | { tipo: "conversa"; id: string; aguardandoHumano: boolean; iaAtiva?: boolean }
             | { tipo: "pipeline"; id: string; stage: string }
             | { tipo: "global"; desativada: boolean }
+            | { tipo: "bloquear"; id: string; bloqueado: boolean }
+            | { tipo: "marcar_lida"; id: string; lidoAte?: string }
             | { tipo: "ia_config"; systemPrompt: string; regras: IaRegraCustomizada[] };
 
           if (body.tipo === "global") {
             return json(await definirIaGlobalDesativada(body.desativada));
+          }
+
+          if (body.tipo === "bloquear") {
+            const conversaBloqueio = await definirConversaBloqueada({
+              id: body.id,
+              bloqueado: body.bloqueado,
+            });
+
+            // Ao bloquear, tambem tira o contato da pagina Clientes e dos KPIs de
+            // leads para nao poluir a operacao com gente fora da area de entrega.
+            if (body.bloqueado) {
+              await removerLeadDoContatoBloqueado(conversaBloqueio.telefone);
+            }
+
+            return json(conversaBloqueio);
+          }
+
+          if (body.tipo === "marcar_lida") {
+            return json(await marcarConversaLida({ id: body.id, lidoAte: body.lidoAte }));
           }
 
           if (body.tipo === "ia_config") {
@@ -488,13 +847,11 @@ export const Route = createFileRoute("/api/crm/conversas")({
             await atualizarConversaAguardandoHumano({
               id: body.id,
               aguardandoHumano: body.aguardandoHumano,
-              iaAtiva: !body.aguardandoHumano,
+              iaAtiva: typeof body.iaAtiva === "boolean" ? body.iaAtiva : !body.aguardandoHumano,
             }),
           );
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Erro desconhecido";
-
-          return json({ ok: false, erro: message }, { status: 500 });
+          return apiErrorResponse(error);
         }
       },
       POST: async ({ request }) => {
@@ -512,6 +869,15 @@ export const Route = createFileRoute("/api/crm/conversas")({
                 audio?: boolean;
               }
             | {
+                tipo: "midia_url";
+                id: string;
+                telefone: string;
+                mediaUrl: string;
+                legenda?: string;
+                nomeArquivo?: string;
+                mimeType?: string;
+              }
+            | {
                 tipo: "sugestao_ia";
                 historico: Array<{ role: "user" | "assistant"; content: string }>;
                 texto: string;
@@ -522,6 +888,7 @@ export const Route = createFileRoute("/api/crm/conversas")({
                 nomeCliente?: string | null;
                 historico: Conversa["historico"];
               }
+            | { tipo: "sugerir_pets_ia"; historico: Conversa["historico"] }
             | { tipo: "sincronizar_whatsapp"; chatsLimite?: number; mensagensLimite?: number };
 
           if (body.tipo === "sugestao_ia") {
@@ -552,11 +919,57 @@ export const Route = createFileRoute("/api/crm/conversas")({
             );
           }
 
+          if (body.tipo === "sugerir_pets_ia") {
+            const perfil = await extrairPerfilClienteDaConversa(
+              Array.isArray(body.historico) ? body.historico : [],
+            );
+
+            return json({ pets: petsDetalhesDoPerfil(perfil) });
+          }
+
           if (body.tipo === "sincronizar_whatsapp") {
             return json(
               await sincronizarWhatsapp({
                 chatsLimite: body.chatsLimite,
                 mensagensLimite: body.mensagensLimite,
+              }),
+            );
+          }
+
+          if (body.tipo === "midia_url") {
+            const mediaUrlOriginal = normalizarMediaUrl(body.mediaUrl);
+            const legenda = body.legenda?.trim();
+            const telefone = normalizarTelefone(body.telefone);
+
+            const midia = await baixarMidiaUrlComoBase64(mediaUrlOriginal);
+            const envio = await enviarMidiaBase64(
+              `${telefone}@s.whatsapp.net`,
+              midia.base64,
+              legenda,
+              {
+                fileName: body.nomeArquivo,
+                mimetype: midia.mimeType,
+              },
+            );
+
+            const mediaUrl = stringFromContent(envio, MEDIA_URL_RESPONSE_KEYS) ?? mediaUrlOriginal;
+            const conteudo = legenda
+              ? `[Midia enviada] ${legenda}`
+              : `[Midia enviada] ${body.nomeArquivo ?? ""}`.trim();
+
+            return json(
+              await adicionarMensagemConversa({
+                id: body.id,
+                mensagem: {
+                  role: "assistant",
+                  content: conteudo,
+                  source: "crm",
+                  fromMe: true,
+                  messageType: midia.mimeType ?? "image",
+                  mediaUrl,
+                  mimeType: midia.mimeType,
+                  fileName: body.nomeArquivo,
+                },
               }),
             );
           }
@@ -577,15 +990,7 @@ export const Route = createFileRoute("/api/crm/conversas")({
                 ptt: body.audio,
               },
             );
-            const mediaUrl = stringFromContent(envio, [
-              "fileURL",
-              "fileUrl",
-              "mediaUrl",
-              "mediaURL",
-              "url",
-              "downloadUrl",
-              "downloadURL",
-            ]);
+            const mediaUrl = stringFromContent(envio, MEDIA_URL_RESPONSE_KEYS);
 
             const conteudo = body.audio
               ? "[Audio enviado]"
@@ -623,9 +1028,7 @@ export const Route = createFileRoute("/api/crm/conversas")({
             }),
           );
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Erro desconhecido";
-
-          return json({ ok: false, erro: message }, { status: 500 });
+          return apiErrorResponse(error);
         }
       },
     },

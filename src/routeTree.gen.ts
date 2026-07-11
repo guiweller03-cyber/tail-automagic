@@ -11,14 +11,17 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as RecompraPrevistaRouteImport } from './routes/recompra-prevista'
 import { Route as ProdutosProcuradosRouteImport } from './routes/produtos-procurados'
+import { Route as PetsRouteImport } from './routes/pets'
 import { Route as PedidosRouteImport } from './routes/pedidos'
 import { Route as PdvRouteImport } from './routes/pdv'
 import { Route as NotasRouteImport } from './routes/notas'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as LeadsTotaisRouteImport } from './routes/leads-totais'
 import { Route as IndicacoesRouteImport } from './routes/indicacoes'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
 import { Route as EstoqueRouteImport } from './routes/estoque'
 import { Route as EntregasRouteImport } from './routes/entregas'
+import { Route as DisparosRouteImport } from './routes/disparos'
 import { Route as CuponsRouteImport } from './routes/cupons'
 import { Route as ConversasRouteImport } from './routes/conversas'
 import { Route as ClientesRouteImport } from './routes/clientes'
@@ -42,6 +45,8 @@ import { Route as ApiCrmPedidosRouteImport } from './routes/api/crm.pedidos'
 import { Route as ApiCrmNotasRouteImport } from './routes/api/crm.notas'
 import { Route as ApiCrmMediaRouteImport } from './routes/api/crm.media'
 import { Route as ApiCrmIndicacoesRouteImport } from './routes/api/crm.indicacoes'
+import { Route as ApiCrmFollowupsRouteImport } from './routes/api/crm.followups'
+import { Route as ApiCrmDisparosRouteImport } from './routes/api/crm.disparos'
 import { Route as ApiCrmDashboardRouteImport } from './routes/api/crm.dashboard'
 import { Route as ApiCrmConversasRouteImport } from './routes/api/crm.conversas'
 import { Route as ApiCrmClientesRouteImport } from './routes/api/crm.clientes'
@@ -54,6 +59,11 @@ import { Route as ApiAuthSessionRouteImport } from './routes/api/auth.session'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth.logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth.login'
 import { Route as ApiCrmProdutosFotoRouteImport } from './routes/api/crm.produtos.foto'
+import { Route as ApiCrmProdutosEstoqueLoteRouteImport } from './routes/api/crm.produtos.estoque-lote'
+import { Route as ApiCrmPagamentosScanRouteImport } from './routes/api/crm.pagamentos.scan'
+import { Route as ApiCrmFinanceiroMarketingRouteImport } from './routes/api/crm.financeiro.marketing'
+import { Route as ApiCrmFinanceiroDespesasRouteImport } from './routes/api/crm.financeiro.despesas'
+import { Route as ApiCrmFinanceiroAbastecimentosRouteImport } from './routes/api/crm.financeiro.abastecimentos'
 
 const RecompraPrevistaRoute = RecompraPrevistaRouteImport.update({
   id: '/recompra-prevista',
@@ -63,6 +73,11 @@ const RecompraPrevistaRoute = RecompraPrevistaRouteImport.update({
 const ProdutosProcuradosRoute = ProdutosProcuradosRouteImport.update({
   id: '/produtos-procurados',
   path: '/produtos-procurados',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PetsRoute = PetsRouteImport.update({
+  id: '/pets',
+  path: '/pets',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PedidosRoute = PedidosRouteImport.update({
@@ -85,6 +100,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LeadsTotaisRoute = LeadsTotaisRouteImport.update({
+  id: '/leads-totais',
+  path: '/leads-totais',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndicacoesRoute = IndicacoesRouteImport.update({
   id: '/indicacoes',
   path: '/indicacoes',
@@ -103,6 +123,11 @@ const EstoqueRoute = EstoqueRouteImport.update({
 const EntregasRoute = EntregasRouteImport.update({
   id: '/entregas',
   path: '/entregas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DisparosRoute = DisparosRouteImport.update({
+  id: '/disparos',
+  path: '/disparos',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CuponsRoute = CuponsRouteImport.update({
@@ -221,6 +246,16 @@ const ApiCrmIndicacoesRoute = ApiCrmIndicacoesRouteImport.update({
   path: '/api/crm/indicacoes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmFollowupsRoute = ApiCrmFollowupsRouteImport.update({
+  id: '/api/crm/followups',
+  path: '/api/crm/followups',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmDisparosRoute = ApiCrmDisparosRouteImport.update({
+  id: '/api/crm/disparos',
+  path: '/api/crm/disparos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCrmDashboardRoute = ApiCrmDashboardRouteImport.update({
   id: '/api/crm/dashboard',
   path: '/api/crm/dashboard',
@@ -281,6 +316,35 @@ const ApiCrmProdutosFotoRoute = ApiCrmProdutosFotoRouteImport.update({
   path: '/foto',
   getParentRoute: () => ApiCrmProdutosRoute,
 } as any)
+const ApiCrmProdutosEstoqueLoteRoute =
+  ApiCrmProdutosEstoqueLoteRouteImport.update({
+    id: '/estoque-lote',
+    path: '/estoque-lote',
+    getParentRoute: () => ApiCrmProdutosRoute,
+  } as any)
+const ApiCrmPagamentosScanRoute = ApiCrmPagamentosScanRouteImport.update({
+  id: '/api/crm/pagamentos/scan',
+  path: '/api/crm/pagamentos/scan',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrmFinanceiroMarketingRoute =
+  ApiCrmFinanceiroMarketingRouteImport.update({
+    id: '/api/crm/financeiro/marketing',
+    path: '/api/crm/financeiro/marketing',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiCrmFinanceiroDespesasRoute =
+  ApiCrmFinanceiroDespesasRouteImport.update({
+    id: '/api/crm/financeiro/despesas',
+    path: '/api/crm/financeiro/despesas',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiCrmFinanceiroAbastecimentosRoute =
+  ApiCrmFinanceiroAbastecimentosRouteImport.update({
+    id: '/api/crm/financeiro/abastecimentos',
+    path: '/api/crm/financeiro/abastecimentos',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -290,14 +354,17 @@ export interface FileRoutesByFullPath {
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
   '/cupons': typeof CuponsRoute
+  '/disparos': typeof DisparosRoute
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/indicacoes': typeof IndicacoesRoute
+  '/leads-totais': typeof LeadsTotaisRoute
   '/login': typeof LoginRoute
   '/notas': typeof NotasRoute
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
+  '/pets': typeof PetsRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
   '/recompra-prevista': typeof RecompraPrevistaRoute
   '/admin/coupons': typeof AdminCouponsRoute
@@ -312,6 +379,8 @@ export interface FileRoutesByFullPath {
   '/api/crm/clientes': typeof ApiCrmClientesRoute
   '/api/crm/conversas': typeof ApiCrmConversasRoute
   '/api/crm/dashboard': typeof ApiCrmDashboardRoute
+  '/api/crm/disparos': typeof ApiCrmDisparosRoute
+  '/api/crm/followups': typeof ApiCrmFollowupsRoute
   '/api/crm/indicacoes': typeof ApiCrmIndicacoesRoute
   '/api/crm/media': typeof ApiCrmMediaRoute
   '/api/crm/notas': typeof ApiCrmNotasRoute
@@ -327,6 +396,11 @@ export interface FileRoutesByFullPath {
   '/api/uazapi/test': typeof ApiUazapiTestRoute
   '/api/webhook/pagamento': typeof ApiWebhookPagamentoRoute
   '/api/webhook/whatsapp': typeof ApiWebhookWhatsappRoute
+  '/api/crm/financeiro/abastecimentos': typeof ApiCrmFinanceiroAbastecimentosRoute
+  '/api/crm/financeiro/despesas': typeof ApiCrmFinanceiroDespesasRoute
+  '/api/crm/financeiro/marketing': typeof ApiCrmFinanceiroMarketingRoute
+  '/api/crm/pagamentos/scan': typeof ApiCrmPagamentosScanRoute
+  '/api/crm/produtos/estoque-lote': typeof ApiCrmProdutosEstoqueLoteRoute
   '/api/crm/produtos/foto': typeof ApiCrmProdutosFotoRoute
 }
 export interface FileRoutesByTo {
@@ -337,14 +411,17 @@ export interface FileRoutesByTo {
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
   '/cupons': typeof CuponsRoute
+  '/disparos': typeof DisparosRoute
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/indicacoes': typeof IndicacoesRoute
+  '/leads-totais': typeof LeadsTotaisRoute
   '/login': typeof LoginRoute
   '/notas': typeof NotasRoute
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
+  '/pets': typeof PetsRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
   '/recompra-prevista': typeof RecompraPrevistaRoute
   '/admin/coupons': typeof AdminCouponsRoute
@@ -359,6 +436,8 @@ export interface FileRoutesByTo {
   '/api/crm/clientes': typeof ApiCrmClientesRoute
   '/api/crm/conversas': typeof ApiCrmConversasRoute
   '/api/crm/dashboard': typeof ApiCrmDashboardRoute
+  '/api/crm/disparos': typeof ApiCrmDisparosRoute
+  '/api/crm/followups': typeof ApiCrmFollowupsRoute
   '/api/crm/indicacoes': typeof ApiCrmIndicacoesRoute
   '/api/crm/media': typeof ApiCrmMediaRoute
   '/api/crm/notas': typeof ApiCrmNotasRoute
@@ -374,6 +453,11 @@ export interface FileRoutesByTo {
   '/api/uazapi/test': typeof ApiUazapiTestRoute
   '/api/webhook/pagamento': typeof ApiWebhookPagamentoRoute
   '/api/webhook/whatsapp': typeof ApiWebhookWhatsappRoute
+  '/api/crm/financeiro/abastecimentos': typeof ApiCrmFinanceiroAbastecimentosRoute
+  '/api/crm/financeiro/despesas': typeof ApiCrmFinanceiroDespesasRoute
+  '/api/crm/financeiro/marketing': typeof ApiCrmFinanceiroMarketingRoute
+  '/api/crm/pagamentos/scan': typeof ApiCrmPagamentosScanRoute
+  '/api/crm/produtos/estoque-lote': typeof ApiCrmProdutosEstoqueLoteRoute
   '/api/crm/produtos/foto': typeof ApiCrmProdutosFotoRoute
 }
 export interface FileRoutesById {
@@ -385,14 +469,17 @@ export interface FileRoutesById {
   '/clientes': typeof ClientesRoute
   '/conversas': typeof ConversasRoute
   '/cupons': typeof CuponsRoute
+  '/disparos': typeof DisparosRoute
   '/entregas': typeof EntregasRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/indicacoes': typeof IndicacoesRoute
+  '/leads-totais': typeof LeadsTotaisRoute
   '/login': typeof LoginRoute
   '/notas': typeof NotasRoute
   '/pdv': typeof PdvRoute
   '/pedidos': typeof PedidosRoute
+  '/pets': typeof PetsRoute
   '/produtos-procurados': typeof ProdutosProcuradosRoute
   '/recompra-prevista': typeof RecompraPrevistaRoute
   '/admin/coupons': typeof AdminCouponsRoute
@@ -407,6 +494,8 @@ export interface FileRoutesById {
   '/api/crm/clientes': typeof ApiCrmClientesRoute
   '/api/crm/conversas': typeof ApiCrmConversasRoute
   '/api/crm/dashboard': typeof ApiCrmDashboardRoute
+  '/api/crm/disparos': typeof ApiCrmDisparosRoute
+  '/api/crm/followups': typeof ApiCrmFollowupsRoute
   '/api/crm/indicacoes': typeof ApiCrmIndicacoesRoute
   '/api/crm/media': typeof ApiCrmMediaRoute
   '/api/crm/notas': typeof ApiCrmNotasRoute
@@ -422,6 +511,11 @@ export interface FileRoutesById {
   '/api/uazapi/test': typeof ApiUazapiTestRoute
   '/api/webhook/pagamento': typeof ApiWebhookPagamentoRoute
   '/api/webhook/whatsapp': typeof ApiWebhookWhatsappRoute
+  '/api/crm/financeiro/abastecimentos': typeof ApiCrmFinanceiroAbastecimentosRoute
+  '/api/crm/financeiro/despesas': typeof ApiCrmFinanceiroDespesasRoute
+  '/api/crm/financeiro/marketing': typeof ApiCrmFinanceiroMarketingRoute
+  '/api/crm/pagamentos/scan': typeof ApiCrmPagamentosScanRoute
+  '/api/crm/produtos/estoque-lote': typeof ApiCrmProdutosEstoqueLoteRoute
   '/api/crm/produtos/foto': typeof ApiCrmProdutosFotoRoute
 }
 export interface FileRouteTypes {
@@ -434,14 +528,17 @@ export interface FileRouteTypes {
     | '/clientes'
     | '/conversas'
     | '/cupons'
+    | '/disparos'
     | '/entregas'
     | '/estoque'
     | '/financeiro'
     | '/indicacoes'
+    | '/leads-totais'
     | '/login'
     | '/notas'
     | '/pdv'
     | '/pedidos'
+    | '/pets'
     | '/produtos-procurados'
     | '/recompra-prevista'
     | '/admin/coupons'
@@ -456,6 +553,8 @@ export interface FileRouteTypes {
     | '/api/crm/clientes'
     | '/api/crm/conversas'
     | '/api/crm/dashboard'
+    | '/api/crm/disparos'
+    | '/api/crm/followups'
     | '/api/crm/indicacoes'
     | '/api/crm/media'
     | '/api/crm/notas'
@@ -471,6 +570,11 @@ export interface FileRouteTypes {
     | '/api/uazapi/test'
     | '/api/webhook/pagamento'
     | '/api/webhook/whatsapp'
+    | '/api/crm/financeiro/abastecimentos'
+    | '/api/crm/financeiro/despesas'
+    | '/api/crm/financeiro/marketing'
+    | '/api/crm/pagamentos/scan'
+    | '/api/crm/produtos/estoque-lote'
     | '/api/crm/produtos/foto'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -481,14 +585,17 @@ export interface FileRouteTypes {
     | '/clientes'
     | '/conversas'
     | '/cupons'
+    | '/disparos'
     | '/entregas'
     | '/estoque'
     | '/financeiro'
     | '/indicacoes'
+    | '/leads-totais'
     | '/login'
     | '/notas'
     | '/pdv'
     | '/pedidos'
+    | '/pets'
     | '/produtos-procurados'
     | '/recompra-prevista'
     | '/admin/coupons'
@@ -503,6 +610,8 @@ export interface FileRouteTypes {
     | '/api/crm/clientes'
     | '/api/crm/conversas'
     | '/api/crm/dashboard'
+    | '/api/crm/disparos'
+    | '/api/crm/followups'
     | '/api/crm/indicacoes'
     | '/api/crm/media'
     | '/api/crm/notas'
@@ -518,6 +627,11 @@ export interface FileRouteTypes {
     | '/api/uazapi/test'
     | '/api/webhook/pagamento'
     | '/api/webhook/whatsapp'
+    | '/api/crm/financeiro/abastecimentos'
+    | '/api/crm/financeiro/despesas'
+    | '/api/crm/financeiro/marketing'
+    | '/api/crm/pagamentos/scan'
+    | '/api/crm/produtos/estoque-lote'
     | '/api/crm/produtos/foto'
   id:
     | '__root__'
@@ -528,14 +642,17 @@ export interface FileRouteTypes {
     | '/clientes'
     | '/conversas'
     | '/cupons'
+    | '/disparos'
     | '/entregas'
     | '/estoque'
     | '/financeiro'
     | '/indicacoes'
+    | '/leads-totais'
     | '/login'
     | '/notas'
     | '/pdv'
     | '/pedidos'
+    | '/pets'
     | '/produtos-procurados'
     | '/recompra-prevista'
     | '/admin/coupons'
@@ -550,6 +667,8 @@ export interface FileRouteTypes {
     | '/api/crm/clientes'
     | '/api/crm/conversas'
     | '/api/crm/dashboard'
+    | '/api/crm/disparos'
+    | '/api/crm/followups'
     | '/api/crm/indicacoes'
     | '/api/crm/media'
     | '/api/crm/notas'
@@ -565,6 +684,11 @@ export interface FileRouteTypes {
     | '/api/uazapi/test'
     | '/api/webhook/pagamento'
     | '/api/webhook/whatsapp'
+    | '/api/crm/financeiro/abastecimentos'
+    | '/api/crm/financeiro/despesas'
+    | '/api/crm/financeiro/marketing'
+    | '/api/crm/pagamentos/scan'
+    | '/api/crm/produtos/estoque-lote'
     | '/api/crm/produtos/foto'
   fileRoutesById: FileRoutesById
 }
@@ -576,14 +700,17 @@ export interface RootRouteChildren {
   ClientesRoute: typeof ClientesRoute
   ConversasRoute: typeof ConversasRoute
   CuponsRoute: typeof CuponsRoute
+  DisparosRoute: typeof DisparosRoute
   EntregasRoute: typeof EntregasRoute
   EstoqueRoute: typeof EstoqueRoute
   FinanceiroRoute: typeof FinanceiroRoute
   IndicacoesRoute: typeof IndicacoesRoute
+  LeadsTotaisRoute: typeof LeadsTotaisRoute
   LoginRoute: typeof LoginRoute
   NotasRoute: typeof NotasRoute
   PdvRoute: typeof PdvRoute
   PedidosRoute: typeof PedidosRoute
+  PetsRoute: typeof PetsRoute
   ProdutosProcuradosRoute: typeof ProdutosProcuradosRoute
   RecompraPrevistaRoute: typeof RecompraPrevistaRoute
   AdminCouponsRoute: typeof AdminCouponsRoute
@@ -598,6 +725,8 @@ export interface RootRouteChildren {
   ApiCrmClientesRoute: typeof ApiCrmClientesRoute
   ApiCrmConversasRoute: typeof ApiCrmConversasRoute
   ApiCrmDashboardRoute: typeof ApiCrmDashboardRoute
+  ApiCrmDisparosRoute: typeof ApiCrmDisparosRoute
+  ApiCrmFollowupsRoute: typeof ApiCrmFollowupsRoute
   ApiCrmIndicacoesRoute: typeof ApiCrmIndicacoesRoute
   ApiCrmMediaRoute: typeof ApiCrmMediaRoute
   ApiCrmNotasRoute: typeof ApiCrmNotasRoute
@@ -613,6 +742,10 @@ export interface RootRouteChildren {
   ApiUazapiTestRoute: typeof ApiUazapiTestRoute
   ApiWebhookPagamentoRoute: typeof ApiWebhookPagamentoRoute
   ApiWebhookWhatsappRoute: typeof ApiWebhookWhatsappRoute
+  ApiCrmFinanceiroAbastecimentosRoute: typeof ApiCrmFinanceiroAbastecimentosRoute
+  ApiCrmFinanceiroDespesasRoute: typeof ApiCrmFinanceiroDespesasRoute
+  ApiCrmFinanceiroMarketingRoute: typeof ApiCrmFinanceiroMarketingRoute
+  ApiCrmPagamentosScanRoute: typeof ApiCrmPagamentosScanRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -629,6 +762,13 @@ declare module '@tanstack/react-router' {
       path: '/produtos-procurados'
       fullPath: '/produtos-procurados'
       preLoaderRoute: typeof ProdutosProcuradosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pets': {
+      id: '/pets'
+      path: '/pets'
+      fullPath: '/pets'
+      preLoaderRoute: typeof PetsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pedidos': {
@@ -659,6 +799,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/leads-totais': {
+      id: '/leads-totais'
+      path: '/leads-totais'
+      fullPath: '/leads-totais'
+      preLoaderRoute: typeof LeadsTotaisRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/indicacoes': {
       id: '/indicacoes'
       path: '/indicacoes'
@@ -685,6 +832,13 @@ declare module '@tanstack/react-router' {
       path: '/entregas'
       fullPath: '/entregas'
       preLoaderRoute: typeof EntregasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/disparos': {
+      id: '/disparos'
+      path: '/disparos'
+      fullPath: '/disparos'
+      preLoaderRoute: typeof DisparosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cupons': {
@@ -848,6 +1002,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmIndicacoesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crm/followups': {
+      id: '/api/crm/followups'
+      path: '/api/crm/followups'
+      fullPath: '/api/crm/followups'
+      preLoaderRoute: typeof ApiCrmFollowupsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/disparos': {
+      id: '/api/crm/disparos'
+      path: '/api/crm/disparos'
+      fullPath: '/api/crm/disparos'
+      preLoaderRoute: typeof ApiCrmDisparosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/crm/dashboard': {
       id: '/api/crm/dashboard'
       path: '/api/crm/dashboard'
@@ -932,14 +1100,51 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmProdutosFotoRouteImport
       parentRoute: typeof ApiCrmProdutosRoute
     }
+    '/api/crm/produtos/estoque-lote': {
+      id: '/api/crm/produtos/estoque-lote'
+      path: '/estoque-lote'
+      fullPath: '/api/crm/produtos/estoque-lote'
+      preLoaderRoute: typeof ApiCrmProdutosEstoqueLoteRouteImport
+      parentRoute: typeof ApiCrmProdutosRoute
+    }
+    '/api/crm/pagamentos/scan': {
+      id: '/api/crm/pagamentos/scan'
+      path: '/api/crm/pagamentos/scan'
+      fullPath: '/api/crm/pagamentos/scan'
+      preLoaderRoute: typeof ApiCrmPagamentosScanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/financeiro/marketing': {
+      id: '/api/crm/financeiro/marketing'
+      path: '/api/crm/financeiro/marketing'
+      fullPath: '/api/crm/financeiro/marketing'
+      preLoaderRoute: typeof ApiCrmFinanceiroMarketingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/financeiro/despesas': {
+      id: '/api/crm/financeiro/despesas'
+      path: '/api/crm/financeiro/despesas'
+      fullPath: '/api/crm/financeiro/despesas'
+      preLoaderRoute: typeof ApiCrmFinanceiroDespesasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/crm/financeiro/abastecimentos': {
+      id: '/api/crm/financeiro/abastecimentos'
+      path: '/api/crm/financeiro/abastecimentos'
+      fullPath: '/api/crm/financeiro/abastecimentos'
+      preLoaderRoute: typeof ApiCrmFinanceiroAbastecimentosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface ApiCrmProdutosRouteChildren {
+  ApiCrmProdutosEstoqueLoteRoute: typeof ApiCrmProdutosEstoqueLoteRoute
   ApiCrmProdutosFotoRoute: typeof ApiCrmProdutosFotoRoute
 }
 
 const ApiCrmProdutosRouteChildren: ApiCrmProdutosRouteChildren = {
+  ApiCrmProdutosEstoqueLoteRoute: ApiCrmProdutosEstoqueLoteRoute,
   ApiCrmProdutosFotoRoute: ApiCrmProdutosFotoRoute,
 }
 
@@ -955,14 +1160,17 @@ const rootRouteChildren: RootRouteChildren = {
   ClientesRoute: ClientesRoute,
   ConversasRoute: ConversasRoute,
   CuponsRoute: CuponsRoute,
+  DisparosRoute: DisparosRoute,
   EntregasRoute: EntregasRoute,
   EstoqueRoute: EstoqueRoute,
   FinanceiroRoute: FinanceiroRoute,
   IndicacoesRoute: IndicacoesRoute,
+  LeadsTotaisRoute: LeadsTotaisRoute,
   LoginRoute: LoginRoute,
   NotasRoute: NotasRoute,
   PdvRoute: PdvRoute,
   PedidosRoute: PedidosRoute,
+  PetsRoute: PetsRoute,
   ProdutosProcuradosRoute: ProdutosProcuradosRoute,
   RecompraPrevistaRoute: RecompraPrevistaRoute,
   AdminCouponsRoute: AdminCouponsRoute,
@@ -977,6 +1185,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCrmClientesRoute: ApiCrmClientesRoute,
   ApiCrmConversasRoute: ApiCrmConversasRoute,
   ApiCrmDashboardRoute: ApiCrmDashboardRoute,
+  ApiCrmDisparosRoute: ApiCrmDisparosRoute,
+  ApiCrmFollowupsRoute: ApiCrmFollowupsRoute,
   ApiCrmIndicacoesRoute: ApiCrmIndicacoesRoute,
   ApiCrmMediaRoute: ApiCrmMediaRoute,
   ApiCrmNotasRoute: ApiCrmNotasRoute,
@@ -992,6 +1202,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiUazapiTestRoute: ApiUazapiTestRoute,
   ApiWebhookPagamentoRoute: ApiWebhookPagamentoRoute,
   ApiWebhookWhatsappRoute: ApiWebhookWhatsappRoute,
+  ApiCrmFinanceiroAbastecimentosRoute: ApiCrmFinanceiroAbastecimentosRoute,
+  ApiCrmFinanceiroDespesasRoute: ApiCrmFinanceiroDespesasRoute,
+  ApiCrmFinanceiroMarketingRoute: ApiCrmFinanceiroMarketingRoute,
+  ApiCrmPagamentosScanRoute: ApiCrmPagamentosScanRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

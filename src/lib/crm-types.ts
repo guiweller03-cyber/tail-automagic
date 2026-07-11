@@ -3,6 +3,7 @@ export type FormaPagamento = "Pix" | "Cartão débito" | "Cartão crédito" | "D
 export type Pedido = {
   id: string;
   cliente: string;
+  telefone?: string;
   pet: string;
   total: number;
   status: "novo" | "pago" | "separando" | "em rota" | "entregue" | "cancelado";
@@ -13,6 +14,7 @@ export type Pedido = {
   comprovante: boolean;
   taxaMaquina: number;
   notaFiscal: boolean;
+  observacao?: string;
 };
 
 export type ConversaFiltro =
@@ -39,11 +41,20 @@ export type Conversa = {
   ultima: string;
   hora: string;
   naoLidas: number;
-  tag: "IA" | "Humano" | "Aguardando";
+  tag: "IA" | "Humano" | "Aguardando" | "Humano + IA";
   pet?: string;
   estagio: KanbanStage;
   valorPotencial: number;
+  resumoFinanceiro?: ResumoFinanceiroConversa;
   filtros: ConversaFiltro[];
+};
+
+export type ResumoFinanceiroConversa = {
+  totalGasto: number;
+  lucroLiquido: number;
+  totalDescontos: number;
+  ticketMedio: number;
+  pedidos: number;
 };
 
 export type Cliente = {
@@ -72,6 +83,7 @@ export type Cliente = {
   proxRecompra: string;
   cidade?: string;
   especies?: ("cachorro" | "gato")[];
+  petsDetalhes?: PetDetalhe[];
   observacoes: string;
   followUpManual?: {
     mensagem: string;
@@ -84,6 +96,18 @@ export type Cliente = {
     midiaTipo?: string;
     atualizadoEm?: string;
   };
+};
+
+export type PetDetalhe = {
+  nome: string;
+  especie?: "cachorro" | "gato";
+  castrado?: boolean;
+  raca?: string;
+  porte?: "pequeno" | "medio" | "grande";
+  pesoKg?: number;
+  idade?: string;
+  nascimento?: string;
+  observacao?: string;
 };
 
 export type Produto = {
@@ -179,6 +203,15 @@ export type ProdutoPrevisto = {
   estoqueReservado: number;
   diasParaRuptura: number;
   rupturaSemana?: 1 | 2 | 3 | 4;
+};
+
+export type ModeloRecompraRacao = {
+  sku: string;
+  produtoNome: string;
+  diasRecompra: number;
+  consumoDiarioG?: number;
+  ativo: boolean;
+  atualizadoEm?: string;
 };
 
 export type DemandaBairro = {

@@ -49,7 +49,7 @@ export function useAIAssistant(initialStatus: boolean = true) {
       const response = await fetch("/api/crm/conversas", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo: "global", desativada: !newState })
+        body: JSON.stringify({ tipo: "global", desativada: !newState }),
       });
 
       if (!response.ok) {

@@ -39,7 +39,11 @@ export function CouponInput({
         setResult(data);
         onValidChange?.(
           data.valid
-            ? { code: normalized, discountPercent: data.discount_percent ?? 0, type: data.type ?? "influencer" }
+            ? {
+                code: normalized,
+                discountPercent: data.discount_percent ?? 0,
+                type: data.type ?? "influencer",
+              }
             : null,
         );
       } finally {
@@ -62,7 +66,9 @@ export function CouponInput({
           placeholder="INFLUENCER20"
           className="input pl-9 pr-10"
         />
-        {loading ? <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin" /> : null}
+        {loading ? (
+          <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin" />
+        ) : null}
       </div>
       {result?.valid ? (
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
@@ -70,7 +76,9 @@ export function CouponInput({
           {result.discount_percent}% de desconto aplicado
         </span>
       ) : null}
-      {result && !result.valid ? <span className="text-xs text-destructive">Cupom invalido ou indisponivel</span> : null}
+      {result && !result.valid ? (
+        <span className="text-xs text-destructive">Cupom invalido ou indisponivel</span>
+      ) : null}
     </label>
   );
 }

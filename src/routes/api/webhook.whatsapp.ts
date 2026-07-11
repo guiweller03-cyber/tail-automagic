@@ -6,7 +6,9 @@ import {
   extrairCompraDaConversa,
   gerarRespostaWhatsapp,
   limparRespostaCliente,
+  preAtendimentoConcluido,
   type CompraConversaExtraida,
+  type Mensagem,
 } from "@/lib/openai";
 import {
   ehMidiaComprovantePersistivel,
@@ -16,7 +18,10 @@ import {
 import { buscarRacoesTecnicasPorTexto, clientePediuFichaTecnica } from "@/lib/racoes-tecnicas";
 import { buscarCupomAtivo, extrairCupomTexto } from "@/lib/indicacoes-supabase";
 import { invalidarDashboardCache } from "@/lib/crm-supabase";
-import { salvarDadosObservadosCliente } from "@/lib/recompra-supabase";
+import {
+  buscarFatosObservadosCliente,
+  salvarDadosObservadosCliente,
+} from "@/lib/recompra-supabase";
 import {
   adicionarMensagemConversa,
   atualizarConversaAguardandoHumano,
@@ -29,6 +34,7 @@ import {
   buscarProdutosDisponiveisPorTexto,
   confirmarPixPorComprovanteWhatsapp,
   criarPedidoPixPendente,
+  existeVendaPagaComValor,
   listarPedidos,
   registrarPedidoDoWhatsapp,
   registrarProdutoProcurado,
@@ -37,10 +43,17 @@ import {
   vincularPedidoPixAVenda,
   type ClienteCadastro,
   type Conversa,
+  type IaStatus,
   type PedidoCrm,
 } from "@/lib/supabase";
 import { enviarMensagemLonga, urlMidiaDescriptografada } from "@/lib/uazapi";
 import { erroLog, logPix, telefoneLog } from "@/lib/pix-log";
+import { normalizarNomeContatoWhatsapp } from "@/lib/whatsapp-nomes";
+
+export type MotivoIgnorarAutomacaoIa =
+  | "ia_conversa_desativada"
+  | "ia_global_desativada"
+  | "aguardando_humano";
 
 type UazapiMessage = {
   id?: string;
@@ -162,10 +175,7 @@ function normalizarTelefone(value: string): string {
 }
 
 function nomeClienteSeguro(value?: string | null): string | null {
-  const nome = value?.trim();
-  if (!nome || /^cliente\s+\d+$/i.test(nome)) return null;
-
-  return nome;
+  return normalizarNomeContatoWhatsapp(value);
 }
 
 function brl(value: number): string {
@@ -434,6 +444,46 @@ function extrairMensagensWebhook(event: UazapiWebhook): UazapiMessage[] {
   return candidatos
     .map((message) => normalizarMensagem(message))
     .filter((message): message is UazapiMessage => Boolean(message));
+}
+
+/**
+ * Quando o cliente manda varias mensagens de texto em rajada (ex.: "oi" e logo
+ * em seguida "queria racao pro meu gato"), a UazAPI pode entregar tudo num so
+ * webhook. Sem agrupar, cada bolha vira uma chamada de IA independente e o
+ * cliente recebe respostas fragmentadas que ignoram o que ele disse na
+ * mensagem seguinte. Aqui, mensagens de texto puro (sem midia) consecutivas do
+ * mesmo remetente sao unidas em uma so entrada antes de gerar a resposta;
+ * mensagens com midia continuam isoladas para nao quebrar a deteccao de
+ * comprovante de pagamento.
+ */
+function agruparMensagensDeTexto(mensagens: UazapiMessage[]): UazapiMessage[] {
+  const agrupadas: UazapiMessage[] = [];
+
+  for (const mensagem of mensagens) {
+    const anterior = agrupadas.at(-1);
+    const podeAgrupar =
+      anterior &&
+      mensagemValida(anterior) &&
+      mensagemValida(mensagem) &&
+      !mediaUrlMensagem(anterior) &&
+      !mediaUrlMensagem(mensagem) &&
+      anterior.chatid === mensagem.chatid &&
+      Boolean(anterior.fromMe) === Boolean(mensagem.fromMe);
+
+    if (podeAgrupar) {
+      const textoAnterior = textoMensagem(anterior) ?? "";
+      const textoAtual = textoMensagem(mensagem) ?? "";
+      agrupadas[agrupadas.length - 1] = {
+        ...mensagem,
+        text: `${textoAnterior}\n${textoAtual}`,
+      };
+      continue;
+    }
+
+    agrupadas.push(mensagem);
+  }
+
+  return agrupadas;
 }
 
 function motivoMensagemInvalida(message?: UazapiMessage): string {
@@ -801,17 +851,39 @@ async function registrarPedidoAutomaticoDaConversa(conversa: Conversa): Promise<
   const historico = conversa.historico.slice(-24);
   const compra = await extrairCompraDaConversa(historico);
 
-  if (!compra.ehCompra || compra.status !== "fechada" || compra.confianca < 0.68) {
+  // So cria venda automatica quando ha compra fechada COM pagamento confirmado.
+  // Intencao/negociacao sem pagamento nao vira venda (evita venda fantasma que
+  // inflava a contagem do dashboard). O comprovante de imagem/Pix continua sendo
+  // lancado pelo path dedicado (deveAnalisarComprovante), com dedup WPP_PAY.
+  if (
+    !compra.ehCompra ||
+    compra.status !== "fechada" ||
+    compra.confianca < 0.68 ||
+    compra.pagamentoConfirmado !== true ||
+    !compra.total ||
+    compra.total <= 0
+  ) {
     return false;
   }
 
+  const telefone = normalizarTelefone(conversa.telefone);
+
+  // Evita duplicar a venda que o path de comprovante ja pode ter lancado para o
+  // mesmo cliente/valor (mesmo pagamento, deteccoes diferentes).
+  const jaLancada = await existeVendaPagaComValor({
+    telefone,
+    valor: compra.total,
+    dataReferencia: historico.at(-1)?.at,
+  });
+  if (jaLancada) return false;
+
   const pedido = await registrarPedidoDoWhatsapp({
-    telefone: normalizarTelefone(conversa.telefone),
+    telefone,
     texto: textoPedidoAutomatico(historico, compra),
     nomeCliente: conversa.nome_cliente,
     formaPagamento: formaPagamentoCompra(compra),
     totalPago: compra.total,
-    pago: compra.pagamentoConfirmado === true,
+    pago: true,
     observacaoExtra: [
       "Pedido criado automaticamente a partir do historico do WhatsApp",
       compra.motivo ? compra.motivo.slice(0, 100) : null,
@@ -838,6 +910,19 @@ function contextoCliente(cliente: ClienteCadastro | null) {
 
 function pedidosDoCliente(pedidos: PedidoCrm[], telefone: string): PedidoCrm[] {
   return pedidos.filter((pedido) => normalizarTelefone(pedido.telefone) === telefone).slice(0, 5);
+}
+
+export function motivoIgnorarAutomacoesIa(
+  conversa: Pick<Conversa, "ia_ativa" | "aguardando_humano">,
+  iaStatus: IaStatus,
+): MotivoIgnorarAutomacaoIa | null {
+  const iaLigadaNestaConversa = conversa.ia_ativa === true;
+
+  if (conversa.ia_ativa === false) return "ia_conversa_desativada";
+  if (iaStatus.globalDesativada && !iaLigadaNestaConversa) return "ia_global_desativada";
+  if (conversa.aguardando_humano && !iaLigadaNestaConversa) return "aguardando_humano";
+
+  return null;
 }
 
 function primeiraUrlTexto(texto: string): string | undefined {
@@ -1253,9 +1338,10 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
   const mensagens = extrairMensagensWebhook(event);
 
   if (mensagens.length > 1) {
+    const agrupadas = agruparMensagensDeTexto(mensagens);
     const resultados: unknown[] = [];
 
-    for (const mensagem of mensagens) {
+    for (const mensagem of agrupadas) {
       const response = await processarWebhookWhatsapp({ message: mensagem });
       resultados.push(await response.json().catch(() => ({ ok: response.ok })));
     }
@@ -1264,6 +1350,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
       received: true,
       batch: true,
       total: mensagens.length,
+      agrupado: agrupadas.length,
       resultados,
     });
   }
@@ -1282,9 +1369,19 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
 
   const telefone = normalizarTelefone(message.chatid);
   const texto = message.text.trim();
-  const nomeWhatsapp = nomeClienteSeguro(message.senderName ?? message.pushName);
   const metadata = metadataMensagem(message);
   const conversaInicial = await buscarOuCriarConversa(telefone);
+
+  // Contato bloqueado pelo operador (ex.: lead de regiao fora da area de entrega):
+  // ignora a mensagem por completo. A IA nao responde, o contato nao vira lead e a
+  // conversa continua oculta na lista do WhatsApp IA.
+  if (conversaInicial.bloqueado === true) {
+    return json({ received: true, ignored: true, reason: "contato_bloqueado" });
+  }
+
+  const nomeWhatsapp = message.fromMe
+    ? null
+    : nomeClienteSeguro(message.senderName ?? message.pushName);
   const clienteWhatsappInicial = await salvarClienteWhatsappInicial({ telefone, nomeWhatsapp });
 
   if (nomeWhatsapp && !nomeClienteSeguro(conversaInicial.nome_cliente)) {
@@ -1345,6 +1442,43 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
   }
 
   const conversa = await registrarMensagemCliente(conversaInicial, texto, metadataFinal);
+  const cupomMensagemAtual = extrairCupomTexto(texto);
+  const solicitouPix = solicitouPixNaMensagem || pixSolicitadoRecentemente(conversa);
+  const iaStatus = await buscarIaStatus();
+  const motivoIgnorarIa = motivoIgnorarAutomacoesIa(conversa, iaStatus);
+
+  if (motivoIgnorarIa) {
+    if (solicitouPix) {
+      logPix(
+        "whatsapp",
+        "solicitacao_ignorada",
+        {
+          telefone: telefoneLog(telefone),
+          motivo: motivoIgnorarIa,
+        },
+        "warn",
+      );
+    }
+    if (deveAnalisarComprovante(texto, metadataFinal)) {
+      logPix(
+        "whatsapp",
+        "comprovante_ignorado_ia_desativada",
+        {
+          telefone: telefoneLog(telefone),
+          motivo: motivoIgnorarIa,
+        },
+        "warn",
+      );
+    }
+    agendarTrackingPedidosWhatsapp(conversa);
+
+    return json({
+      received: true,
+      ignored: true,
+      reason: motivoIgnorarIa,
+    });
+  }
+
   const comprovanteConfirmado = await tentarConfirmarPagamentoPorComprovante({
     telefone,
     texto,
@@ -1356,49 +1490,13 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
     return json({ received: true, responded: true, pagamento_confirmado: true });
   }
 
-  const cupomMensagemAtual = extrairCupomTexto(texto);
-  const solicitouPix = solicitouPixNaMensagem || pixSolicitadoRecentemente(conversa);
-  const iaStatus = await buscarIaStatus();
-  const iaLigadaNestaConversa = conversa.ia_ativa === true;
-  const iaDesligadaNestaConversa = conversa.ia_ativa === false;
-  const deveIgnorarIa =
-    iaDesligadaNestaConversa ||
-    (iaStatus.globalDesativada && !iaLigadaNestaConversa) ||
-    (conversa.aguardando_humano && !iaLigadaNestaConversa);
-
-  if (deveIgnorarIa) {
-    const motivo = iaDesligadaNestaConversa
-      ? "ia_conversa_desativada"
-      : iaStatus.globalDesativada
-        ? "ia_global_desativada"
-        : "aguardando_humano";
-
-    if (solicitouPix) {
-      logPix(
-        "whatsapp",
-        "solicitacao_ignorada",
-        {
-          telefone: telefoneLog(telefone),
-          motivo,
-        },
-        "warn",
-      );
-    }
-    agendarTrackingPedidosWhatsapp(conversa);
-
-    return json({
-      received: true,
-      ignored: true,
-      reason: motivo,
-    });
-  }
-
-  const [cliente, pedidos, produtos, aprendizados, iaConfig] = await Promise.all([
+  const [cliente, pedidos, produtos, aprendizados, iaConfig, fatosObservados] = await Promise.all([
     buscarClientePorTelefone(telefone),
     listarPedidos(),
     buscarProdutosDisponiveisPorTexto(texto, 5),
     buscarAprendizados(5),
     buscarIaPromptConfig(),
+    buscarFatosObservadosCliente({ telefone }),
   ]);
   const textoComHistorico = [...conversa.historico.slice(-8), { role: "user", content: texto }]
     .map((mensagem) => mensagem.content)
@@ -1453,7 +1551,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
         nome_cliente: nomeClienteSeguro(conversa.nome_cliente),
         aguardando_humano: conversa.aguardando_humano,
         estagio: conversa.estagio,
-        historico_recente: conversa.historico.slice(-10),
+        historico_recente: conversa.historico.slice(-80),
       },
       pedidos_recentes: pedidosRecentes,
       produtos_relevantes: produtos.map(
@@ -1462,6 +1560,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
       fichas_tecnicas_relevantes: fichasTecnicas,
       horario_atendimento: horarioAtendimento(),
       aprendizados,
+      fatos_conhecidos_cliente: fatosObservados,
     },
   });
   const handoffSolicitado = /\[HANDOFF\]/i.test(respostaIa);
@@ -1539,7 +1638,14 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
     }),
   ]);
 
-  if (handoffSolicitado) {
+  const historicoComResposta: Mensagem[] = [
+    ...conversa.historico,
+    { role: "assistant", content: respostaPreAtendimento },
+  ];
+  const deveAguardarHumano =
+    handoffSolicitado || preAtendimentoConcluido(texto, historicoComResposta);
+
+  if (deveAguardarHumano) {
     await atualizarConversaAguardandoHumano({
       id: conversa.id,
       aguardandoHumano: true,
@@ -1549,20 +1655,14 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
 
   agendarTrackingPedidosWhatsapp({
     ...conversa,
-    historico: [
-      ...conversa.historico,
-      {
-        role: "assistant",
-        content: respostaPreAtendimento,
-      },
-    ],
+    historico: historicoComResposta,
   });
 
   return json({
     received: true,
     responded: true,
     pre_atendimento: true,
-    handoff: handoffSolicitado,
+    handoff: deveAguardarHumano,
   });
 }
 

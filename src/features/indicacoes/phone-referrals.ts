@@ -2,7 +2,7 @@
 import type { CompraIndicado } from "./data";
 import type { Cliente } from "@/lib/crm-types";
 
-export const DESCONTO_INDICACAO = 0.10; // 10% OFF na 1ª compra do indicado
+export const DESCONTO_INDICACAO = 0.1; // 10% OFF na 1ª compra do indicado
 
 /** Mantém apenas dígitos. "+55 (11) 9 9812-3344" → "5511998123344" */
 export function normalizePhone(raw: string): string {
@@ -44,7 +44,8 @@ export function validateReferralPhone(params: {
   if (tel.length < 8) return { ok: false, code: "INVALID", message: "Telefone inválido." };
 
   const indicador = findClienteByPhone(tel, params.clientes);
-  if (!indicador) return { ok: false, code: "NOT_FOUND", message: "Telefone não pertence a nenhum cliente." };
+  if (!indicador)
+    return { ok: false, code: "NOT_FOUND", message: "Telefone não pertence a nenhum cliente." };
 
   if (params.telefoneIndicado && samePhone(params.telefoneIndicador, params.telefoneIndicado)) {
     return { ok: false, code: "SELF", message: "Auto-indicação não é permitida." };
@@ -53,18 +54,36 @@ export function validateReferralPhone(params: {
   // Primeira compra: se já existe registro do indicado (mesmo telefone OU mesmo nome) com desconto aplicado, bloqueia
   const jaUsou = params.comprasExistentes.some((c) => {
     if (!c.descontoAplicado) return false;
-    if (params.telefoneIndicado && c.indicadoTelefone && samePhone(c.indicadoTelefone, params.telefoneIndicado)) return true;
-    if (params.nomeIndicado && c.indicadoNome.toLowerCase() === params.nomeIndicado.trim().toLowerCase()) return true;
+    if (
+      params.telefoneIndicado &&
+      c.indicadoTelefone &&
+      samePhone(c.indicadoTelefone, params.telefoneIndicado)
+    )
+      return true;
+    if (
+      params.nomeIndicado &&
+      c.indicadoNome.toLowerCase() === params.nomeIndicado.trim().toLowerCase()
+    )
+      return true;
     return false;
   });
-  if (jaUsou) return { ok: false, code: "ALREADY_USED", message: "Este cliente já utilizou o desconto de indicação." };
+  if (jaUsou)
+    return {
+      ok: false,
+      code: "ALREADY_USED",
+      message: "Este cliente já utilizou o desconto de indicação.",
+    };
 
   return { ok: true, indicador };
 }
 
 export function applyReferralDiscount(subtotal: number) {
   const desconto = +(subtotal * DESCONTO_INDICACAO).toFixed(2);
-  return { desconto, total: +(subtotal - desconto).toFixed(2), percentual: DESCONTO_INDICACAO * 100 };
+  return {
+    desconto,
+    total: +(subtotal - desconto).toFixed(2),
+    percentual: DESCONTO_INDICACAO * 100,
+  };
 }
 
 export function formatPhone(raw: string): string {

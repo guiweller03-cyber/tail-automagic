@@ -13,14 +13,96 @@ import {
   Upload,
   Trash2,
   Loader2,
+  Wand2,
+  FileSpreadsheet,
+  CheckCircle2,
+  AlertCircle,
+  Search,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { onCrmReload } from "@/lib/crm-refresh";
+
+type ExcelLinha = {
+  sku: string;
+  estoqueNovo: number;
+  produto?: Produto;
+};
+
+function normalizarHeader(valor: unknown): string {
+  return String(valor ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+const HEADERS_SKU = new Set(["sku", "codigo", "cod", "ref", "referencia", "reference", "code"]);
+const HEADERS_ESTOQUE = new Set([
+  "estoque",
+  "quantidade",
+  "qtd",
+  "qty",
+  "stock",
+  "quantity",
+  "saldo",
+  "qnt",
+]);
+
+async function parsearExcelLinhas(file: File, produtos: Produto[]): Promise<ExcelLinha[]> {
+  const XLSX = await import("xlsx");
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: "array" });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) throw new Error("Planilha vazia ou inválida.");
+
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+  if (rows.length < 2)
+    throw new Error("A planilha precisa ter pelo menos um cabeçalho e uma linha de dados.");
+
+  const headers = (rows[0] as unknown[]).map(normalizarHeader);
+  const colSku = headers.findIndex((h) => HEADERS_SKU.has(h));
+  const colEstoque = headers.findIndex((h) => HEADERS_ESTOQUE.has(h));
+
+  if (colSku < 0)
+    throw new Error(
+      `Coluna de SKU não encontrada. Use um desses nomes: ${[...HEADERS_SKU].join(", ")}`,
+    );
+  if (colEstoque < 0)
+    throw new Error(
+      `Coluna de estoque não encontrada. Use um desses nomes: ${[...HEADERS_ESTOQUE].join(", ")}`,
+    );
+
+  const produtoPorSku = new Map(produtos.map((p) => [p.sku.toUpperCase(), p]));
+
+  const linhas: ExcelLinha[] = [];
+  for (const row of rows.slice(1)) {
+    const rowArr = row as unknown[];
+    const sku = String(rowArr[colSku] ?? "")
+      .trim()
+      .toUpperCase();
+    const raw = String(rowArr[colEstoque] ?? "")
+      .replace(",", ".")
+      .trim();
+    const estoqueNovo = Math.max(0, Math.floor(Number(raw)));
+    if (!sku || !Number.isFinite(estoqueNovo)) continue;
+    linhas.push({ sku, estoqueNovo, produto: produtoPorSku.get(sku) });
+  }
+  return linhas;
+}
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 type EditCell = { sku: string; field: "preco" | "precoCompra" } | null;
+type ImportStatus = "pronto" | "pendente" | "enviando" | "ok" | "erro";
+type FotoImportItem = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  sku: string;
+  status: ImportStatus;
+  mensagem?: string;
+};
 type ProdutoFormState = {
   sku: string;
   nome: string;
@@ -41,6 +123,37 @@ function normalizarBusca(valor: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function chaveArquivoProduto(valor: string) {
+  return normalizarBusca(valor).replace(/[^a-z0-9]+/g, "");
+}
+
+function nomeArquivoSemExtensao(file: File) {
+  return file.name.replace(/\.[^.]+$/, "");
+}
+
+function encontrarProdutoPorArquivo(file: File, produtos: Produto[]) {
+  const chaveArquivo = chaveArquivoProduto(nomeArquivoSemExtensao(file));
+  if (!chaveArquivo) return null;
+
+  const porSku = produtos.find((produto) => {
+    const sku = chaveArquivoProduto(produto.sku);
+    return sku.length >= 3 && (chaveArquivo === sku || chaveArquivo.includes(sku));
+  });
+  if (porSku) return porSku;
+
+  return (
+    produtos.find((produto) => {
+      const nome = chaveArquivoProduto(produto.nome);
+      return nome.length >= 8 && (chaveArquivo.includes(nome) || nome.includes(chaveArquivo));
+    }) ?? null
+  );
+}
+
+function fotoImportId(file: File) {
+  const random = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+  return `${file.name}-${file.size}-${file.lastModified}-${random}`;
 }
 
 function textoProduto(produto: Produto) {
@@ -84,6 +197,8 @@ function comportamentoCompra(produto: Produto) {
 const CATEGORIAS = ["Ração", "Higiene", "Petiscos", "Saúde", "Brinquedos", "Acessórios"];
 const GIROS: Produto["giro"][] = ["alto", "médio", "baixo"];
 const FOTO_MAX_BYTES = 5 * 1024 * 1024;
+const FOTO_IMPORT_IA_BATCH_SIZE = 12;
+const ESTOQUE_CONJUNTOS_STORAGE_KEY = "crm-estoque-conjuntos-v1";
 const DETALHE_FIELDS: Array<{ key: keyof ProdutoDetalhesTecnicos; label: string; full?: boolean }> =
   [
     { key: "marca", label: "Marca" },
@@ -197,6 +312,40 @@ function formToProduto(form: ProdutoFormState): Produto | null {
   };
 }
 
+function atualizarSkuConjuntosEstoqueStorage(skuAtual: string, skuNovo?: string) {
+  if (typeof window === "undefined") return;
+
+  const alvo = skuAtual.trim().toUpperCase();
+  const novo = skuNovo?.trim().toUpperCase();
+  if (!alvo) return;
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(ESTOQUE_CONJUNTOS_STORAGE_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return;
+
+    const conjuntos = parsed
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const row = item as Record<string, unknown>;
+        const skus = Array.isArray(row.skus)
+          ? row.skus
+              .map((sku) => (typeof sku === "string" ? sku.trim().toUpperCase() : ""))
+              .filter(Boolean)
+          : [];
+        const atualizados = skus.map((sku) => (sku === alvo ? (novo ?? "") : sku)).filter(Boolean);
+        const unicos = Array.from(new Set(atualizados));
+        if (unicos.length === 0) return null;
+
+        return { ...row, skus: unicos };
+      })
+      .filter(Boolean);
+
+    window.localStorage.setItem(ESTOQUE_CONJUNTOS_STORAGE_KEY, JSON.stringify(conjuntos));
+  } catch {
+    // Se o localStorage estiver indisponivel, a exclusao principal ja foi aplicada.
+  }
+}
+
 export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
   const [produtos, setProdutos] = useState<Produto[]>(produtosIniciais);
   const [tipo, setTipo] = useState<"todos" | "próprio" | "consignado">("todos");
@@ -206,12 +355,29 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
   const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null);
   const [editForm, setEditForm] = useState<ProdutoFormState | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [excluindoSku, setExcluindoSku] = useState<string | null>(null);
   const [fotoSalvandoSku, setFotoSalvandoSku] = useState<string | null>(null);
+  const [fotosImport, setFotosImport] = useState<FotoImportItem[]>([]);
+  const [importandoFotos, setImportandoFotos] = useState(false);
+  const fotosImportRef = useRef<FotoImportItem[]>([]);
+  const [excelLinhas, setExcelLinhas] = useState<ExcelLinha[]>([]);
+  const [excelProcessando, setExcelProcessando] = useState(false);
+  const [excelEnviando, setExcelEnviando] = useState(false);
   const { query: buscaGlobal, setQuery: setBuscaGlobal } = useGlobalSearch();
 
   useEffect(() => {
     setProdutos(produtosIniciais);
   }, [produtosIniciais]);
+
+  useEffect(() => {
+    fotosImportRef.current = fotosImport;
+  }, [fotosImport]);
+
+  useEffect(() => {
+    return () => {
+      fotosImportRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    };
+  }, []);
 
   useEffect(() => {
     return onCrmReload(() => {
@@ -262,6 +428,11 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
     .reduce((s, p) => s + p.estoque * p.precoCompra, 0);
   const margemMedia =
     produtos.length > 0 ? produtos.reduce((s, p) => s + calcMargem(p).pct, 0) / produtos.length : 0;
+  const fotosImportProntas = fotosImport.filter((item) => item.sku && item.status !== "ok").length;
+  const fotosImportPendentes = fotosImport.filter(
+    (item) => !item.sku && item.status !== "ok",
+  ).length;
+  const fotosImportSalvas = fotosImport.filter((item) => item.status === "ok").length;
 
   function startEdit(sku: string, field: "preco" | "precoCompra", val: number) {
     setEdit({ sku, field });
@@ -299,29 +470,33 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
     }
   }
 
-  async function salvarFotoProduto(produto: Produto, file: File) {
+  async function uploadFotoProduto(sku: string, file: File): Promise<Produto> {
     if (!file.type.startsWith("image/")) {
-      toast.error("Envie uma imagem valida");
-      return;
+      throw new Error("Envie uma imagem valida");
     }
 
     if (file.size > FOTO_MAX_BYTES) {
-      toast.error("A foto deve ter no maximo 5MB");
-      return;
+      throw new Error("A foto deve ter no maximo 5MB");
     }
 
     const formData = new FormData();
-    formData.append("sku", produto.sku);
+    formData.append("sku", sku);
     formData.append("foto", file);
-    setFotoSalvandoSku(produto.sku);
 
+    const response = await fetch("/api/crm/produtos/foto", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data?.erro ?? "Erro ao salvar foto");
+
+    return data as Produto;
+  }
+
+  async function salvarFotoProduto(produto: Produto, file: File) {
+    setFotoSalvandoSku(produto.sku);
     try {
-      const response = await fetch("/api/crm/produtos/foto", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.erro ?? "Erro ao salvar foto");
+      const data = await uploadFotoProduto(produto.sku, file);
 
       setProdutos((prev) => prev.map((p) => (p.sku === produto.sku ? data : p)));
       toast.success("Foto salva");
@@ -352,6 +527,213 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
     } finally {
       setFotoSalvandoSku(null);
     }
+  }
+
+  function adicionarFotosImport(files: FileList | null) {
+    if (!files || importandoFotos) return;
+
+    const aceitas: FotoImportItem[] = [];
+    let rejeitadas = 0;
+
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/") || file.size <= 0 || file.size > FOTO_MAX_BYTES) {
+        rejeitadas += 1;
+        continue;
+      }
+
+      const produto = encontrarProdutoPorArquivo(file, produtos);
+      aceitas.push({
+        id: fotoImportId(file),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        sku: produto?.sku ?? "",
+        status: produto ? "pronto" : "pendente",
+        mensagem: produto ? `Match: ${produto.nome}` : "Sem match pelo nome do arquivo",
+      });
+    }
+
+    if (aceitas.length > 0) {
+      setFotosImport((current) => [...current, ...aceitas]);
+    }
+    if (rejeitadas > 0) {
+      toast.error(`${rejeitadas} foto(s) ignoradas. Use imagens de ate 5MB.`);
+    }
+  }
+
+  function alterarSkuImport(id: string, sku: string) {
+    const produto = produtos.find((item) => item.sku === sku);
+    setFotosImport((current) =>
+      current.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              sku,
+              status: sku ? "pronto" : "pendente",
+              mensagem: produto ? `Match manual: ${produto.nome}` : undefined,
+            }
+          : item,
+      ),
+    );
+  }
+
+  function removerFotoImport(id: string) {
+    setFotosImport((current) => {
+      const item = current.find((foto) => foto.id === id);
+      if (item) URL.revokeObjectURL(item.previewUrl);
+      return current.filter((foto) => foto.id !== id);
+    });
+  }
+
+  function limparFotosImport() {
+    fotosImportRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    setFotosImport([]);
+  }
+
+  async function enviarFotosComSku() {
+    const itens = fotosImport.filter((item) => item.sku && item.status !== "ok");
+    if (itens.length === 0 || importandoFotos) {
+      toast.error("Selecione fotos com SKU antes de enviar");
+      return;
+    }
+
+    setImportandoFotos(true);
+    let salvas = 0;
+
+    for (const item of itens) {
+      setFotosImport((current) =>
+        current.map((foto) =>
+          foto.id === item.id ? { ...foto, status: "enviando", mensagem: "Enviando..." } : foto,
+        ),
+      );
+
+      try {
+        const atualizado = await uploadFotoProduto(item.sku, item.file);
+        salvas += 1;
+        setProdutos((prev) =>
+          prev.map((produto) => (produto.sku === item.sku ? atualizado : produto)),
+        );
+        setFotosImport((current) =>
+          current.map((foto) =>
+            foto.id === item.id
+              ? { ...foto, status: "ok", mensagem: `Salva em ${atualizado.nome}` }
+              : foto,
+          ),
+        );
+      } catch (error) {
+        setFotosImport((current) =>
+          current.map((foto) =>
+            foto.id === item.id
+              ? {
+                  ...foto,
+                  status: "erro",
+                  mensagem: error instanceof Error ? error.message : "Erro ao salvar foto",
+                }
+              : foto,
+          ),
+        );
+      }
+    }
+
+    setImportandoFotos(false);
+    toast.success(`${salvas} foto(s) salvas por SKU`);
+  }
+
+  async function identificarFotosComIa() {
+    const pendentes = fotosImport.filter((item) => item.status !== "ok" && !item.sku);
+    if (pendentes.length === 0 || importandoFotos) {
+      toast.error("Nao ha fotos pendentes para identificar com IA");
+      return;
+    }
+
+    setImportandoFotos(true);
+    let salvas = 0;
+
+    for (let index = 0; index < pendentes.length; index += FOTO_IMPORT_IA_BATCH_SIZE) {
+      const lote = pendentes.slice(index, index + FOTO_IMPORT_IA_BATCH_SIZE);
+      setFotosImport((current) =>
+        current.map((foto) =>
+          lote.some((item) => item.id === foto.id)
+            ? { ...foto, status: "enviando", mensagem: "IA analisando..." }
+            : foto,
+        ),
+      );
+
+      try {
+        const formData = new FormData();
+        formData.append(
+          "message",
+          "Analise estas fotos de racoes e vincule cada foto ao produto correspondente no estoque.",
+        );
+        lote.forEach((item) => formData.append("fotos", item.file, item.file.name));
+
+        const response = await fetch("/api/crm/assistente", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.erro ?? "Erro ao processar fotos com IA");
+
+        const resultado = data?.fotosRacoes as
+          | {
+              salvos?: Array<{ fotoIndex: number; sku: string; nome: string }>;
+              pendentes?: Array<{ fotoIndex: number; motivo?: string }>;
+              falhas?: Array<{ fotoIndex: number; motivo?: string }>;
+            }
+          | undefined;
+        const salvosLote = resultado?.salvos ?? [];
+        const pendentesLote = [...(resultado?.pendentes ?? []), ...(resultado?.falhas ?? [])];
+        salvas += salvosLote.length;
+
+        setFotosImport((current) =>
+          current.map((foto) => {
+            const loteIndex = lote.findIndex((item) => item.id === foto.id);
+            if (loteIndex < 0) return foto;
+
+            const fotoIndex = loteIndex + 1;
+            const salvo = salvosLote.find((item) => item.fotoIndex === fotoIndex);
+            if (salvo) {
+              return {
+                ...foto,
+                sku: salvo.sku,
+                status: "ok",
+                mensagem: `IA salvou em ${salvo.nome}`,
+              };
+            }
+
+            const pendente = pendentesLote.find((item) => item.fotoIndex === fotoIndex);
+            return {
+              ...foto,
+              status: "erro",
+              mensagem: pendente?.motivo ?? "IA nao encontrou match claro",
+            };
+          }),
+        );
+      } catch (error) {
+        setFotosImport((current) =>
+          current.map((foto) =>
+            lote.some((item) => item.id === foto.id)
+              ? {
+                  ...foto,
+                  status: "erro",
+                  mensagem: error instanceof Error ? error.message : "Erro ao processar com IA",
+                }
+              : foto,
+          ),
+        );
+      }
+    }
+
+    if (salvas > 0) {
+      try {
+        const response = await fetch("/api/crm/produtos", { cache: "no-store" });
+        if (response.ok) setProdutos((await response.json()) as Produto[]);
+      } catch {
+        // A lista sera atualizada pelo proximo reload do CRM.
+      }
+    }
+
+    setImportandoFotos(false);
+    toast.success(`${salvas} foto(s) vinculadas pela IA`);
   }
 
   function abrirEdicao(produto: Produto) {
@@ -387,7 +769,11 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data?.erro ?? "Erro ao salvar produto");
 
-      setProdutos((prev) => prev.map((p) => (p.sku === produtoEditando.sku ? data : p)));
+      const atualizado = data as Produto;
+      setProdutos((prev) => prev.map((p) => (p.sku === produtoEditando.sku ? atualizado : p)));
+      if (produtoEditando.sku !== atualizado.sku) {
+        atualizarSkuConjuntosEstoqueStorage(produtoEditando.sku, atualizado.sku);
+      }
       toast.success("Produto atualizado");
       setProdutoEditando(null);
       setEditForm(null);
@@ -395,6 +781,91 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
       toast.error(error instanceof Error ? error.message : "Erro ao salvar produto");
     } finally {
       setSalvando(false);
+    }
+  }
+
+  async function excluirProduto(produto: Produto) {
+    if (excluindoSku) return;
+    const confirmado = window.confirm(
+      `Excluir "${produto.nome}" do estoque? Esta acao nao pode ser desfeita.`,
+    );
+    if (!confirmado) return;
+
+    setExcluindoSku(produto.sku);
+    try {
+      const response = await fetch("/api/crm/produtos", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sku: produto.sku }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { erro?: string };
+      if (!response.ok) throw new Error(data.erro ?? "Erro ao excluir produto");
+
+      setProdutos((prev) => prev.filter((p) => p.sku !== produto.sku));
+      atualizarSkuConjuntosEstoqueStorage(produto.sku);
+      if (produtoEditando?.sku === produto.sku) {
+        setProdutoEditando(null);
+        setEditForm(null);
+      }
+      toast.success("Produto excluido");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao excluir produto");
+    } finally {
+      setExcluindoSku(null);
+    }
+  }
+
+  async function carregarExcel(file: File) {
+    setExcelProcessando(true);
+    setExcelLinhas([]);
+    try {
+      const linhas = await parsearExcelLinhas(file, produtos);
+      if (linhas.length === 0) {
+        toast.error("Nenhuma linha válida encontrada na planilha.");
+        return;
+      }
+      setExcelLinhas(linhas);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao ler planilha");
+    } finally {
+      setExcelProcessando(false);
+    }
+  }
+
+  async function confirmarImportacaoExcel() {
+    const validas = excelLinhas.filter((l) => l.produto);
+    if (validas.length === 0 || excelEnviando) return;
+
+    setExcelEnviando(true);
+    try {
+      const response = await fetch("/api/crm/produtos/estoque-lote", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          atualizacoes: validas.map((l) => ({ sku: l.sku, estoque: l.estoqueNovo })),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.erro ?? "Erro ao atualizar estoque");
+
+      setProdutos((prev) =>
+        prev.map((p) => {
+          const linha = validas.find((l) => l.sku === p.sku.toUpperCase());
+          return linha ? { ...p, estoque: linha.estoqueNovo } : p;
+        }),
+      );
+
+      toast.success(`${data.atualizados} produto(s) atualizados com sucesso!`);
+      if (data.naoEncontrados?.length > 0) {
+        toast.warning(
+          `${data.naoEncontrados.length} SKU(s) não encontrados: ${data.naoEncontrados.slice(0, 3).join(", ")}${data.naoEncontrados.length > 3 ? "..." : ""}`,
+        );
+      }
+      setExcelLinhas([]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao importar estoque");
+    } finally {
+      setExcelEnviando(false);
     }
   }
 
@@ -524,16 +995,315 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
         </div>
       )}
 
-      <div className="card-soft p-3 flex flex-wrap gap-2">
-        {(["todos", "próprio", "consignado"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTipo(t)}
-            className={`h-9 px-4 rounded-lg text-xs font-semibold capitalize ${tipo === t ? "bg-foreground text-background" : "bg-secondary hover:bg-secondary/70"}`}
-          >
-            {t === "todos" ? "Todos" : t === "próprio" ? "Estoque próprio" : "Consignado"}
-          </button>
-        ))}
+      <div className="card-soft p-4 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold inline-flex items-center gap-2">
+              <ImageIcon className="size-4 text-primary" /> Importar fotos em lote
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Renomeie fotos com o SKU para salvar direto, ou deixe a IA identificar embalagens em
+              lotes de {FOTO_IMPORT_IA_BATCH_SIZE}.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <label
+              className={`h-9 cursor-pointer rounded-lg bg-secondary px-3 text-xs font-bold inline-flex items-center gap-2 hover:bg-secondary/70 ${
+                importandoFotos ? "pointer-events-none opacity-60" : ""
+              }`}
+            >
+              <Upload className="size-3.5" />
+              Escolher fotos
+              <input
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                disabled={importandoFotos}
+                className="sr-only"
+                onChange={(event) => {
+                  adicionarFotosImport(event.currentTarget.files);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void enviarFotosComSku()}
+              disabled={importandoFotos || fotosImportProntas === 0}
+              className="h-9 rounded-lg bg-foreground px-3 text-xs font-bold text-background inline-flex items-center gap-2 disabled:opacity-50"
+            >
+              {importandoFotos ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Upload className="size-3.5" />
+              )}
+              Salvar {fotosImportProntas || ""} com SKU
+            </button>
+            <button
+              type="button"
+              onClick={() => void identificarFotosComIa()}
+              disabled={importandoFotos || fotosImportPendentes === 0}
+              className="h-9 rounded-lg bg-primary/15 px-3 text-xs font-bold text-primary inline-flex items-center gap-2 disabled:opacity-50"
+            >
+              {importandoFotos ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="size-3.5" />
+              )}
+              IA nos pendentes {fotosImportPendentes || ""}
+            </button>
+            {fotosImport.length > 0 && (
+              <button
+                type="button"
+                onClick={limparFotosImport}
+                disabled={importandoFotos}
+                className="h-9 rounded-lg bg-secondary px-3 text-xs font-bold hover:bg-secondary/70 disabled:opacity-50"
+              >
+                Limpar
+              </button>
+            )}
+          </div>
+        </div>
+
+        {fotosImport.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+              <span className="rounded-md bg-secondary px-2 py-1">
+                {fotosImport.length} selecionadas
+              </span>
+              <span className="rounded-md bg-success/15 px-2 py-1 text-success">
+                {fotosImportSalvas} salvas
+              </span>
+              <span className="rounded-md bg-primary/15 px-2 py-1 text-primary">
+                {fotosImportProntas} com SKU
+              </span>
+              <span className="rounded-md bg-accent/15 px-2 py-1 text-accent">
+                {fotosImportPendentes} para IA
+              </span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {fotosImport.map((item) => {
+                const produto = produtos.find((p) => p.sku === item.sku);
+                const statusClass =
+                  item.status === "ok"
+                    ? "bg-success/15 text-success"
+                    : item.status === "erro"
+                      ? "bg-destructive/10 text-destructive"
+                      : item.status === "enviando"
+                        ? "bg-primary/15 text-primary"
+                        : item.status === "pronto"
+                          ? "bg-primary/15 text-primary"
+                          : "bg-accent/15 text-accent";
+
+                return (
+                  <div key={item.id} className="rounded-lg border border-border bg-card p-2">
+                    <div className="flex gap-2">
+                      <div className="relative size-14 shrink-0 overflow-hidden rounded-md bg-secondary">
+                        <img
+                          src={item.previewUrl}
+                          alt={item.file.name}
+                          className="size-full object-cover"
+                        />
+                        {item.status === "enviando" && (
+                          <div className="absolute inset-0 grid place-items-center bg-background/80">
+                            <Loader2 className="size-4 animate-spin text-primary" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-bold" title={item.file.name}>
+                          {item.file.name}
+                        </div>
+                        <div className="mt-1 grid grid-cols-[1fr_auto] gap-2">
+                          <select
+                            value={item.sku}
+                            disabled={importandoFotos || item.status === "ok"}
+                            onChange={(event) => alterarSkuImport(item.id, event.target.value)}
+                            className="h-8 min-w-0 rounded-md bg-secondary px-2 text-xs outline-none disabled:opacity-60"
+                          >
+                            <option value="">IA identifica</option>
+                            {produtos.map((produtoOption) => (
+                              <option key={produtoOption.sku} value={produtoOption.sku}>
+                                {produtoOption.sku} - {produtoOption.nome}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => removerFotoImport(item.id)}
+                            disabled={importandoFotos}
+                            className="grid size-8 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-destructive disabled:opacity-50"
+                            aria-label="Remover foto do lote"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${statusClass}`}
+                          >
+                            {item.status === "ok"
+                              ? "salva"
+                              : item.status === "erro"
+                                ? "revisar"
+                                : item.status === "enviando"
+                                  ? "processando"
+                                  : item.sku
+                                    ? "com SKU"
+                                    : "pendente"}
+                          </span>
+                          <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                            {produto?.nome ?? item.mensagem}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card-soft p-4 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold inline-flex items-center gap-2">
+              <FileSpreadsheet className="size-4 text-success" /> Importar estoque por Excel
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Planilha com colunas <b>SKU</b> e <b>Estoque</b> (ou Quantidade). Suporta .xlsx, .xls
+              e .csv.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <label
+              className={`h-9 cursor-pointer rounded-lg bg-secondary px-3 text-xs font-bold inline-flex items-center gap-2 hover:bg-secondary/70 ${excelProcessando ? "pointer-events-none opacity-60" : ""}`}
+            >
+              {excelProcessando ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Upload className="size-3.5" />
+              )}
+              Escolher planilha
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                disabled={excelProcessando}
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.currentTarget.files?.[0];
+                  e.currentTarget.value = "";
+                  if (file) void carregarExcel(file);
+                }}
+              />
+            </label>
+            {excelLinhas.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void confirmarImportacaoExcel()}
+                  disabled={excelEnviando || excelLinhas.filter((l) => l.produto).length === 0}
+                  className="h-9 rounded-lg bg-success px-3 text-xs font-bold text-success-foreground inline-flex items-center gap-2 disabled:opacity-50"
+                >
+                  {excelEnviando ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="size-3.5" />
+                  )}
+                  Confirmar {excelLinhas.filter((l) => l.produto).length} atualizações
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExcelLinhas([])}
+                  disabled={excelEnviando}
+                  className="h-9 rounded-lg bg-secondary px-3 text-xs font-bold hover:bg-secondary/70 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {excelLinhas.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+              <span className="rounded-md bg-secondary px-2 py-1">
+                {excelLinhas.length} linhas lidas
+              </span>
+              <span className="rounded-md bg-success/15 px-2 py-1 text-success">
+                {excelLinhas.filter((l) => l.produto).length} encontrados
+              </span>
+              {excelLinhas.filter((l) => !l.produto).length > 0 && (
+                <span className="rounded-md bg-destructive/10 px-2 py-1 text-destructive">
+                  {excelLinhas.filter((l) => !l.produto).length} não encontrados
+                </span>
+              )}
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-xs">
+                <thead className="bg-secondary/50">
+                  <tr className="text-left text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">SKU</th>
+                    <th className="px-3 py-2 font-medium">Produto</th>
+                    <th className="px-3 py-2 font-medium text-center">Estoque atual</th>
+                    <th className="px-3 py-2 font-medium text-center">Novo estoque</th>
+                    <th className="px-3 py-2 font-medium text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {excelLinhas.map((linha) => (
+                    <tr key={linha.sku} className="border-t border-border">
+                      <td className="px-3 py-2 font-mono font-bold">{linha.sku}</td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {linha.produto?.nome ?? (
+                          <span className="text-destructive italic">não encontrado</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {linha.produto ? linha.produto.estoque : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-center font-bold">{linha.estoqueNovo}</td>
+                      <td className="px-3 py-2 text-center">
+                        {linha.produto ? (
+                          <CheckCircle2 className="size-4 text-success inline" />
+                        ) : (
+                          <AlertCircle className="size-4 text-destructive inline" />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card-soft p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="relative w-full md:max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={buscaGlobal}
+            onChange={(event) => setBuscaGlobal(event.target.value)}
+            aria-label="Buscar rações no estoque"
+            placeholder="Buscar ração por nome, SKU, marca ou peso"
+            className="h-10 w-full rounded-xl border border-transparent bg-secondary pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:bg-card"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(["todos", "próprio", "consignado"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTipo(t)}
+              className={`h-9 px-4 rounded-lg text-xs font-semibold capitalize ${tipo === t ? "bg-foreground text-background" : "bg-secondary hover:bg-secondary/70"}`}
+            >
+              {t === "todos" ? "Todos" : t === "próprio" ? "Estoque próprio" : "Consignado"}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="card-soft overflow-hidden">
@@ -670,13 +1440,24 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => abrirEdicao(p)}
-                        className="h-8 px-3 rounded-lg bg-secondary text-xs font-semibold inline-flex items-center gap-2 hover:bg-secondary/70"
-                      >
-                        <Pencil className="size-3.5" /> Editar
-                      </button>
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicao(p)}
+                          className="h-8 px-3 rounded-lg bg-secondary text-xs font-semibold inline-flex items-center gap-2 hover:bg-secondary/70"
+                        >
+                          <Pencil className="size-3.5" /> Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void excluirProduto(p)}
+                          disabled={excluindoSku === p.sku}
+                          className="h-8 px-3 rounded-lg bg-secondary text-xs font-semibold inline-flex items-center gap-2 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                        >
+                          <Trash2 className="size-3.5" />
+                          {excluindoSku === p.sku ? "Excluindo..." : "Excluir"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -978,17 +1759,25 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                 )
               }
             />
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                onClick={() => void excluirProduto(produtoEditando)}
+                disabled={salvando || excluindoSku === produtoEditando.sku}
+                className="h-10 rounded-xl bg-destructive/10 px-4 text-sm font-semibold text-destructive hover:bg-destructive/15 disabled:opacity-60 sm:w-auto inline-flex items-center justify-center gap-2"
+              >
+                <Trash2 className="size-4" />
+                {excluindoSku === produtoEditando.sku ? "Excluindo..." : "Excluir produto"}
+              </button>
               <button
                 onClick={fecharEdicao}
-                disabled={salvando}
+                disabled={salvando || excluindoSku === produtoEditando.sku}
                 className="flex-1 h-10 rounded-xl bg-secondary text-sm font-semibold disabled:opacity-60"
               >
                 Cancelar
               </button>
               <button
                 onClick={salvarEdicao}
-                disabled={salvando}
+                disabled={salvando || excluindoSku === produtoEditando.sku}
                 className="flex-1 h-10 rounded-xl bg-foreground text-background text-sm font-semibold disabled:opacity-60"
               >
                 {salvando ? "Salvando..." : "Salvar alterações"}

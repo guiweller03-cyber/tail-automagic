@@ -6,7 +6,10 @@ import { calculateLeadCost, intentColor, priorityRing } from "../services";
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export function KanbanCardItem({
-  lead, onOpen, onDragStart, aiEnabled,
+  lead,
+  onOpen,
+  onDragStart,
+  aiEnabled,
 }: {
   lead: LeadCard;
   onOpen: (lead: LeadCard) => void;
@@ -43,17 +46,24 @@ export function KanbanCardItem({
 
       <div className="flex items-center gap-2">
         <div className="size-8 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 grid place-items-center text-[10px] font-bold">
-          {lead.nome.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+          {lead.nome
+            .split(" ")
+            .map((n) => n[0])
+            .slice(0, 2)
+            .join("")}
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-xs font-semibold truncate">{lead.nome}</div>
           <div className="text-[10px] text-muted-foreground truncate flex items-center gap-1">
-            <MessageCircle className="size-2.5" /> {lead.ultimaInteracao} · {lead.tags[0] ?? "Sem tag"}
+            <MessageCircle className="size-2.5" /> {lead.ultimaInteracao} ·{" "}
+            {lead.tags[0] ?? "Sem tag"}
           </div>
         </div>
       </div>
 
-      <div className={`mt-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${intentColor(lead.intent)}`}>
+      <div
+        className={`mt-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${intentColor(lead.intent)}`}
+      >
         {lead.intent === "comprando" && <Sparkles className="size-2.5" />}
         {lead.intent.toUpperCase()}
       </div>
@@ -61,13 +71,21 @@ export function KanbanCardItem({
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="text-[10px] text-muted-foreground min-w-0">
           <span className="block font-semibold text-foreground">
-            CAC {lead.custoLead > 0 ? cost.cac.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "orgânico"}
+            CAC{" "}
+            {lead.custoLead > 0
+              ? cost.cac.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+              : "orgânico"}
           </span>
-          <span className="opacity-70 truncate block">{lead.origem}{lead.cupom ? ` · ${lead.cupom}` : ""}</span>
+          <span className="opacity-70 truncate block">
+            {lead.origem}
+            {lead.cupom ? ` · ${lead.cupom}` : ""}
+          </span>
         </div>
         <div className="text-right shrink-0">
           <div className="text-[9px] text-muted-foreground uppercase">LTV</div>
-          <div className="text-[11px] font-bold text-success">{brl(lead.ticketMedio * lead.comprasRealizadas)}</div>
+          <div className="text-[11px] font-bold text-success">
+            {brl(lead.ticketMedio * lead.comprasRealizadas)}
+          </div>
         </div>
       </div>
 

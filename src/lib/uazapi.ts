@@ -102,10 +102,42 @@ export async function enviarMensagemLonga(chatid: string, text: string) {
   return resultado;
 }
 
-export async function enviarMidia(chatid: string, mediaUrl: string, caption?: string) {
-  const number = normalizarNumero(chatid);
+type TipoMidiaUazapi = "image" | "video" | "audio" | "ptt" | "document";
 
-  return requestUazAPI("/send/media", { number, mediaUrl, caption });
+/**
+ * Determina o `type` exigido pelo endpoint /send/media da UazAPI a partir do
+ * mimetype. Sem esse campo a UazAPI trata o envio como mensagem de texto e
+ * retorna "missing text for text message".
+ */
+function tipoMidiaUazapi(mimetype?: string, ptt?: boolean): TipoMidiaUazapi {
+  if (ptt) return "ptt";
+
+  const mime = mimetype?.toLowerCase() ?? "";
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+
+  return "document";
+}
+
+export async function enviarMidia(
+  chatid: string,
+  mediaUrl: string,
+  caption?: string,
+  options?: { mimetype?: string; fileName?: string },
+) {
+  const number = normalizarNumero(chatid);
+  const type = tipoMidiaUazapi(options?.mimetype);
+
+  return requestUazAPI("/send/media", {
+    number,
+    type,
+    file: mediaUrl,
+    text: caption ?? "",
+    ...(type === "document" && options?.fileName
+      ? { docName: options.fileName, filename: options.fileName }
+      : {}),
+  });
 }
 
 export async function enviarMidiaBase64(
@@ -115,8 +147,27 @@ export async function enviarMidiaBase64(
   options?: { fileName?: string; mimetype?: string; ptt?: boolean },
 ) {
   const number = normalizarNumero(chatid);
+  const type = tipoMidiaUazapi(options?.mimetype, options?.ptt);
 
-  return requestUazAPI("/send/media", { number, base64, caption, ...options });
+  // Envia o base64 como data URI com o mimetype correto. Sem essa informacao a
+  // UazAPI nao sabe o formato original e pode reencodar a imagem em qualidade
+  // baixa; o data URI preserva a qualidade da foto enviada.
+  const mime = options?.mimetype?.trim();
+  const file = base64.startsWith("data:")
+    ? base64
+    : mime
+      ? `data:${mime};base64,${base64}`
+      : base64;
+
+  return requestUazAPI("/send/media", {
+    number,
+    type,
+    file,
+    text: caption ?? "",
+    ...(type === "document" && options?.fileName
+      ? { docName: options.fileName, filename: options.fileName }
+      : {}),
+  });
 }
 
 export async function verificarNumero(phone: string) {
@@ -160,6 +211,73 @@ export type MensagemWhatsApp = {
   mediaKey?: string;
 };
 
+/**
+ * Baixa a versao descriptografada de uma midia do WhatsApp via UazAPI.
+ * As URLs originais (mmg.whatsapp.net) vem criptografadas e nao podem ser
+ * lidas diretamente; este endpoint retorna um link servido pela UazAPI
+ * (ex.: https://<host>/files/...jpg) que pode ser baixado normalmente.
+ */
+export async function baixarMidiaUazapi(
+  messageId: string,
+): Promise<{ fileURL: string; mimetype?: string } | null> {
+  const id = messageId?.trim();
+  if (!id) return null;
+
+  try {
+    const response = await requestUazAPI<{ fileURL?: string; mimetype?: string }>(
+      "/message/download",
+      { id },
+    );
+    const fileURL = response.fileURL?.trim();
+
+    return fileURL ? { fileURL, mimetype: response.mimetype } : null;
+  } catch (error) {
+    console.error(
+      "[uazapi] erro_baixar_midia",
+      error instanceof Error ? error.message : String(error),
+    );
+
+    return null;
+  }
+}
+
+/**
+ * Resolve a melhor URL de imagem para analise (ex.: comprovante Pix).
+ * Se a midia for do WhatsApp (criptografada) ou visual, baixa a versao
+ * descriptografada via UazAPI. URLs publicas/ja descriptografadas sao
+ * usadas direto. Retorna undefined quando nao ha imagem utilizavel.
+ */
+export async function urlMidiaDescriptografada(opts: {
+  id?: string;
+  mediaUrl?: string;
+  mimeType?: string;
+  messageType?: string;
+}): Promise<string | undefined> {
+  const mediaUrl = opts.mediaUrl?.trim();
+
+  // URL ja persistida no nosso storage (Supabase) e estavel: usa direto, sem
+  // tentar baixar de novo da UazAPI (que pode ter expirado).
+  if (mediaUrl && /\/storage\/v1\/object\/public\//.test(mediaUrl)) {
+    return mediaUrl;
+  }
+
+  const ehWhatsapp = mediaUrl ? /whatsapp\.net/i.test(mediaUrl) : false;
+  const tipo = opts.messageType?.toLowerCase() ?? "";
+  const ehVisual =
+    (opts.mimeType?.toLowerCase().startsWith("image/") ?? false) ||
+    tipo.includes("image") ||
+    tipo.includes("document");
+
+  if (opts.id && (ehWhatsapp || ehVisual)) {
+    const baixada = await baixarMidiaUazapi(opts.id);
+    if (baixada?.fileURL) return baixada.fileURL;
+  }
+
+  if (mediaUrl && !ehWhatsapp) return mediaUrl;
+
+  return undefined;
+}
+
 export async function listarChatsWhatsApp({
   limit = 50,
   offset = 0,
@@ -176,7 +294,7 @@ export async function listarChatsWhatsApp({
     wa_isGroup: false,
   });
 
-  return Array.isArray(response) ? response : response.chats ?? [];
+  return Array.isArray(response) ? response : (response.chats ?? []);
 }
 
 export async function buscarMensagensChatWhatsApp(
@@ -190,7 +308,7 @@ export async function buscarMensagensChatWhatsApp(
     limit,
     offset: 0,
   });
-  const messages = Array.isArray(response) ? response : response.messages ?? [];
+  const messages = Array.isArray(response) ? response : (response.messages ?? []);
 
   return [...messages].sort((a, b) => (a.messageTimestamp ?? 0) - (b.messageTimestamp ?? 0));
 }
@@ -205,6 +323,8 @@ export type ContatoWhatsApp = {
 };
 
 export async function listarContatosWhatsApp(): Promise<ContatoWhatsApp[]> {
-  const response = await requestUazAPIGet<ContatoWhatsApp[] | { contacts?: ContatoWhatsApp[] }>("/contacts");
-  return Array.isArray(response) ? response : response.contacts ?? [];
+  const response = await requestUazAPIGet<ContatoWhatsApp[] | { contacts?: ContatoWhatsApp[] }>(
+    "/contacts",
+  );
+  return Array.isArray(response) ? response : (response.contacts ?? []);
 }

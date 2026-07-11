@@ -1,5 +1,7 @@
 import type {
   DemandaBairro,
+  ModeloRecompraRacao,
+  PetDetalhe,
   ProdutoPrevisto,
   RecompraPrevista,
   RecompraStatus,
@@ -12,6 +14,7 @@ type ClienteRow = {
   bairro: string | null;
   cidade: string | null;
   pets: string[] | null;
+  pets_detalhes: PetDetalhe[] | null;
   perfil: RecompraPrevista["perfil"] | null;
   especies: Array<"cachorro" | "gato"> | null;
   observacoes: string | null;
@@ -24,7 +27,12 @@ type ProdutoRow = {
   preco: number | null;
   preco_compra: number | null;
   estoque: number | null;
-  detalhes_tecnicos?: { peso?: string; especie?: string; porte?: string; tipoProduto?: string } | null;
+  detalhes_tecnicos?: {
+    peso?: string;
+    especie?: string;
+    porte?: string;
+    tipoProduto?: string;
+  } | null;
 };
 
 type VendaItemComVendaRow = {
@@ -32,6 +40,7 @@ type VendaItemComVendaRow = {
   venda_id: string;
   sku: string;
   nome: string;
+  pet_nome: string | null;
   quantidade: number;
   preco: number | null;
   preco_compra: number | null;
@@ -42,6 +51,7 @@ type VendaItemComVendaRow = {
     telefone: string | null;
     criado_em: string;
     status: string | null;
+    observacao?: string | null;
   } | null;
 };
 
@@ -51,6 +61,7 @@ type PrevisaoRow = {
   venda_id: string | null;
   venda_item_id: string | null;
   sku: string | null;
+  pet_nome: string;
   produto_nome: string;
   categoria: string | null;
   peso_kg: number;
@@ -70,6 +81,15 @@ type PrevisaoRow = {
   produtos: ProdutoRow | null;
 };
 
+type ModeloRacaoRow = {
+  sku: string;
+  produto_nome: string | null;
+  dias_recompra: number | null;
+  consumo_diario_g: number | null;
+  ativo: boolean | null;
+  atualizado_em: string | null;
+};
+
 type DadosObservadosInput = {
   clienteId?: string | null;
   telefone: string;
@@ -83,6 +103,7 @@ export type RecompraData = {
   produtos: ProdutoPrevisto[];
   bairros: DemandaBairro[];
   alertas: { tipo: string; cliente: string; msg: string }[];
+  modelos: ModeloRecompraRacao[];
 };
 
 const ALERTA_DIAS_ANTES = 5;
@@ -122,25 +143,51 @@ async function selectOptional<T>(path: string): Promise<T[]> {
   try {
     return await selectRows<T>(path);
   } catch (error) {
-    if (error instanceof Error && /PGRST205|PGRST200|recompra_previsoes|cliente_dados_observados/i.test(error.message)) {
+    if (
+      error instanceof Error &&
+      /PGRST205|PGRST200|pet_nome|relation .* does not exist/i.test(error.message)
+    ) {
       return [];
     }
     throw error;
   }
 }
 
+async function writeRows<T>(path: string, body: unknown, prefer = "return=representation"): Promise<T[]> {
+  const response = await fetch(supabaseUrl(path), {
+    method: "POST",
+    headers: supabaseHeaders(prefer),
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase recompra write failed (${response.status}): ${errorBody}`);
+  }
+
+  return (await response.json()) as T[];
+}
+
 function normalizeText(value: string): string {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 function isRacao(produto: Pick<ProdutoRow, "nome" | "categoria" | "detalhes_tecnicos">): boolean {
   const text = normalizeText(
     `${produto.nome} ${produto.categoria ?? ""} ${produto.detalhes_tecnicos?.tipoProduto ?? ""}`,
   );
-  return /\bracao\b|\bracoes\b|premier|golden|formula natural|n&d|granplus|special dog|special cat/.test(text);
+  return /\bracao\b|\bracoes\b|premier|golden|formula natural|n&d|gran ?(plus|nature)|special dog|special cat|bino|bionatural|bob dog|catsy/.test(
+    text,
+  );
 }
 
-function inferirPesoKg(produto: Pick<ProdutoRow, "nome" | "detalhes_tecnicos">, quantidade = 1): number {
+function inferirPesoKg(
+  produto: Pick<ProdutoRow, "nome" | "detalhes_tecnicos">,
+  quantidade = 1,
+): number {
   const origem = `${produto.detalhes_tecnicos?.peso ?? ""} ${produto.nome}`;
   const kg = origem.match(/(\d+(?:[,.]\d+)?)\s*kg/i);
   if (kg) return Number(kg[1].replace(",", ".")) * quantidade;
@@ -151,15 +198,39 @@ function inferirPesoKg(produto: Pick<ProdutoRow, "nome" | "detalhes_tecnicos">, 
   return 0;
 }
 
-function especiePadrao(produto?: ProdutoRow | null, cliente?: ClienteRow | null): "cachorro" | "gato" {
-  const text = normalizeText(`${produto?.nome ?? ""} ${produto?.categoria ?? ""} ${produto?.detalhes_tecnicos?.especie ?? ""}`);
-  if (text.includes("gato")) return "gato";
-  if (text.includes("cao") || text.includes("caes") || text.includes("cachorro")) return "cachorro";
+const MARCAS_SO_GATO = ["catsy", "special cat"];
+const MARCAS_SO_CACHORRO = ["special dog", "bob dog"];
+
+function especiePadrao(
+  produto?: ProdutoRow | null,
+  cliente?: ClienteRow | null,
+): "cachorro" | "gato" {
+  const text = normalizeText(
+    `${produto?.nome ?? ""} ${produto?.categoria ?? ""} ${produto?.detalhes_tecnicos?.especie ?? ""}`,
+  );
+  if (
+    text.includes("gato") ||
+    text.includes("felin") ||
+    MARCAS_SO_GATO.some((marca) => text.includes(marca))
+  )
+    return "gato";
+  if (
+    text.includes("cao") ||
+    text.includes("caes") ||
+    text.includes("cachorro") ||
+    MARCAS_SO_CACHORRO.some((marca) => text.includes(marca))
+  )
+    return "cachorro";
   return cliente?.especies?.[0] ?? "cachorro";
 }
 
-function portePadrao(produto?: ProdutoRow | null, observacoes?: string | null): "pequeno" | "medio" | "grande" {
-  const text = normalizeText(`${produto?.nome ?? ""} ${produto?.detalhes_tecnicos?.porte ?? ""} ${observacoes ?? ""}`);
+function portePadrao(
+  produto?: ProdutoRow | null,
+  observacoes?: string | null,
+): "pequeno" | "medio" | "grande" {
+  const text = normalizeText(
+    `${produto?.nome ?? ""} ${produto?.detalhes_tecnicos?.porte ?? ""} ${observacoes ?? ""}`,
+  );
   if (text.includes("pequeno") || text.includes("peq")) return "pequeno";
   if (text.includes("grande") || text.includes("large")) return "grande";
   return "medio";
@@ -171,12 +242,58 @@ function consumoPorPorte(porte: string): number {
   return 130;
 }
 
-function petsEstimados(cliente: ClienteRow | null | undefined, produto: ProdutoRow | null | undefined) {
+function petsEstimados(
+  cliente: ClienteRow | null | undefined,
+  produto: ProdutoRow | null | undefined,
+  petNome?: string | null,
+) {
+  const petBusca = petNome?.trim();
+  if (petBusca) {
+    const petDetalhe = cliente?.pets_detalhes?.find(
+      (pet) => pet.nome.trim().toLowerCase() === petBusca.toLowerCase(),
+    );
+    const especie = petDetalhe?.especie ?? especiePadrao(produto, cliente);
+    const porte = petDetalhe?.porte ?? portePadrao(produto, cliente?.observacoes);
+
+    return [
+      {
+        nome: petDetalhe?.nome || petBusca,
+        especie,
+        porte,
+        consumoDiaG: consumoPorPorte(porte),
+      },
+    ];
+  }
+
   const nomes = cliente?.pets?.length ? cliente.pets : ["Pet"];
   const especie = especiePadrao(produto, cliente);
   const porte = portePadrao(produto, cliente?.observacoes);
 
   return nomes.map((nome) => ({ nome, especie, porte, consumoDiaG: consumoPorPorte(porte) }));
+}
+
+function petsEstimadosPorNomes(
+  cliente: ClienteRow | null | undefined,
+  produto: ProdutoRow | null | undefined,
+  petNomes: string[],
+) {
+  const nomes = Array.from(new Set(petNomes.map((nome) => nome.trim()).filter(Boolean)));
+  if (nomes.length === 0) return petsEstimados(cliente, produto);
+
+  return nomes.map((nome) => {
+    const petDetalhe = cliente?.pets_detalhes?.find(
+      (pet) => pet.nome.trim().toLowerCase() === nome.toLowerCase(),
+    );
+    const especie = petDetalhe?.especie ?? especiePadrao(produto, cliente);
+    const porte = petDetalhe?.porte ?? portePadrao(produto, cliente?.observacoes);
+
+    return {
+      nome: petDetalhe?.nome || nome,
+      especie,
+      porte,
+      consumoDiaG: consumoPorPorte(porte),
+    };
+  });
 }
 
 function dateOnly(input: string | Date): string {
@@ -214,11 +331,100 @@ function media(values: number[]): number | null {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
+function markerValue(line: string, key: string): string | null {
+  const match = line.match(new RegExp(`${key}\\s*=\\s*(?:"([^"]+)"|([^\\s|;\\]]+))`, "i"));
+  return match?.[1] ?? match?.[2] ?? null;
+}
+
+function numberMarker(line: string, key: string, min: number, max: number): number | null {
+  const value = markerValue(line, key);
+  if (!value) return null;
+
+  const number = Number(value.replace(",", "."));
+  if (!Number.isFinite(number) || number < min || number > max) return null;
+
+  return number;
+}
+
+function observacaoRecompraAuto(
+  observacao: string | null | undefined,
+  sku: string,
+): { dias?: number; consumoDiarioG?: number; pesoKg?: number } | null {
+  if (!observacao?.trim()) return null;
+
+  const linhas = observacao
+    .split("|")
+    .map((line) => line.trim())
+    .filter((line) => /recompra_auto/i.test(line));
+  const linha =
+    linhas.find((line) => markerValue(line, "sku") === sku) ??
+    (linhas.length === 1 ? linhas[0] : null);
+  if (!linha) return null;
+
+  const dias = numberMarker(linha, "dias", 3, 180);
+  const consumoDiarioG = numberMarker(linha, "consumo_diario_g", 20, 3000);
+  const pesoKg = numberMarker(linha, "peso_kg", 0.01, 200);
+
+  if (!dias && !consumoDiarioG && !pesoKg) return null;
+
+  return {
+    ...(dias ? { dias: Math.round(dias) } : {}),
+    ...(consumoDiarioG ? { consumoDiarioG } : {}),
+    ...(pesoKg ? { pesoKg } : {}),
+  };
+}
+
+function modeloToApi(row: ModeloRacaoRow): ModeloRecompraRacao {
+  return {
+    sku: row.sku,
+    produtoNome: row.produto_nome ?? row.sku,
+    diasRecompra: Math.max(1, Math.round(Number(row.dias_recompra ?? 30))),
+    consumoDiarioG: row.consumo_diario_g ? Number(row.consumo_diario_g) : undefined,
+    ativo: row.ativo !== false,
+    atualizadoEm: row.atualizado_em ?? undefined,
+  };
+}
+
+export async function listarModelosRecompraRacao(): Promise<ModeloRecompraRacao[]> {
+  const rows = await selectOptional<ModeloRacaoRow>(
+    "/recompra_racao_modelos?select=sku,produto_nome,dias_recompra,consumo_diario_g,ativo,atualizado_em&order=produto_nome.asc",
+  );
+  return rows.map(modeloToApi);
+}
+
+export async function salvarModeloRecompraRacao(input: {
+  sku: string;
+  produtoNome?: string;
+  diasRecompra: number;
+  consumoDiarioG?: number;
+  ativo?: boolean;
+}): Promise<ModeloRecompraRacao> {
+  const sku = input.sku.trim().toUpperCase();
+  const diasRecompra = Math.max(1, Math.min(365, Math.round(input.diasRecompra)));
+  if (!sku) throw new Error("SKU obrigatorio");
+
+  const rows = await writeRows<ModeloRacaoRow>(
+    "/recompra_racao_modelos?on_conflict=sku",
+    {
+      sku,
+      produto_nome: input.produtoNome?.trim() || sku,
+      dias_recompra: diasRecompra,
+      consumo_diario_g: input.consumoDiarioG ?? null,
+      ativo: input.ativo !== false,
+      atualizado_em: new Date().toISOString(),
+    },
+    "resolution=merge-duplicates,return=representation",
+  );
+
+  if (!rows[0]) throw new Error("Modelo de recompra nao retornado");
+  return modeloToApi(rows[0]);
+}
+
 async function listarClientesPorId(ids: string[]): Promise<Map<string, ClienteRow>> {
   if (ids.length === 0) return new Map();
   const params = new URLSearchParams({
     id: `in.(${ids.map((id) => `"${id}"`).join(",")})`,
-    select: "id,nome,telefone,bairro,cidade,pets,perfil,especies,observacoes",
+    select: "id,nome,telefone,bairro,cidade,pets,pets_detalhes,perfil,especies,observacoes",
   });
   const rows = await selectRows<ClienteRow>(`/clientes?${params}`);
   return new Map(rows.map((row) => [row.id, row]));
@@ -234,27 +440,48 @@ async function listarProdutosPorSku(skus: string[]): Promise<Map<string, Produto
   return new Map(rows.map((row) => [row.sku, row]));
 }
 
-async function comprasRacaoClienteSku(clienteId: string, sku: string): Promise<VendaItemComVendaRow[]> {
+async function comprasRacaoClienteSku(
+  clienteId: string,
+  sku: string,
+  petNome?: string | null,
+): Promise<VendaItemComVendaRow[]> {
   const params = new URLSearchParams({
     sku: `eq.${sku}`,
-    select: "id,venda_id,sku,nome,quantidade,preco,preco_compra,vendas!inner(id,cliente_id,cliente_nome,telefone,criado_em,status)",
+    select:
+      "id,venda_id,sku,nome,pet_nome,quantidade,preco,preco_compra,vendas!inner(id,cliente_id,cliente_nome,telefone,criado_em,status,observacao)",
     order: "criado_em.desc",
   });
   const rows = await selectRows<VendaItemComVendaRow>(`/venda_itens?${params}`);
+  const petBusca = petNome?.trim().toLowerCase();
+
   return rows
-    .filter((row) => row.vendas?.cliente_id === clienteId && row.vendas.status !== "cancelada")
-    .sort((a, b) => new Date(b.vendas?.criado_em ?? 0).getTime() - new Date(a.vendas?.criado_em ?? 0).getTime());
+    .filter((row) => {
+      if (row.vendas?.cliente_id !== clienteId || row.vendas.status === "cancelada") return false;
+      if (!petBusca) return true;
+
+      return row.pet_nome?.trim().toLowerCase() === petBusca;
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.vendas?.criado_em ?? 0).getTime() - new Date(a.vendas?.criado_em ?? 0).getTime(),
+    );
 }
 
 export async function recalcularRecompraVenda(vendaId: string): Promise<void> {
   const params = new URLSearchParams({
     venda_id: `eq.${vendaId}`,
-    select: "id,venda_id,sku,nome,quantidade,preco,preco_compra,vendas(id,cliente_id,cliente_nome,telefone,criado_em,status)",
+    select:
+      "id,venda_id,sku,nome,pet_nome,quantidade,preco,preco_compra,vendas(id,cliente_id,cliente_nome,telefone,criado_em,status,observacao)",
   });
   const itens = await selectOptional<VendaItemComVendaRow>(`/venda_itens?${params}`);
-  const clienteIds = Array.from(new Set(itens.map((item) => item.vendas?.cliente_id).filter(Boolean))) as string[];
+  const clienteIds = Array.from(
+    new Set(itens.map((item) => item.vendas?.cliente_id).filter(Boolean)),
+  ) as string[];
   const skus = Array.from(new Set(itens.map((item) => item.sku).filter(Boolean)));
-  const [clientes, produtos] = await Promise.all([listarClientesPorId(clienteIds), listarProdutosPorSku(skus)]);
+  const [clientes, produtos] = await Promise.all([
+    listarClientesPorId(clienteIds),
+    listarProdutosPorSku(skus),
+  ]);
 
   for (const item of itens) {
     const clienteId = item.vendas?.cliente_id;
@@ -272,7 +499,7 @@ export async function recalcularRecompraVenda(vendaId: string): Promise<void> {
     if (!isRacao(produto)) continue;
 
     const cliente = clientes.get(clienteId) ?? null;
-    const compras = await comprasRacaoClienteSku(clienteId, item.sku);
+    const compras = await comprasRacaoClienteSku(clienteId, item.sku, item.pet_nome);
     const historicoDias = compras
       .slice(0, 4)
       .flatMap((compra, index, arr) => {
@@ -283,47 +510,169 @@ export async function recalcularRecompraVenda(vendaId: string): Promise<void> {
       .filter((dias) => dias >= 3 && dias <= 180)
       .slice(0, 3);
     const mediaReal = media(historicoDias);
-    const pesoKg = inferirPesoKg(produto, item.quantidade);
-    const pets = petsEstimados(cliente, produto);
-    const consumoDiario = pets.reduce((sum, pet) => sum + pet.consumoDiaG, 0) || DEFAULT_CONSUMO_G_DIA;
-    const diasEstimados = mediaReal ?? (pesoKg > 0 ? Math.max(1, Math.round((pesoKg * 1000) / consumoDiario)) : 30);
+    const observacaoAuto = observacaoRecompraAuto(item.vendas?.observacao, item.sku);
+    const pesoKg = observacaoAuto?.pesoKg ?? inferirPesoKg(produto, item.quantidade);
+    const pets = petsEstimados(cliente, produto, item.pet_nome);
+    const consumoDiario =
+      observacaoAuto?.consumoDiarioG ??
+      (pets.reduce((sum, pet) => sum + pet.consumoDiaG, 0) || DEFAULT_CONSUMO_G_DIA);
+    const diasEstimados =
+      mediaReal ??
+      observacaoAuto?.dias ??
+      (pesoKg > 0 ? Math.max(1, Math.round((pesoKg * 1000) / consumoDiario)) : 30);
     const ultimaCompra = dateOnly(item.vendas?.criado_em ?? new Date());
     const proximaCompra = addDays(ultimaCompra, diasEstimados);
     const dataAlerta = addDays(proximaCompra, -ALERTA_DIAS_ANTES);
     const diasRestantes = signedDiffDaysFromToday(proximaCompra);
 
-    const response = await fetch(supabaseUrl("/recompra_previsoes?on_conflict=cliente_id,sku"), {
-      method: "POST",
-      headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
-      body: JSON.stringify({
-        cliente_id: clienteId,
-        venda_id: item.venda_id,
-        venda_item_id: item.id,
-        sku: item.sku,
-        produto_nome: produto.nome,
-        categoria: produto.categoria,
-        peso_kg: pesoKg,
-        quantidade: item.quantidade,
-        pets,
-        consumo_diario_g: consumoDiario,
-        dias_estimados: diasEstimados,
-        media_dias_real: mediaReal,
-        historico_dias: historicoDias,
-        ultima_compra_em: ultimaCompra,
-        proxima_compra_em: proximaCompra,
-        data_alerta: dataAlerta,
-        status: statusFromDias(diasRestantes),
-        fonte: mediaReal ? "historico" : "estimativa",
-        atualizado_em: new Date().toISOString(),
-      }),
-    });
+    const petNome = item.pet_nome?.trim() ?? "";
+    const payload = {
+      cliente_id: clienteId,
+      venda_id: item.venda_id,
+      venda_item_id: item.id,
+      sku: item.sku,
+      pet_nome: petNome,
+      produto_nome: produto.nome,
+      categoria: produto.categoria,
+      peso_kg: pesoKg,
+      quantidade: item.quantidade,
+      pets,
+      consumo_diario_g: consumoDiario,
+      dias_estimados: diasEstimados,
+      media_dias_real: mediaReal,
+      historico_dias: historicoDias,
+      ultima_compra_em: ultimaCompra,
+      proxima_compra_em: proximaCompra,
+      data_alerta: dataAlerta,
+      status: statusFromDias(diasRestantes),
+      fonte: mediaReal ? "historico" : "estimativa",
+      atualizado_em: new Date().toISOString(),
+    };
+
+    let response = await fetch(
+      supabaseUrl("/recompra_previsoes?on_conflict=cliente_id,sku,pet_nome"),
+      {
+        method: "POST",
+        headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
+        body: JSON.stringify(payload),
+      },
+    );
 
     if (!response.ok) {
       const errorBody = await response.text();
-      if (/PGRST205|recompra_previsoes/i.test(errorBody)) return;
+      if (/pet_nome/i.test(errorBody)) {
+        const payloadSemPetNome: Record<string, unknown> = { ...payload };
+        delete payloadSemPetNome.pet_nome;
+        response = await fetch(supabaseUrl("/recompra_previsoes?on_conflict=cliente_id,sku"), {
+          method: "POST",
+          headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
+          body: JSON.stringify(payloadSemPetNome),
+        });
+
+        if (response.ok) continue;
+
+        const retryErrorBody = await response.text();
+        if (/PGRST205|relation .* does not exist/i.test(retryErrorBody)) return;
+        throw new Error(`Supabase recompra upsert failed (${response.status}): ${retryErrorBody}`);
+      }
+
+      if (/PGRST205|relation .* does not exist/i.test(errorBody)) return;
       throw new Error(`Supabase recompra upsert failed (${response.status}): ${errorBody}`);
     }
   }
+}
+
+export async function registrarRecompraManual(input: {
+  clienteId: string;
+  sku: string;
+  petNome: string;
+  petNomes?: string[];
+  modoDistribuicao?: "compartilhada" | "por_pet";
+  compraEm: string;
+  diasRecompra: number;
+  quantidade?: number;
+  pesoKg?: number;
+  consumoDiarioG?: number;
+  produtoNome?: string;
+}): Promise<RecompraPrevista | RecompraPrevista[]> {
+  const clienteId = input.clienteId.trim();
+  const sku = input.sku.trim().toUpperCase();
+  const petNomes = Array.from(
+    new Set([...(input.petNomes ?? []), input.petNome].map((pet) => pet.trim()).filter(Boolean)),
+  );
+  const compraEm = dateOnly(input.compraEm);
+  const diasEstimados = Math.max(1, Math.min(365, Math.round(input.diasRecompra)));
+  if (!clienteId || !sku || petNomes.length === 0) {
+    throw new Error("Cliente, racao e pet sao obrigatorios");
+  }
+
+  const [clientes, produtos, modelos] = await Promise.all([
+    listarClientesPorId([clienteId]),
+    listarProdutosPorSku([sku]),
+    listarModelosRecompraRacao(),
+  ]);
+  const cliente = clientes.get(clienteId) ?? null;
+  const produto = produtos.get(sku) ?? null;
+  const modelo = modelos.find((item) => item.sku === sku);
+  const quantidade = input.quantidade ?? 1;
+  if (!Number.isFinite(quantidade) || quantidade <= 0) {
+    throw new Error("Quantidade deve ser maior que zero");
+  }
+  const grupos =
+    input.modoDistribuicao === "por_pet"
+      ? petNomes.map((petNome) => ({ petNomes: [petNome], quantidade }))
+      : [{ petNomes, quantidade }];
+
+  async function registrarGrupo(grupo: { petNomes: string[]; quantidade: number }) {
+    const pets = petsEstimadosPorNomes(cliente, produto, grupo.petNomes);
+    const petNome = pets.map((pet) => pet.nome).join(", ");
+    const consumoDiario =
+      input.consumoDiarioG ??
+      modelo?.consumoDiarioG ??
+      (pets.reduce((sum, pet) => sum + pet.consumoDiaG, 0) || DEFAULT_CONSUMO_G_DIA);
+    const pesoKg = input.pesoKg ?? (produto ? inferirPesoKg(produto, grupo.quantidade) : 0);
+    const proximaCompra = addDays(compraEm, diasEstimados);
+    const dataAlerta = addDays(proximaCompra, -ALERTA_DIAS_ANTES);
+    const dias = signedDiffDaysFromToday(proximaCompra);
+
+    const rows = await writeRows<PrevisaoRow>(
+      "/recompra_previsoes?on_conflict=cliente_id,sku,pet_nome&select=*,clientes(id,nome,telefone,bairro,cidade,pets,pets_detalhes,perfil,especies,observacoes),produtos(sku,nome,categoria,preco,preco_compra,estoque,detalhes_tecnicos)",
+      {
+        cliente_id: clienteId,
+        venda_id: null,
+        venda_item_id: null,
+        sku,
+        pet_nome: petNome,
+        produto_nome: input.produtoNome?.trim() || produto?.nome || sku,
+        categoria: produto?.categoria ?? "Racao",
+        peso_kg: pesoKg,
+        quantidade: grupo.quantidade,
+        pets,
+        consumo_diario_g: consumoDiario,
+        dias_estimados: diasEstimados,
+        media_dias_real: null,
+        historico_dias: [],
+        ultima_compra_em: compraEm,
+        proxima_compra_em: proximaCompra,
+        data_alerta: dataAlerta,
+        status: statusFromDias(dias),
+        fonte: "manual",
+        contatado: false,
+        atualizado_em: new Date().toISOString(),
+      },
+      "resolution=merge-duplicates,return=representation",
+    );
+
+    if (!rows[0]) throw new Error("Previsao manual nao retornada");
+    return mapPrevisao(rows[0]);
+  }
+
+  const recompras: RecompraPrevista[] = [];
+  for (const grupo of grupos) {
+    recompras.push(await registrarGrupo(grupo));
+  }
+
+  return recompras.length === 1 ? recompras[0] : recompras;
 }
 
 export async function recalcularTodasRecompras(limit = 2000): Promise<{ vendas: number }> {
@@ -340,6 +689,50 @@ export async function recalcularTodasRecompras(limit = 2000): Promise<{ vendas: 
   }
 
   return { vendas: vendaIds.length };
+}
+
+type DadosObservadosRow = {
+  dados: Record<string, unknown> | null;
+  observado_em: string;
+};
+
+/**
+ * Reconstroi os fatos ja conhecidos sobre o cliente a partir do historico de
+ * `cliente_dados_observados` (especie, porte, racao, restricoes etc.), mesclando
+ * as ultimas observacoes — a mais recente vence quando o mesmo campo aparece em
+ * mais de uma. Usado para alimentar o contexto da IA do WhatsApp e evitar que
+ * ela repita perguntas que o cliente ja respondeu em mensagens fora da janela
+ * de historico recente.
+ */
+export async function buscarFatosObservadosCliente(opts: {
+  clienteId?: string | null;
+  telefone?: string | null;
+}): Promise<Record<string, unknown> | null> {
+  const clienteId = opts.clienteId?.trim();
+  const telefone = opts.telefone?.replace(/\D/g, "");
+  if (!clienteId && !telefone) return null;
+
+  const params = new URLSearchParams({
+    select: "dados,observado_em",
+    order: "observado_em.desc",
+    limit: "8",
+  });
+  params.set(clienteId ? "cliente_id" : "telefone", `eq.${clienteId ?? telefone}`);
+
+  const rows = await selectOptional<DadosObservadosRow>(`/cliente_dados_observados?${params}`);
+  if (rows.length === 0) return null;
+
+  const fatos: Record<string, unknown> = {};
+  for (const row of [...rows].reverse()) {
+    for (const [chave, valor] of Object.entries(row.dados ?? {})) {
+      if (chave === "mensagemAtual" || valor === undefined || valor === null || valor === "") {
+        continue;
+      }
+      fatos[chave] = valor;
+    }
+  }
+
+  return Object.keys(fatos).length > 0 ? fatos : null;
 }
 
 export async function salvarDadosObservadosCliente(input: DadosObservadosInput): Promise<void> {
@@ -359,13 +752,16 @@ export async function salvarDadosObservadosCliente(input: DadosObservadosInput):
 
   if (!response.ok) {
     const errorBody = await response.text();
-    if (/PGRST205|cliente_dados_observados/i.test(errorBody)) return;
+    if (/PGRST205|relation .* does not exist/i.test(errorBody)) return;
     throw new Error(`Supabase dados observados insert failed (${response.status}): ${errorBody}`);
   }
 }
 
 function formatDateBr(date: string): string {
-  return new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
 }
 
 function diasRestantes(proximaCompra: string): number {
@@ -395,7 +791,11 @@ function mapPrevisao(row: PrevisaoRow): RecompraPrevista {
     telefone: cliente?.telefone ?? "",
     cidade: cliente?.cidade ?? "Sem cidade",
     bairro: cliente?.bairro ?? "Sem bairro",
-    pet: row.pets?.map((item) => item.nome).filter(Boolean).join(", ") || "Pet",
+    pet:
+      row.pets
+        ?.map((item) => item.nome)
+        .filter(Boolean)
+        .join(", ") || "Pet",
     especie,
     perfil: cliente?.perfil ?? "Novo",
     racao: row.produto_nome,
@@ -410,7 +810,15 @@ function mapPrevisao(row: PrevisaoRow): RecompraPrevista {
     mediaRecompra,
     previsaoBase,
     comportamento:
-      historico.length < 2 ? "pontual" : Math.abs(historico[0] - historico[1]) > 10 ? "instavel" : tendencia === "acelerando" ? "antecipado" : tendencia === "desacelerando" ? "atrasado" : "pontual",
+      historico.length < 2
+        ? "pontual"
+        : Math.abs(historico[0] - historico[1]) > 10
+          ? "instavel"
+          : tendencia === "acelerando"
+            ? "antecipado"
+            : tendencia === "desacelerando"
+              ? "atrasado"
+              : "pontual",
     precisaoIA: historico.length >= 2 ? 85 : 65,
     tendencia,
     historicoDias: historico,
@@ -469,9 +877,12 @@ function demandaBairros(recompras: RecompraPrevista[]): DemandaBairro[] {
 }
 
 export async function listarRecompraPrevista(): Promise<RecompraData> {
-  const rows = await selectOptional<PrevisaoRow>(
-    "/recompra_previsoes?select=*,clientes(id,nome,telefone,bairro,cidade,pets,perfil,especies,observacoes),produtos(sku,nome,categoria,preco,preco_compra,estoque,detalhes_tecnicos)&order=proxima_compra_em.asc",
-  );
+  const [rows, modelos] = await Promise.all([
+    selectOptional<PrevisaoRow>(
+      "/recompra_previsoes?select=*,clientes(id,nome,telefone,bairro,cidade,pets,pets_detalhes,perfil,especies,observacoes),produtos(sku,nome,categoria,preco,preco_compra,estoque,detalhes_tecnicos)&order=proxima_compra_em.asc",
+    ),
+    listarModelosRecompraRacao(),
+  ]);
   const recompras = rows.map(mapPrevisao);
   return {
     recompras,
@@ -488,6 +899,7 @@ export async function listarRecompraPrevista(): Promise<RecompraData> {
             ? `passou ${Math.abs(item.diasRestantes)}d da previsao de recompra`
             : `deve precisar recomprar em ${item.diasRestantes}d`,
       })),
+    modelos,
   };
 }
 

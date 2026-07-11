@@ -8,7 +8,10 @@ export const Route = createFileRoute("/api/coupons/validate")({
       POST: async ({ request }) => {
         const body = (await request.json()) as { code?: string; user_id?: string };
         if (!body.code?.trim() || !body.user_id?.trim()) {
-          return Response.json({ valid: false, error: "code e user_id sao obrigatorios" }, { status: 400 });
+          return Response.json(
+            { valid: false, error: "code e user_id sao obrigatorios" },
+            { status: 400 },
+          );
         }
 
         return Response.json(await validarCupomCheckout(body.code));

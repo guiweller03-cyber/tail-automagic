@@ -22,6 +22,13 @@ function money(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function dateLabel(value: string | null | undefined) {
+  if (!value) return " - ";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("pt-BR");
+}
+
 function statusClass(status: string) {
   switch (status) {
     case "ativo":
@@ -69,7 +76,10 @@ export function Cupons() {
     codigo: "",
     tipo_desconto: "percentual" as "percentual" | "valor_fixo",
     valor_desconto: 10,
-    comissao_tipo: "percentual_faturamento" as "percentual_faturamento" | "percentual_lucro" | "valor_fixo",
+    comissao_tipo: "percentual_faturamento" as
+      | "percentual_faturamento"
+      | "percentual_lucro"
+      | "valor_fixo",
     comissao_valor: 5,
     limite_usos: 100,
     validade: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -95,17 +105,15 @@ export function Cupons() {
     void loadSummary();
   }, []);
 
-  const influenciadores = summary?.influenciadores ?? [];
-  const cupons = summary?.cupons ?? [];
+  const influenciadores = useMemo(() => summary?.influenciadores ?? [], [summary?.influenciadores]);
+  const cupons = useMemo(() => summary?.cupons ?? [], [summary?.cupons]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return cupons.filter((item) => {
       const influencer = item.influenciadores?.nome ?? "";
       const matchesQuery =
-        !q ||
-        item.codigo.toLowerCase().includes(q) ||
-        influencer.toLowerCase().includes(q);
+        !q || item.codigo.toLowerCase().includes(q) || influencer.toLowerCase().includes(q);
       const matchesStatus = statusFilter === "all" || item.status === statusFilter;
       return matchesQuery && matchesStatus;
     });
@@ -210,9 +218,7 @@ export function Cupons() {
           <h1 className="text-2xl font-bold tracking-tight inline-flex items-center gap-2">
             <Ticket className="size-6 text-primary" /> Cupons
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Dados reais vindos do Supabase.
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">Dados reais vindos do Supabase.</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -227,7 +233,11 @@ export function Cupons() {
             onClick={() => void loadSummary()}
             className="h-10 px-4 rounded-xl bg-secondary text-sm font-semibold inline-flex items-center gap-2 hover:bg-secondary/70"
           >
-            {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            {refreshing ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
           </button>
         </div>
       </div>
@@ -246,8 +256,16 @@ export function Cupons() {
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <Kpi label="Ativos" value={String(totals.ativos)} icon={<Ticket className="size-4" />} />
         <Kpi label="Usos" value={String(totals.usos)} icon={<Users className="size-4" />} />
-        <Kpi label="Faturamento" value={money(totals.faturamento)} icon={<Ticket className="size-4" />} />
-        <Kpi label="Influenciadores" value={String(totals.influenciadores)} icon={<Users className="size-4" />} />
+        <Kpi
+          label="Faturamento"
+          value={money(totals.faturamento)}
+          icon={<Ticket className="size-4" />}
+        />
+        <Kpi
+          label="Influenciadores"
+          value={String(totals.influenciadores)}
+          icon={<Users className="size-4" />}
+        />
       </div>
 
       <section className="card-soft p-4">
@@ -296,9 +314,21 @@ export function Cupons() {
       {tab === "indicacoes" ? (
         <section className="card-soft overflow-hidden">
           <div className="grid gap-3 p-4 sm:grid-cols-3">
-            <Kpi label="Indicacoes" value={String(summary?.kpis.totalIndicacoes ?? 0)} icon={<Users className="size-4" />} />
-            <Kpi label="Creditos distribuidos" value={money(summary?.kpis.creditosDistribuidos ?? 0)} icon={<Ticket className="size-4" />} />
-            <Kpi label="Ranking" value={String(summary?.kpis.rankingIndicacoes.length ?? 0)} icon={<Users className="size-4" />} />
+            <Kpi
+              label="Indicacoes"
+              value={String(summary?.kpis.totalIndicacoes ?? 0)}
+              icon={<Users className="size-4" />}
+            />
+            <Kpi
+              label="Creditos distribuidos"
+              value={money(summary?.kpis.creditosDistribuidos ?? 0)}
+              icon={<Ticket className="size-4" />}
+            />
+            <Kpi
+              label="Ranking"
+              value={String(summary?.kpis.rankingIndicacoes.length ?? 0)}
+              icon={<Users className="size-4" />}
+            />
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -329,79 +359,81 @@ export function Cupons() {
           </div>
         </section>
       ) : (
-      <section className="card-soft overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/50 text-xs text-muted-foreground">
-              <tr>
-                <Th>Codigo</Th>
-                <Th>Influenciador</Th>
-                <Th>Desconto</Th>
-                <Th>Comissao</Th>
-                <Th>Uso</Th>
-                <Th>Validade</Th>
-                <Th>Status</Th>
-                <Th />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((item) => (
-                <tr key={item.id} className="border-t border-border hover:bg-secondary/30">
-                  <Td className="font-semibold">{item.codigo}</Td>
-                  <Td>{item.influenciadores?.nome ?? " - "}</Td>
-                  <Td>
-                    {item.tipo_desconto === "percentual"
-                      ? `${item.valor_desconto}%`
-                      : money(item.valor_desconto)}
-                  </Td>
-                  <Td>
-                    {item.comissao_tipo === "valor_fixo"
-                      ? money(item.comissao_valor)
-                      : `${item.comissao_valor}%`}
-                  </Td>
-                  <Td>
-                    {item.usos}
-                    {item.limite_usos !== null ? ` / ${item.limite_usos}` : ""}
-                  </Td>
-                  <Td>{item.validade ? dateLabel(item.validade) : " - "}</Td>
-                  <Td>
-                    <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${statusClass(item.status)}`}>
-                      {item.status}
-                    </span>
-                  </Td>
-                  <Td>
-                    <button
-                      type="button"
-                      onClick={() => void toggleCupom(item)}
-                      disabled={saving}
-                      className="mr-1 h-8 rounded-lg bg-secondary px-3 text-xs font-semibold hover:bg-secondary/70 disabled:opacity-50"
-                      title="Ativar ou pausar cupom"
-                    >
-                      {item.status === "ativo" && item.is_active !== false ? "Pausar" : "Ativar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void removerCupom(item.id, item.codigo)}
-                      disabled={saving}
-                      className="inline-flex size-8 items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                      title="Remover cupom"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
-                  </Td>
-                </tr>
-              ))}
-              {!loading && filtered.length === 0 ? (
+        <section className="card-soft overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary/50 text-xs text-muted-foreground">
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                    Nenhum cupom encontrado.
-                  </td>
+                  <Th>Codigo</Th>
+                  <Th>Influenciador</Th>
+                  <Th>Desconto</Th>
+                  <Th>Comissao</Th>
+                  <Th>Uso</Th>
+                  <Th>Validade</Th>
+                  <Th>Status</Th>
+                  <Th />
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {filtered.map((item) => (
+                  <tr key={item.id} className="border-t border-border hover:bg-secondary/30">
+                    <Td className="font-semibold">{item.codigo}</Td>
+                    <Td>{item.influenciadores?.nome ?? " - "}</Td>
+                    <Td>
+                      {item.tipo_desconto === "percentual"
+                        ? `${item.valor_desconto}%`
+                        : money(item.valor_desconto)}
+                    </Td>
+                    <Td>
+                      {item.comissao_tipo === "valor_fixo"
+                        ? money(item.comissao_valor)
+                        : `${item.comissao_valor}%`}
+                    </Td>
+                    <Td>
+                      {item.usos}
+                      {item.limite_usos !== null ? ` / ${item.limite_usos}` : ""}
+                    </Td>
+                    <Td>{item.validade ? dateLabel(item.validade) : " - "}</Td>
+                    <Td>
+                      <span
+                        className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${statusClass(item.status)}`}
+                      >
+                        {item.status}
+                      </span>
+                    </Td>
+                    <Td>
+                      <button
+                        type="button"
+                        onClick={() => void toggleCupom(item)}
+                        disabled={saving}
+                        className="mr-1 h-8 rounded-lg bg-secondary px-3 text-xs font-semibold hover:bg-secondary/70 disabled:opacity-50"
+                        title="Ativar ou pausar cupom"
+                      >
+                        {item.status === "ativo" && item.is_active !== false ? "Pausar" : "Ativar"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void removerCupom(item.id, item.codigo)}
+                        disabled={saving}
+                        className="inline-flex size-8 items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                        title="Remover cupom"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </Td>
+                  </tr>
+                ))}
+                {!loading && filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
+                      Nenhum cupom encontrado.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {modal ? (
@@ -410,7 +442,9 @@ export function Cupons() {
             <Field label="Influenciador">
               <input
                 value={form.influencer_name}
-                onChange={(event) => setForm((current) => ({ ...current, influencer_name: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, influencer_name: event.target.value }))
+                }
                 className="input"
                 required
               />
@@ -419,14 +453,18 @@ export function Cupons() {
               <input
                 type="email"
                 value={form.influencer_email}
-                onChange={(event) => setForm((current) => ({ ...current, influencer_email: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, influencer_email: event.target.value }))
+                }
                 className="input"
               />
             </Field>
             <Field label="Codigo">
               <input
                 value={form.codigo}
-                onChange={(event) => setForm((current) => ({ ...current, codigo: event.target.value.toUpperCase() }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, codigo: event.target.value.toUpperCase() }))
+                }
                 className="input"
                 required
               />
@@ -435,7 +473,12 @@ export function Cupons() {
               <Field label="Tipo desconto">
                 <select
                   value={form.tipo_desconto}
-                  onChange={(event) => setForm((current) => ({ ...current, tipo_desconto: event.target.value as "percentual" | "valor_fixo" }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      tipo_desconto: event.target.value as "percentual" | "valor_fixo",
+                    }))
+                  }
                   className="input"
                 >
                   <option value="percentual">Percentual</option>
@@ -446,7 +489,12 @@ export function Cupons() {
                 <input
                   type="number"
                   value={form.valor_desconto}
-                  onChange={(event) => setForm((current) => ({ ...current, valor_desconto: Number(event.target.value) || 0 }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      valor_desconto: Number(event.target.value) || 0,
+                    }))
+                  }
                   className="input"
                 />
               </Field>
@@ -455,7 +503,15 @@ export function Cupons() {
               <Field label="Tipo comissao">
                 <select
                   value={form.comissao_tipo}
-                  onChange={(event) => setForm((current) => ({ ...current, comissao_tipo: event.target.value as "percentual_faturamento" | "percentual_lucro" | "valor_fixo" }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      comissao_tipo: event.target.value as
+                        | "percentual_faturamento"
+                        | "percentual_lucro"
+                        | "valor_fixo",
+                    }))
+                  }
                   className="input"
                 >
                   <option value="percentual_faturamento">Percentual do faturamento</option>
@@ -467,7 +523,12 @@ export function Cupons() {
                 <input
                   type="number"
                   value={form.comissao_valor}
-                  onChange={(event) => setForm((current) => ({ ...current, comissao_valor: Number(event.target.value) || 0 }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      comissao_valor: Number(event.target.value) || 0,
+                    }))
+                  }
                   className="input"
                 />
               </Field>
@@ -477,7 +538,12 @@ export function Cupons() {
                 <input
                   type="number"
                   value={form.limite_usos}
-                  onChange={(event) => setForm((current) => ({ ...current, limite_usos: Number(event.target.value) || 0 }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      limite_usos: Number(event.target.value) || 0,
+                    }))
+                  }
                   className="input"
                 />
               </Field>
@@ -485,13 +551,19 @@ export function Cupons() {
                 <input
                   type="date"
                   value={form.validade}
-                  onChange={(event) => setForm((current) => ({ ...current, validade: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, validade: event.target.value }))
+                  }
                   className="input"
                 />
               </Field>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setModal(false)} className="h-9 px-4 rounded-lg bg-secondary text-sm font-semibold">
+              <button
+                type="button"
+                onClick={() => setModal(false)}
+                className="h-9 px-4 rounded-lg bg-secondary text-sm font-semibold"
+              >
                 Cancelar
               </button>
               <button
@@ -515,15 +587,7 @@ export function Cupons() {
   );
 }
 
-function Kpi({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon: ReactNode;
-}) {
+function Kpi({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
     <div className="card-soft p-4">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -535,7 +599,7 @@ function Kpi({
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
+function Th({ children }: { children?: ReactNode }) {
   return <th className="text-left font-semibold px-3 py-2.5">{children}</th>;
 }
 
@@ -553,8 +617,14 @@ function Modal({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/40" onClick={onClose}>
-      <div className="bg-card w-full max-w-lg rounded-2xl border border-border shadow-2xl" onClick={(event) => event.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/40"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card w-full max-w-lg rounded-2xl border border-border shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="font-bold">{title}</div>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary">

@@ -1,0 +1,193 @@
+- generic [active] [ref=f8e1]:
+  - generic [ref=f8e2]:
+    - complementary [ref=f8e3]:
+      - link "Mundo Pet CRM inteligente" [ref=f8e4] [cursor=pointer]:
+        - /url: /
+        - img [ref=f8e6]
+        - generic [ref=f8e11]:
+          - generic [ref=f8e12]: Mundo Pet
+          - generic [ref=f8e13]: CRM inteligente
+      - navigation [ref=f8e14]:
+        - link "Dashboard" [ref=f8e15] [cursor=pointer]:
+          - /url: /
+          - img [ref=f8e16]
+          - generic [ref=f8e21]: Dashboard
+        - link "Leads totais" [ref=f8e22] [cursor=pointer]:
+          - /url: /leads-totais
+          - img [ref=f8e23]
+          - generic [ref=f8e28]: Leads totais
+        - link "WhatsApp IA" [ref=f8e29] [cursor=pointer]:
+          - /url: /conversas
+          - img [ref=f8e30]
+          - generic [ref=f8e32]: WhatsApp IA
+        - link "Assistente IA" [ref=f8e33] [cursor=pointer]:
+          - /url: /assistente
+          - img [ref=f8e34]
+          - generic [ref=f8e37]: Assistente IA
+        - link "Notas" [ref=f8e38] [cursor=pointer]:
+          - /url: /notas
+          - img [ref=f8e39]
+          - generic [ref=f8e42]: Notas
+        - link "Clientes" [ref=f8e43] [cursor=pointer]:
+          - /url: /clientes
+          - img [ref=f8e44]
+          - generic [ref=f8e49]: Clientes
+        - link "Indicações" [ref=f8e50] [cursor=pointer]:
+          - /url: /indicacoes
+          - img [ref=f8e51]
+          - generic [ref=f8e55]: Indicações
+        - link "Recompra Prevista" [ref=f8e56] [cursor=pointer]:
+          - /url: /recompra-prevista
+          - img [ref=f8e57]
+          - generic [ref=f8e60]: Recompra Prevista
+        - link "Pedidos" [ref=f8e61] [cursor=pointer]:
+          - /url: /pedidos
+          - img [ref=f8e62]
+          - generic [ref=f8e65]: Pedidos
+        - link "PDV" [ref=f8e66] [cursor=pointer]:
+          - /url: /pdv
+          - img [ref=f8e67]
+          - generic [ref=f8e71]: PDV
+        - link "Entregas" [ref=f8e72] [cursor=pointer]:
+          - /url: /entregas
+          - img [ref=f8e73]
+          - generic [ref=f8e78]: Entregas
+        - link "Estoque" [ref=f8e79] [cursor=pointer]:
+          - /url: /estoque
+          - img [ref=f8e80]
+          - generic [ref=f8e90]: Estoque
+        - link "Procurados" [ref=f8e91] [cursor=pointer]:
+          - /url: /produtos-procurados
+          - img [ref=f8e92]
+          - generic [ref=f8e98]: Procurados
+        - link "Financeiro" [ref=f8e99] [cursor=pointer]:
+          - /url: /financeiro
+          - img [ref=f8e100]
+          - generic [ref=f8e103]: Financeiro
+        - link "Campanhas" [ref=f8e104] [cursor=pointer]:
+          - /url: /campanhas
+          - img [ref=f8e105]
+          - generic [ref=f8e108]: Campanhas
+        - link "Disparos" [ref=f8e109] [cursor=pointer]:
+          - /url: /disparos
+          - img [ref=f8e110]
+          - generic [ref=f8e113]: Disparos
+        - link "Automações" [ref=f8e114] [cursor=pointer]:
+          - /url: /automacoes
+          - img [ref=f8e115]
+          - generic [ref=f8e117]: Automações
+      - generic [ref=f8e118]:
+        - generic [ref=f8e119]: Relatorio IA
+        - paragraph [ref=f8e120]: Resumo disponivel quando houver dados reais suficientes.
+        - button "Ativar resumo diário" [ref=f8e121]
+    - generic [ref=f8e122]:
+      - banner [ref=f8e123]:
+        - generic [ref=f8e124]:
+          - img [ref=f8e125]
+          - textbox "Busca global" [ref=f8e128]:
+            - /placeholder: Buscar cliente, pet, pedido…
+        - generic [ref=f8e129]:
+          - button "Atualizar CRM" [ref=f8e130]:
+            - img [ref=f8e131]
+          - button "Ativar modo escuro" [ref=f8e136]:
+            - img [ref=f8e137]
+          - button "Sair" [ref=f8e139]:
+            - img [ref=f8e140]
+          - button [ref=f8e143]:
+            - img [ref=f8e144]
+          - generic [ref=f8e147]:
+            - generic [ref=f8e148]: MP
+            - generic [ref=f8e149]:
+              - generic [ref=f8e150]: Mundo Pet
+              - generic [ref=f8e151]: Loja Vila Mariana
+      - main [ref=f8e152]:
+        - generic [ref=f8e153]:
+          - generic [ref=f8e154]:
+            - generic [ref=f8e155]:
+              - heading "PDV" [level=1] [ref=f8e156]:
+                - img [ref=f8e157]
+                - text: PDV
+              - paragraph [ref=f8e159]: Modo rápido · venda em segundos
+            - button "Expandir venda" [ref=f8e160]:
+              - img [ref=f8e161]
+              - text: Expandir venda
+          - generic [ref=f8e163]:
+            - generic [ref=f8e164]:
+              - generic [ref=f8e165]:
+                - img [ref=f8e166]
+                - text: Cliente
+              - generic [ref=f8e169]:
+                - textbox "Nome ou telefone…" [ref=f8e170]
+                - img [ref=f8e171]
+            - generic [ref=f8e174]:
+              - generic [ref=f8e175]:
+                - img [ref=f8e176]
+                - text: Produto do estoque
+              - textbox "Buscar racao/produto para dar baixa..." [ref=f8e179]
+            - generic [ref=f8e180]:
+              - generic [ref=f8e181]:
+                - img [ref=f8e182]
+                - text: Valor total
+              - generic [ref=f8e185]:
+                - generic [ref=f8e186]: R$
+                - textbox "0,00" [ref=f8e187]
+            - generic [ref=f8e189]:
+              - generic [ref=f8e190]: Desconto (%)
+              - spinbutton "0" [ref=f8e191]
+            - generic [ref=f8e192]:
+              - generic [ref=f8e193]:
+                - img [ref=f8e194]
+                - text: Data da venda
+              - textbox [ref=f8e198]: 2026-07-07
+            - generic [ref=f8e199]:
+              - generic [ref=f8e200]: Forma de pagamento
+              - generic [ref=f8e201]:
+                - button "Pix" [ref=f8e202]:
+                  - img [ref=f8e203]
+                  - generic [ref=f8e209]: Pix
+                - button "Cartão" [ref=f8e210]:
+                  - img [ref=f8e211]
+                  - generic [ref=f8e213]: Cartão
+                - button "Dinheiro" [ref=f8e214]:
+                  - img [ref=f8e215]
+                  - generic [ref=f8e218]: Dinheiro
+            - generic [ref=f8e219]:
+              - generic [ref=f8e220]: Status do pagamento
+              - generic [ref=f8e221]:
+                - button "✅ Pago" [ref=f8e222]
+                - button "⏳ Pendente" [ref=f8e223]
+            - generic [ref=f8e224]:
+              - generic [ref=f8e225]: Observação (opcional)
+              - 'textbox "Ex: entregar até 18h" [ref=f8e226]'
+            - generic [ref=f8e227]:
+              - button "Finalizar · R$ 0,00" [disabled] [ref=f8e228]
+              - button "Enviar no WhatsApp" [ref=f8e229]:
+                - img [ref=f8e230]
+                - generic [ref=f8e232]: Enviar no WhatsApp
+          - generic [ref=f8e233]:
+            - generic [ref=f8e234]:
+              - generic [ref=f8e235]:
+                - heading "Vendas recentes" [level=2] [ref=f8e236]:
+                  - img [ref=f8e237]
+                  - text: Vendas recentes
+                - paragraph [ref=f8e241]: Cancele, reenvie no WhatsApp ou consulte status
+              - generic [ref=f8e242]: 0 vendas
+            - table [ref=f8e244]:
+              - rowgroup [ref=f8e245]:
+                - row "Pedido Cliente Itens Total Pagto Status Ações" [ref=f8e246]:
+                  - columnheader "Pedido" [ref=f8e247]
+                  - columnheader "Cliente" [ref=f8e248]
+                  - columnheader "Itens" [ref=f8e249]
+                  - columnheader "Total" [ref=f8e250]
+                  - columnheader "Pagto" [ref=f8e251]
+                  - columnheader "Status" [ref=f8e252]
+                  - columnheader "Ações" [ref=f8e253]
+              - rowgroup
+          - generic [ref=f8e254]:
+            - generic [ref=f8e256]:
+              - heading "Mensagens enviadas" [level=2] [ref=f8e257]:
+                - img [ref=f8e258]
+                - text: Mensagens enviadas
+              - paragraph [ref=f8e260]: Histórico recente · últimas 0
+            - generic [ref=f8e262]: Nenhuma mensagem enviada ainda
+  - region "Notifications alt+T"

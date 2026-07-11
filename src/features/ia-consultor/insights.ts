@@ -45,7 +45,9 @@ export function gerarInsights(leads: LeadCard[] = []): Insight[] {
   }
 
   // Upsell — VIP comprando ração econômica
-  const upsell = leads.filter((l) => l.tags.includes("VIP") && l.ticketMedio < 150 && l.comprasRealizadas >= 5);
+  const upsell = leads.filter(
+    (l) => l.tags.includes("VIP") && l.ticketMedio < 150 && l.comprasRealizadas >= 5,
+  );
   if (upsell.length > 0) {
     insights.push({
       id: "ins-upsell",
@@ -59,7 +61,11 @@ export function gerarInsights(leads: LeadCard[] = []): Insight[] {
   }
 
   // Marca específica (Golden) sem recompra
-  const golden = leads.filter((l) => l.produtosFavoritos.some((p) => p.toLowerCase().includes("golden")) && l.diasSemInteracao > 14);
+  const golden = leads.filter(
+    (l) =>
+      l.produtosFavoritos.some((p) => p.toLowerCase().includes("golden")) &&
+      l.diasSemInteracao > 14,
+  );
   if (golden.length > 0) {
     insights.push({
       id: "ins-golden",
@@ -93,10 +99,15 @@ export function responderPergunta(pergunta: string, leads: LeadCard[] = []): str
   const q = pergunta.toLowerCase();
   if (q.includes("risco") || q.includes("churn")) {
     const r = leads.filter((l) => l.churnRisk >= 65);
-    return `**${r.length} clientes em risco** identificados:\n\n${r.slice(0, 5).map((l) => `• ${l.nome} — ${l.churnRisk}% · ${l.diasSemInteracao}d sem interagir`).join("\n")}\n\nQuer que eu dispare campanha de reativação?`;
+    return `**${r.length} clientes em risco** identificados:\n\n${r
+      .slice(0, 5)
+      .map((l) => `• ${l.nome} — ${l.churnRisk}% · ${l.diasSemInteracao}d sem interagir`)
+      .join("\n")}\n\nQuer que eu dispare campanha de reativação?`;
   }
   if (q.includes("golden")) {
-    const r = leads.filter((l) => l.produtosFavoritos.some((p) => p.toLowerCase().includes("golden")));
+    const r = leads.filter((l) =>
+      l.produtosFavoritos.some((p) => p.toLowerCase().includes("golden")),
+    );
     return `**${r.length} clientes Golden** no CRM. Ticket médio: ${brl(r.reduce((s, l) => s + l.ticketMedio, 0) / Math.max(1, r.length))}.\n\nPosso criar campanha exclusiva Golden com cupom de 10%?`;
   }
   if (q.includes("ticket")) {

@@ -1,0 +1,366 @@
+- generic [ref=f9e1]:
+  - generic [ref=f9e2]:
+    - complementary [ref=f9e3]:
+      - link "Mundo Pet CRM inteligente" [ref=f9e4] [cursor=pointer]:
+        - /url: /
+        - img [ref=f9e6]
+        - generic [ref=f9e11]:
+          - generic [ref=f9e12]: Mundo Pet
+          - generic [ref=f9e13]: CRM inteligente
+      - navigation [ref=f9e14]:
+        - link "Dashboard" [ref=f9e15] [cursor=pointer]:
+          - /url: /
+          - img [ref=f9e16]
+          - generic [ref=f9e21]: Dashboard
+        - link "Leads totais" [ref=f9e22] [cursor=pointer]:
+          - /url: /leads-totais
+          - img [ref=f9e23]
+          - generic [ref=f9e28]: Leads totais
+        - link "WhatsApp IA" [ref=f9e29] [cursor=pointer]:
+          - /url: /conversas
+          - img [ref=f9e30]
+          - generic [ref=f9e32]: WhatsApp IA
+        - link "Assistente IA" [ref=f9e33] [cursor=pointer]:
+          - /url: /assistente
+          - img [ref=f9e34]
+          - generic [ref=f9e37]: Assistente IA
+        - link "Notas" [ref=f9e38] [cursor=pointer]:
+          - /url: /notas
+          - img [ref=f9e39]
+          - generic [ref=f9e42]: Notas
+        - link "Clientes" [ref=f9e43] [cursor=pointer]:
+          - /url: /clientes
+          - img [ref=f9e44]
+          - generic [ref=f9e49]: Clientes
+        - link "Pets" [ref=f9e50] [cursor=pointer]:
+          - /url: /pets
+          - img [ref=f9e51]
+          - generic [ref=f9e56]: Pets
+        - link "Indicações" [ref=f9e57] [cursor=pointer]:
+          - /url: /indicacoes
+          - img [ref=f9e58]
+          - generic [ref=f9e62]: Indicações
+        - link "Recompra Prevista" [ref=f9e63] [cursor=pointer]:
+          - /url: /recompra-prevista
+          - img [ref=f9e64]
+          - generic [ref=f9e67]: Recompra Prevista
+        - link "Pedidos" [ref=f9e68] [cursor=pointer]:
+          - /url: /pedidos
+          - img [ref=f9e69]
+          - generic [ref=f9e72]: Pedidos
+        - link "PDV" [ref=f9e73] [cursor=pointer]:
+          - /url: /pdv
+          - img [ref=f9e74]
+          - generic [ref=f9e78]: PDV
+        - link "Entregas" [ref=f9e79] [cursor=pointer]:
+          - /url: /entregas
+          - img [ref=f9e80]
+          - generic [ref=f9e85]: Entregas
+        - link "Estoque" [ref=f9e86] [cursor=pointer]:
+          - /url: /estoque
+          - img [ref=f9e87]
+          - generic [ref=f9e97]: Estoque
+        - link "Procurados" [ref=f9e98] [cursor=pointer]:
+          - /url: /produtos-procurados
+          - img [ref=f9e99]
+          - generic [ref=f9e105]: Procurados
+        - link "Financeiro" [ref=f9e106] [cursor=pointer]:
+          - /url: /financeiro
+          - img [ref=f9e107]
+          - generic [ref=f9e110]: Financeiro
+        - link "Campanhas" [ref=f9e111] [cursor=pointer]:
+          - /url: /campanhas
+          - img [ref=f9e112]
+          - generic [ref=f9e115]: Campanhas
+        - link "Disparos" [ref=f9e116] [cursor=pointer]:
+          - /url: /disparos
+          - img [ref=f9e117]
+          - generic [ref=f9e120]: Disparos
+        - link "Automações" [ref=f9e121] [cursor=pointer]:
+          - /url: /automacoes
+          - img [ref=f9e122]
+          - generic [ref=f9e124]: Automações
+      - generic [ref=f9e125]:
+        - generic [ref=f9e126]: Relatorio IA
+        - paragraph [ref=f9e127]: Resumo disponivel quando houver dados reais suficientes.
+        - button "Ativar resumo diário" [ref=f9e128]
+    - generic [ref=f9e129]:
+      - banner [ref=f9e130]:
+        - generic [ref=f9e131]:
+          - img [ref=f9e132]
+          - textbox "Busca global" [ref=f9e135]:
+            - /placeholder: Buscar cliente, pet, pedido…
+        - generic [ref=f9e136]:
+          - button "Atualizar CRM" [ref=f9e137]:
+            - img [ref=f9e138]
+          - button "Ativar modo escuro" [ref=f9e143]:
+            - img [ref=f9e144]
+          - button "Sair" [ref=f9e146]:
+            - img [ref=f9e147]
+          - button [ref=f9e150]:
+            - img [ref=f9e151]
+          - generic [ref=f9e154]:
+            - generic [ref=f9e155]: MP
+            - generic [ref=f9e156]:
+              - generic [ref=f9e157]: Mundo Pet
+              - generic [ref=f9e158]: Loja Vila Mariana
+      - main [ref=f9e159]:
+        - generic [ref=f9e160]:
+          - generic [ref=f9e161]:
+            - generic [ref=f9e162]:
+              - heading "PDV" [level=1] [ref=f9e163]:
+                - img [ref=f9e164]
+                - text: PDV
+              - paragraph [ref=f9e166]: Modo completo · produtos, estoque e margem
+            - button "Recolher" [active] [ref=f9e270]:
+              - img [ref=f9e271]
+              - text: Recolher
+          - generic [ref=f9e273]:
+            - generic [ref=f9e274]:
+              - generic [ref=f9e276]:
+                - img [ref=f9e277]
+                - textbox "Buscar produto ou ler código..." [ref=f9e280]
+              - generic [ref=f9e281]:
+                - button "🐾 Rações Bionatural BIONATURAL CAES RM/G AD FRANGO 15KG R$ 259,90 10 un" [ref=f9e282]:
+                  - generic [ref=f9e283]: 🐾
+                  - generic [ref=f9e284]: Rações
+                  - generic [ref=f9e285]: Bionatural BIONATURAL CAES RM/G AD FRANGO 15KG
+                  - generic [ref=f9e286]:
+                    - generic [ref=f9e287]: R$ 259,90
+                    - generic [ref=f9e288]: 10 un
+                - button "🐾 Rações Bionatural BIONATURAL CAES RP AD FRANGO 15KG R$ 259,90 10 un" [ref=f9e289]:
+                  - generic [ref=f9e290]: 🐾
+                  - generic [ref=f9e291]: Rações
+                  - generic [ref=f9e292]: Bionatural BIONATURAL CAES RP AD FRANGO 15KG
+                  - generic [ref=f9e293]:
+                    - generic [ref=f9e294]: R$ 259,90
+                    - generic [ref=f9e295]: 10 un
+                - button "🐾 Rações Bionatural BIONATURAL GATOS CAST SALMAO 20KG R$ 387,90 10 un" [ref=f9e296]:
+                  - generic [ref=f9e297]: 🐾
+                  - generic [ref=f9e298]: Rações
+                  - generic [ref=f9e299]: Bionatural BIONATURAL GATOS CAST SALMAO 20KG
+                  - generic [ref=f9e300]:
+                    - generic [ref=f9e301]: R$ 387,90
+                    - generic [ref=f9e302]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM ESPECIAL CARNE E FRANGO 15KG R$ 164,90 10 un" [ref=f9e303]:
+                  - generic [ref=f9e304]: 🐾
+                  - generic [ref=f9e305]: Rações
+                  - generic [ref=f9e306]: Bob Dog BOB DOG PREMIUM ESPECIAL CARNE E FRANGO 15KG
+                  - generic [ref=f9e307]:
+                    - generic [ref=f9e308]: R$ 164,90
+                    - generic [ref=f9e309]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 15KG R$ 164,90 10 un" [ref=f9e310]:
+                  - generic [ref=f9e311]: 🐾
+                  - generic [ref=f9e312]: Rações
+                  - generic [ref=f9e313]: Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 15KG
+                  - generic [ref=f9e314]:
+                    - generic [ref=f9e315]: R$ 164,90
+                    - generic [ref=f9e316]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 3KG R$ 69,90 10 un" [ref=f9e317]:
+                  - generic [ref=f9e318]: 🐾
+                  - generic [ref=f9e319]: Rações
+                  - generic [ref=f9e320]: Bob Dog BOB DOG PREMIUM ESPECIAL FILHOTE 3KG
+                  - generic [ref=f9e321]:
+                    - generic [ref=f9e322]: R$ 69,90
+                    - generic [ref=f9e323]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ 15KG R$ 164,90 10 un" [ref=f9e324]:
+                  - generic [ref=f9e325]: 🐾
+                  - generic [ref=f9e326]: Rações
+                  - generic [ref=f9e327]: Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ 15KG
+                  - generic [ref=f9e328]:
+                    - generic [ref=f9e329]: R$ 164,90
+                    - generic [ref=f9e330]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 15KG R$ 159,90 10 un" [ref=f9e331]:
+                  - generic [ref=f9e332]: 🐾
+                  - generic [ref=f9e333]: Rações
+                  - generic [ref=f9e334]: Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 15KG
+                  - generic [ref=f9e335]:
+                    - generic [ref=f9e336]: R$ 159,90
+                    - generic [ref=f9e337]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 3KG R$ 69,90 10 un" [ref=f9e338]:
+                  - generic [ref=f9e339]: 🐾
+                  - generic [ref=f9e340]: Rações
+                  - generic [ref=f9e341]: Bob Dog BOB DOG PREMIUM ESPECIAL FRANGO E ARROZ MINI BITS 3KG
+                  - generic [ref=f9e342]:
+                    - generic [ref=f9e343]: R$ 69,90
+                    - generic [ref=f9e344]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM FRANGO 15KG R$ 129,90 10 un" [ref=f9e345]:
+                  - generic [ref=f9e346]: 🐾
+                  - generic [ref=f9e347]: Rações
+                  - generic [ref=f9e348]: Bob Dog BOB DOG PREMIUM FRANGO 15KG
+                  - generic [ref=f9e349]:
+                    - generic [ref=f9e350]: R$ 129,90
+                    - generic [ref=f9e351]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM FRANGO 7KG R$ 72,90 10 un" [ref=f9e352]:
+                  - generic [ref=f9e353]: 🐾
+                  - generic [ref=f9e354]: Rações
+                  - generic [ref=f9e355]: Bob Dog BOB DOG PREMIUM FRANGO 7KG
+                  - generic [ref=f9e356]:
+                    - generic [ref=f9e357]: R$ 72,90
+                    - generic [ref=f9e358]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM GOURMET 15KG R$ 119,90 10 un" [ref=f9e359]:
+                  - generic [ref=f9e360]: 🐾
+                  - generic [ref=f9e361]: Rações
+                  - generic [ref=f9e362]: Bob Dog BOB DOG PREMIUM GOURMET 15KG
+                  - generic [ref=f9e363]:
+                    - generic [ref=f9e364]: R$ 119,90
+                    - generic [ref=f9e365]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM GOURMET 25KG R$ 169,90 10 un" [ref=f9e366]:
+                  - generic [ref=f9e367]: 🐾
+                  - generic [ref=f9e368]: Rações
+                  - generic [ref=f9e369]: Bob Dog BOB DOG PREMIUM GOURMET 25KG
+                  - generic [ref=f9e370]:
+                    - generic [ref=f9e371]: R$ 169,90
+                    - generic [ref=f9e372]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM GOURMET 7KG R$ 69,90 10 un" [ref=f9e373]:
+                  - generic [ref=f9e374]: 🐾
+                  - generic [ref=f9e375]: Rações
+                  - generic [ref=f9e376]: Bob Dog BOB DOG PREMIUM GOURMET 7KG
+                  - generic [ref=f9e377]:
+                    - generic [ref=f9e378]: R$ 69,90
+                    - generic [ref=f9e379]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM JUNIOR 15KG R$ 144,90 10 un" [ref=f9e380]:
+                  - generic [ref=f9e381]: 🐾
+                  - generic [ref=f9e382]: Rações
+                  - generic [ref=f9e383]: Bob Dog BOB DOG PREMIUM JUNIOR 15KG
+                  - generic [ref=f9e384]:
+                    - generic [ref=f9e385]: R$ 144,90
+                    - generic [ref=f9e386]: 10 un
+                - button "🐾 Rações Bob Dog BOB DOG PREMIUM JUNIOR 7KG R$ 74,90 10 un" [ref=f9e387]:
+                  - generic [ref=f9e388]: 🐾
+                  - generic [ref=f9e389]: Rações
+                  - generic [ref=f9e390]: Bob Dog BOB DOG PREMIUM JUNIOR 7KG
+                  - generic [ref=f9e391]:
+                    - generic [ref=f9e392]: R$ 74,90
+                    - generic [ref=f9e393]: 10 un
+                - button "🐾 Rações Catsy CATSY PREMIUM ESPECIAL GOLD FILHOTE 10KG R$ 155,90 10 un" [ref=f9e394]:
+                  - generic [ref=f9e395]: 🐾
+                  - generic [ref=f9e396]: Rações
+                  - generic [ref=f9e397]: Catsy CATSY PREMIUM ESPECIAL GOLD FILHOTE 10KG
+                  - generic [ref=f9e398]:
+                    - generic [ref=f9e399]: R$ 155,90
+                    - generic [ref=f9e400]: 10 un
+                - button "🐾 Rações Catsy CATSY PREMIUM ESPECIAL GOLD FILHOTE 1KG R$ 0,00 10 un" [ref=f9e401]:
+                  - generic [ref=f9e402]: 🐾
+                  - generic [ref=f9e403]: Rações
+                  - generic [ref=f9e404]: Catsy CATSY PREMIUM ESPECIAL GOLD FILHOTE 1KG
+                  - generic [ref=f9e405]:
+                    - generic [ref=f9e406]: R$ 0,00
+                    - generic [ref=f9e407]: 10 un
+                - button "🐾 Rações Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO 10KG R$ 129,90 10 un" [ref=f9e408]:
+                  - generic [ref=f9e409]: 🐾
+                  - generic [ref=f9e410]: Rações
+                  - generic [ref=f9e411]: Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO 10KG
+                  - generic [ref=f9e412]:
+                    - generic [ref=f9e413]: R$ 129,90
+                    - generic [ref=f9e414]: 10 un
+                - button "🐾 Rações Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO 1KG R$ 0,00 10 un" [ref=f9e415]:
+                  - generic [ref=f9e416]: 🐾
+                  - generic [ref=f9e417]: Rações
+                  - generic [ref=f9e418]: Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO 1KG
+                  - generic [ref=f9e419]:
+                    - generic [ref=f9e420]: R$ 0,00
+                    - generic [ref=f9e421]: 10 un
+                - button "🐾 Rações Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 10KG R$ 149,90 68 un" [ref=f9e422]:
+                  - generic [ref=f9e423]: 🐾
+                  - generic [ref=f9e424]: Rações
+                  - generic [ref=f9e425]: Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 10KG
+                  - generic [ref=f9e426]:
+                    - generic [ref=f9e427]: R$ 149,90
+                    - generic [ref=f9e428]: 68 un
+                - button "🐾 Rações Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 3KG R$ 74,90 10 un" [ref=f9e429]:
+                  - generic [ref=f9e430]: 🐾
+                  - generic [ref=f9e431]: Rações
+                  - generic [ref=f9e432]: Catsy CATSY PREMIUM ESPECIAL GOLD FRANGO CASTRADO 3KG
+                  - generic [ref=f9e433]:
+                    - generic [ref=f9e434]: R$ 74,90
+                    - generic [ref=f9e435]: 10 un
+                - button "🐾 Rações Catsy CATSY PREMIUM ESPECIAL GOLD SALMÃO 3KG R$ 82,90 10 un" [ref=f9e436]:
+                  - generic [ref=f9e437]: 🐾
+                  - generic [ref=f9e438]: Rações
+                  - generic [ref=f9e439]: Catsy CATSY PREMIUM ESPECIAL GOLD SALMÃO 3KG
+                  - generic [ref=f9e440]:
+                    - generic [ref=f9e441]: R$ 82,90
+                    - generic [ref=f9e442]: 10 un
+                - button "🐾 Rações Catsy CATSY PREMIUM FRANGO 10KG R$ 119,90 10 un" [ref=f9e443]:
+                  - generic [ref=f9e444]: 🐾
+                  - generic [ref=f9e445]: Rações
+                  - generic [ref=f9e446]: Catsy CATSY PREMIUM FRANGO 10KG
+                  - generic [ref=f9e447]:
+                    - generic [ref=f9e448]: R$ 119,90
+                    - generic [ref=f9e449]: 10 un
+            - generic [ref=f9e450]:
+              - generic [ref=f9e451]:
+                - combobox "Cliente…" [ref=f9e452]
+                - heading "Carrinho" [level=3] [ref=f9e453]
+                - paragraph [ref=f9e454]: 0 itens · margem 0%
+              - generic [ref=f9e456]: Adicione produtos ao carrinho
+              - generic [ref=f9e457]:
+                - generic [ref=f9e458]:
+                  - generic [ref=f9e459]: Data da venda
+                  - textbox [ref=f9e460]: 2026-07-07
+                - generic [ref=f9e461]:
+                  - generic [ref=f9e462]:
+                    - generic [ref=f9e463]: Desconto (%)
+                    - spinbutton "0" [ref=f9e464]
+                  - generic [ref=f9e465]:
+                    - generic [ref=f9e466]: Frete
+                    - spinbutton "0" [ref=f9e467]
+                - generic [ref=f9e468]:
+                  - generic [ref=f9e469]:
+                    - generic [ref=f9e470]: Subtotal
+                    - generic [ref=f9e471]: R$ 0,00
+                  - generic [ref=f9e472]:
+                    - generic [ref=f9e473]: Custo
+                    - generic [ref=f9e474]: R$ 0,00
+                  - generic [ref=f9e475]:
+                    - generic [ref=f9e476]: Lucro
+                    - generic [ref=f9e477]: R$ 0,00
+                  - generic [ref=f9e478]:
+                    - generic [ref=f9e479]: Total
+                    - generic [ref=f9e480]: R$ 0,00
+                - generic [ref=f9e481]:
+                  - button "Pix" [ref=f9e482]:
+                    - img [ref=f9e483]
+                    - generic [ref=f9e489]: Pix
+                  - button "Cartão" [ref=f9e490]:
+                    - img [ref=f9e491]
+                    - generic [ref=f9e493]: Cartão
+                  - button "Dinheiro" [ref=f9e494]:
+                    - img [ref=f9e495]
+                    - generic [ref=f9e498]: Dinheiro
+                - generic [ref=f9e499]:
+                  - button "✅ Pago" [ref=f9e500]
+                  - button "⏳ Pendente" [ref=f9e501]
+                - generic [ref=f9e502]:
+                  - button "Finalizar · R$ 0,00" [disabled] [ref=f9e503]
+                  - button "WhatsApp" [ref=f9e504]:
+                    - img [ref=f9e505]
+                    - text: WhatsApp
+          - generic [ref=f9e240]:
+            - generic [ref=f9e241]:
+              - generic [ref=f9e242]:
+                - heading "Vendas recentes" [level=2] [ref=f9e243]:
+                  - img [ref=f9e244]
+                  - text: Vendas recentes
+                - paragraph [ref=f9e248]: Cancele, reenvie no WhatsApp ou consulte status
+              - generic [ref=f9e249]: 0 vendas
+            - table [ref=f9e251]:
+              - rowgroup [ref=f9e252]:
+                - row "Pedido Cliente Itens Total Pagto Status Ações" [ref=f9e253]:
+                  - columnheader "Pedido" [ref=f9e254]
+                  - columnheader "Cliente" [ref=f9e255]
+                  - columnheader "Itens" [ref=f9e256]
+                  - columnheader "Total" [ref=f9e257]
+                  - columnheader "Pagto" [ref=f9e258]
+                  - columnheader "Status" [ref=f9e259]
+                  - columnheader "Ações" [ref=f9e260]
+              - rowgroup
+          - generic [ref=f9e261]:
+            - generic [ref=f9e263]:
+              - heading "Mensagens enviadas" [level=2] [ref=f9e264]:
+                - img [ref=f9e265]
+                - text: Mensagens enviadas
+              - paragraph [ref=f9e267]: Histórico recente · últimas 0
+            - generic [ref=f9e269]: Nenhuma mensagem enviada ainda
+  - region "Notifications alt+T"

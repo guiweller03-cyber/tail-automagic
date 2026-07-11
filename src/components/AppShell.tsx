@@ -25,6 +25,7 @@ import {
   Sun,
   LogOut,
   FileText,
+  Send,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -33,10 +34,12 @@ import { GlobalSearchContext } from "@/lib/global-search";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/leads-totais", label: "Leads totais", icon: Users },
   { to: "/conversas", label: "WhatsApp IA", icon: MessageCircle },
   { to: "/assistente", label: "Assistente IA", icon: Sparkles },
   { to: "/notas", label: "Notas", icon: FileText },
   { to: "/clientes", label: "Clientes", icon: Users },
+  { to: "/pets", label: "Pets", icon: PawPrint },
   { to: "/indicacoes", label: "Indicações", icon: Gift },
   { to: "/recompra-prevista", label: "Recompra Prevista", icon: ArrowRightLeft },
   { to: "/pedidos", label: "Pedidos", icon: ShoppingBag },
@@ -46,6 +49,7 @@ const nav = [
   { to: "/produtos-procurados", label: "Procurados", icon: PackageSearch },
   { to: "/financeiro", label: "Financeiro", icon: Wallet },
   { to: "/campanhas", label: "Campanhas", icon: Megaphone },
+  { to: "/disparos", label: "Disparos", icon: Send },
   { to: "/automacoes", label: "Automações", icon: Zap },
 ] as const;
 
@@ -95,9 +99,9 @@ export function AppShell() {
 
   return (
     <GlobalSearchContext.Provider value={{ query: globalSearch, setQuery: setGlobalSearch }}>
-      <div className="min-h-screen bg-background flex">
+      <div className="min-h-screen bg-background overflow-x-hidden lg:pl-64">
         {/* Sidebar desktop */}
-        <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar sticky top-0 h-screen">
+        <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
           <Brand />
           <NavList currentPath={loc.pathname} />
           <UserCard />
@@ -107,7 +111,7 @@ export function AppShell() {
         {open && (
           <div className="lg:hidden fixed inset-0 z-50 flex">
             <div className="absolute inset-0 bg-foreground/30" onClick={() => setOpen(false)} />
-            <aside className="relative w-72 bg-sidebar h-full flex flex-col shadow-xl">
+            <aside className="relative w-[min(18rem,calc(100vw-2rem))] bg-sidebar h-full flex flex-col shadow-xl">
               <div className="flex items-center justify-between p-4">
                 <Brand />
                 <button
@@ -118,16 +122,26 @@ export function AppShell() {
                 </button>
               </div>
               <NavList currentPath={loc.pathname} onNavigate={() => setOpen(false)} />
+              <div className="px-3 pb-2">
+                <button
+                  type="button"
+                  onClick={() => void logout()}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-sidebar-accent/60 hover:text-foreground"
+                >
+                  <LogOut className="size-[18px]" />
+                  <span>Sair</span>
+                </button>
+              </div>
               <UserCard />
             </aside>
           </div>
         )}
 
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="min-w-0 flex flex-col">
           {/* Topbar */}
-          <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur border-b border-border flex items-center gap-3 px-4 lg:px-8">
+          <header className="sticky top-0 z-30 min-h-12 bg-background/90 backdrop-blur border-b border-border flex items-center gap-2 px-3 py-1.5 sm:h-16 sm:gap-3 sm:px-4 lg:px-8">
             <button
-              className="lg:hidden p-2 rounded-lg hover:bg-secondary"
+              className="lg:hidden grid size-9 shrink-0 place-items-center rounded-lg hover:bg-secondary sm:size-10"
               onClick={() => setOpen(true)}
             >
               <Menu className="size-5" />
@@ -142,14 +156,14 @@ export function AppShell() {
                 className="w-full h-10 pl-9 pr-4 rounded-xl bg-secondary border border-transparent focus:border-primary focus:bg-card outline-none text-sm transition"
               />
             </div>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={() => void reloadCrm()}
                 disabled={reloading}
                 aria-label="Atualizar CRM"
                 title="Atualizar CRM"
-                className="p-2.5 rounded-xl bg-secondary hover:bg-secondary/70 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                className="grid size-9 place-items-center rounded-lg bg-secondary hover:bg-secondary/70 transition disabled:opacity-60 disabled:cursor-not-allowed sm:size-10 sm:rounded-xl"
               >
                 <RefreshCw className={cn("size-5", reloading && "animate-spin")} />
               </button>
@@ -158,7 +172,7 @@ export function AppShell() {
                 onClick={() => setDarkMode((current) => !current)}
                 aria-label={darkMode ? "Ativar modo claro" : "Ativar modo escuro"}
                 title={darkMode ? "Modo claro" : "Modo escuro"}
-                className="p-2.5 rounded-xl bg-secondary hover:bg-secondary/70 transition"
+                className="hidden size-10 place-items-center rounded-xl bg-secondary hover:bg-secondary/70 transition sm:grid"
               >
                 {darkMode ? <Sun className="size-5" /> : <Moon className="size-5" />}
               </button>
@@ -167,11 +181,11 @@ export function AppShell() {
                 onClick={() => void logout()}
                 aria-label="Sair"
                 title="Sair"
-                className="p-2.5 rounded-xl bg-secondary hover:bg-secondary/70 transition"
+                className="hidden size-10 place-items-center rounded-xl bg-secondary hover:bg-secondary/70 transition sm:grid"
               >
                 <LogOut className="size-5" />
               </button>
-              <button className="relative p-2.5 rounded-xl bg-secondary hover:bg-secondary/70">
+              <button className="relative hidden size-10 place-items-center rounded-xl bg-secondary hover:bg-secondary/70 md:grid">
                 <Bell className="size-5" />
               </button>
               <div className="hidden sm:flex items-center gap-2.5 pl-3 pr-1.5 py-1.5 rounded-xl bg-secondary">
@@ -186,7 +200,7 @@ export function AppShell() {
             </div>
           </header>
 
-          <main className="flex-1 px-4 lg:px-8 py-6 lg:py-8">
+          <main className="flex-1 px-3 py-3 sm:px-4 sm:py-6 lg:px-8 lg:py-8 min-w-0">
             <Outlet />
           </main>
         </div>

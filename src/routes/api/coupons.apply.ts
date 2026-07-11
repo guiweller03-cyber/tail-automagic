@@ -17,7 +17,10 @@ export const Route = createFileRoute("/api/coupons/apply")({
           typeof body.order_id !== "string" ||
           typeof body.user_id !== "string"
         ) {
-          return Response.json({ ok: false, erro: "coupon_code, order_id e user_id sao obrigatorios" }, { status: 400 });
+          return Response.json(
+            { ok: false, erro: "coupon_code, order_id e user_id sao obrigatorios" },
+            { status: 400 },
+          );
         }
 
         return Response.json(

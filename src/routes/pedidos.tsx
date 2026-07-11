@@ -32,7 +32,9 @@ function normalizarPedido(pedido: Record<string, unknown>): Pedido {
     bairro: String(pedido.bairro ?? ""),
     hora: String(pedido.hora ?? ""),
     pagamento,
-    pago: statusPagamento.toLowerCase() === "pago" || isPedidoStatus(pedido.status) && pedido.status === "pago",
+    pago:
+      statusPagamento.toLowerCase() === "pago" ||
+      (isPedidoStatus(pedido.status) && pedido.status === "pago"),
     comprovante: statusPagamento.toLowerCase() === "pago",
     taxaMaquina: 0,
     notaFiscal: false,

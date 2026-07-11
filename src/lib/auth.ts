@@ -6,19 +6,29 @@ type AdminUser = {
   label: string;
 };
 
+const ADMIN_SLOTS = [
+  { index: 1, label: "Admin 1" },
+  { index: 2, label: "Admin 2" },
+] as const;
+
 type SessionPayload = AdminUser & {
   exp: number;
 };
 
 function getEnv(name: string): string {
-  return process.env[name]?.trim() ?? "";
+  const metaEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+
+  return (process.env[name] ?? metaEnv?.[name] ?? "").trim();
 }
 
 function getConfiguredAdmins(): AdminUser[] {
-  return [
-    { login: getEnv("CRM_ADMIN_1_LOGIN"), label: "Admin 1" },
-    { login: getEnv("CRM_ADMIN_2_LOGIN"), label: "Admin 2" },
-  ].filter((admin) => admin.login.length > 0);
+  return ADMIN_SLOTS.map(({ index, label }) => ({
+    login: getEnv(`CRM_ADMIN_${index}_LOGIN`),
+    password: getAdminPassword(index),
+    label,
+  }))
+    .filter((admin) => admin.login.length > 0 && admin.password.length > 0)
+    .map(({ login, label }) => ({ login, label }));
 }
 
 export function hasConfiguredAdmins(): boolean {
@@ -160,14 +170,20 @@ export async function getCurrentAdmin(request: Request): Promise<AdminUser | nul
 
 export function verifyAdminCredentials(login: string, password: string): AdminUser | null {
   const normalizedLogin = login.trim();
-  const admins = getConfiguredAdmins();
+  const normalizedPassword = password.trim();
 
-  if (admins[0]?.login === normalizedLogin && getAdminPassword(1) === password) {
-    return admins[0];
-  }
+  for (const { index, label } of ADMIN_SLOTS) {
+    const configuredLogin = getEnv(`CRM_ADMIN_${index}_LOGIN`);
+    const configuredPassword = getAdminPassword(index);
 
-  if (admins[1]?.login === normalizedLogin && getAdminPassword(2) === password) {
-    return admins[1];
+    if (
+      configuredLogin.length > 0 &&
+      configuredPassword.length > 0 &&
+      configuredLogin === normalizedLogin &&
+      configuredPassword === normalizedPassword
+    ) {
+      return { login: configuredLogin, label };
+    }
   }
 
   return null;

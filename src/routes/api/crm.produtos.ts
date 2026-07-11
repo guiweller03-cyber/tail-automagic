@@ -4,6 +4,7 @@ import type { ProdutoDetalhesTecnicos } from "@/lib/crm-types";
 import {
   atualizarProdutoCrm,
   criarProdutoCrm,
+  excluirProdutoCrm,
   listarProdutos,
   type ProdutoCrmInput,
 } from "@/lib/crm-supabase";
@@ -96,6 +97,23 @@ export const Route = createFileRoute("/api/crm/produtos")({
           }
 
           return json(await atualizarProdutoCrm(skuAtual, input));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Erro desconhecido";
+
+          return json({ ok: false, erro: message }, { status: 500 });
+        }
+      },
+      DELETE: async ({ request }) => {
+        try {
+          const body = (await request.json()) as Record<string, unknown>;
+          const sku = typeof body.sku === "string" ? body.sku.trim() : "";
+          if (!sku) {
+            return json({ ok: false, erro: "SKU invalido" }, { status: 400 });
+          }
+
+          await excluirProdutoCrm(sku);
+
+          return json({ ok: true });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Erro desconhecido";
 

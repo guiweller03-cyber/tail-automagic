@@ -1,0 +1,198 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e2]:
+    - complementary [ref=f2e3]:
+      - link "Mundo Pet CRM inteligente" [ref=f2e4] [cursor=pointer]:
+        - /url: /
+        - img [ref=f2e6]
+        - generic [ref=f2e11]:
+          - generic [ref=f2e12]: Mundo Pet
+          - generic [ref=f2e13]: CRM inteligente
+      - navigation [ref=f2e14]:
+        - link "Dashboard" [ref=f2e15] [cursor=pointer]:
+          - /url: /
+          - img [ref=f2e16]
+          - generic [ref=f2e21]: Dashboard
+        - link "Leads totais" [ref=f2e22] [cursor=pointer]:
+          - /url: /leads-totais
+          - img [ref=f2e23]
+          - generic [ref=f2e28]: Leads totais
+        - link "WhatsApp IA" [ref=f2e29] [cursor=pointer]:
+          - /url: /conversas
+          - img [ref=f2e30]
+          - generic [ref=f2e32]: WhatsApp IA
+        - link "Assistente IA" [ref=f2e33] [cursor=pointer]:
+          - /url: /assistente
+          - img [ref=f2e34]
+          - generic [ref=f2e37]: Assistente IA
+        - link "Notas" [ref=f2e38] [cursor=pointer]:
+          - /url: /notas
+          - img [ref=f2e39]
+          - generic [ref=f2e42]: Notas
+        - link "Clientes" [ref=f2e43] [cursor=pointer]:
+          - /url: /clientes
+          - img [ref=f2e44]
+          - generic [ref=f2e49]: Clientes
+        - link "Indicações" [ref=f2e50] [cursor=pointer]:
+          - /url: /indicacoes
+          - img [ref=f2e51]
+          - generic [ref=f2e55]: Indicações
+        - link "Recompra Prevista" [ref=f2e56] [cursor=pointer]:
+          - /url: /recompra-prevista
+          - img [ref=f2e57]
+          - generic [ref=f2e60]: Recompra Prevista
+        - link "Pedidos" [ref=f2e61] [cursor=pointer]:
+          - /url: /pedidos
+          - img [ref=f2e62]
+          - generic [ref=f2e65]: Pedidos
+        - link "PDV" [ref=f2e66] [cursor=pointer]:
+          - /url: /pdv
+          - img [ref=f2e67]
+          - generic [ref=f2e71]: PDV
+        - link "Entregas" [ref=f2e72] [cursor=pointer]:
+          - /url: /entregas
+          - img [ref=f2e73]
+          - generic [ref=f2e78]: Entregas
+        - link "Estoque" [ref=f2e79] [cursor=pointer]:
+          - /url: /estoque
+          - img [ref=f2e80]
+          - generic [ref=f2e90]: Estoque
+        - link "Procurados" [ref=f2e91] [cursor=pointer]:
+          - /url: /produtos-procurados
+          - img [ref=f2e92]
+          - generic [ref=f2e98]: Procurados
+        - link "Financeiro" [ref=f2e99] [cursor=pointer]:
+          - /url: /financeiro
+          - img [ref=f2e100]
+          - generic [ref=f2e103]: Financeiro
+        - link "Campanhas" [ref=f2e104] [cursor=pointer]:
+          - /url: /campanhas
+          - img [ref=f2e105]
+          - generic [ref=f2e108]: Campanhas
+        - link "Disparos" [ref=f2e109] [cursor=pointer]:
+          - /url: /disparos
+          - img [ref=f2e110]
+          - generic [ref=f2e113]: Disparos
+        - link "Automações" [ref=f2e114] [cursor=pointer]:
+          - /url: /automacoes
+          - img [ref=f2e115]
+          - generic [ref=f2e117]: Automações
+      - generic [ref=f2e118]:
+        - generic [ref=f2e119]: Relatorio IA
+        - paragraph [ref=f2e120]: Resumo disponivel quando houver dados reais suficientes.
+        - button "Ativar resumo diário" [ref=f2e121]
+    - generic [ref=f2e122]:
+      - banner [ref=f2e123]:
+        - generic [ref=f2e124]:
+          - img [ref=f2e125]
+          - textbox "Busca global" [ref=f2e128]:
+            - /placeholder: Buscar cliente, pet, pedido…
+        - generic [ref=f2e129]:
+          - button "Atualizar CRM" [ref=f2e130]:
+            - img [ref=f2e131]
+          - button "Ativar modo escuro" [ref=f2e136]:
+            - img [ref=f2e137]
+          - button "Sair" [ref=f2e139]:
+            - img [ref=f2e140]
+          - button [ref=f2e143]:
+            - img [ref=f2e144]
+          - generic [ref=f2e147]:
+            - generic [ref=f2e148]: MP
+            - generic [ref=f2e149]:
+              - generic [ref=f2e150]: Mundo Pet
+              - generic [ref=f2e151]: Loja Vila Mariana
+      - main [ref=f2e152]:
+        - generic [ref=f2e153]:
+          - generic [ref=f2e154]:
+            - generic [ref=f2e155]:
+              - heading "Disparos" [level=1] [ref=f2e156]
+              - paragraph [ref=f2e157]: Envie mensagens em lote e programe follow-ups com a mesma fila do WhatsApp IA.
+            - generic [ref=f2e158]:
+              - generic [ref=f2e159]:
+                - generic [ref=f2e160]: Leads validos
+                - generic [ref=f2e161]: "0"
+              - generic [ref=f2e162]:
+                - generic [ref=f2e163]: Auto
+                - generic [ref=f2e164]: "0"
+              - generic [ref=f2e165]:
+                - generic [ref=f2e166]: Selecionados
+                - generic [ref=f2e167]: "0"
+              - generic [ref=f2e168]:
+                - generic [ref=f2e169]: Follow-ups
+                - generic [ref=f2e170]: "0"
+          - generic [ref=f2e171]:
+            - generic [ref=f2e172]:
+              - generic [ref=f2e173]:
+                - generic [ref=f2e174]:
+                  - img [ref=f2e176]
+                  - text: Disparo de mensagens
+                - generic [ref=f2e179]:
+                  - button "Automatico" [ref=f2e180]:
+                    - img [ref=f2e181]
+                    - text: Automatico
+                  - button "Semi" [ref=f2e183]:
+                    - img [ref=f2e184]
+                    - text: Semi
+              - generic [ref=f2e187]:
+                - generic [ref=f2e188]:
+                  - text: Mensagem
+                  - textbox "Mensagem" [ref=f2e189]:
+                    - /placeholder: "Use {nome}, {pet} ou {pets}"
+                    - text: "Oi {nome}, tudo bem? Passando da Mundo Pet para saber se posso ajudar com algo para {pet} hoje."
+                - generic [ref=f2e190]:
+                  - generic [ref=f2e191]:
+                    - text: Limite auto
+                    - spinbutton "Limite auto" [ref=f2e192]: "10"
+                  - button "Disparar auto" [disabled] [ref=f2e193]:
+                    - img [ref=f2e194]
+                    - text: Disparar auto
+              - generic [ref=f2e197]:
+                - generic [ref=f2e198]:
+                  - generic [ref=f2e199]: 0 lead(s) escolhidos pelo CRM
+                  - generic [ref=f2e200]: Preview com variaveis aplicadas
+                - generic [ref=f2e202]: Nenhum lead valido para disparo automatico.
+            - generic [ref=f2e203]:
+              - generic [ref=f2e204]:
+                - generic [ref=f2e205]:
+                  - img [ref=f2e207]
+                  - text: Selecao semi-automatica
+                - generic [ref=f2e212]:
+                  - generic [ref=f2e213]:
+                    - img [ref=f2e214]
+                    - textbox "Buscar lead, telefone, perfil ou pet" [ref=f2e217]
+                  - button "Selecionar" [ref=f2e218]
+              - generic [ref=f2e220]: Carregando leads...
+          - generic [ref=f2e221]:
+            - generic [ref=f2e222]:
+              - generic [ref=f2e223]:
+                - generic [ref=f2e224]:
+                  - img [ref=f2e226]
+                  - text: Disparo de follow-ups
+                - generic [ref=f2e230]:
+                  - button "Auto" [ref=f2e231]:
+                    - img [ref=f2e232]
+                    - text: Auto
+                  - button "Selecionados" [ref=f2e235]: Selecionados
+              - generic [ref=f2e238]:
+                - generic [ref=f2e239]:
+                  - text: Quando
+                  - textbox "Quando" [ref=f2e240]: 2026-07-07T09:00
+                - generic [ref=f2e241]:
+                  - text: No horario
+                  - combobox "No horario" [ref=f2e242]:
+                    - option "Envia sozinho" [selected]
+                    - option "Operador confirma"
+                - generic [ref=f2e243]:
+                  - text: Quem escreve
+                  - combobox "Quem escreve" [ref=f2e244]:
+                    - option "IA escreve na hora" [selected]
+                    - option "Mensagem manual"
+                - generic [ref=f2e245]:
+                  - generic [ref=f2e246]: 0 destinatario(s)
+                  - text: "Usa a mesma fila `crm_followups`: automatico envia pelo worker, confirmar deixa pronto para 1 clique."
+              - button "Agendar follow-ups" [disabled] [ref=f2e247]:
+                - img [ref=f2e248]
+                - text: Agendar follow-ups
+            - generic [ref=f2e254]:
+              - img [ref=f2e256]
+              - text: Fila de follow-ups
+  - region "Notifications alt+T"

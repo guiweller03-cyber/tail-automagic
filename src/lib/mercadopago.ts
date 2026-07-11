@@ -85,7 +85,10 @@ export async function gerarPixPedido(pedido: PedidoPix): Promise<{
   } catch (error) {
     console.error("[mercadopago] Erro ao criar pagamento:", error);
     // Tenta extrair mensagem detalhada da API do Mercado Pago se disponivel
-    const mpError = error as any;
+    const mpError = error as {
+      message?: string;
+      cause?: Array<{ description?: string }>;
+    };
     const details = mpError.message || mpError.cause?.[0]?.description || "Erro desconhecido";
     throw new Error(`Mercado Pago falhou: ${details}`);
   }
