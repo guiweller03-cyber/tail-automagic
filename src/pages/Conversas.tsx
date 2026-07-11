@@ -208,6 +208,17 @@ function normalizarTextoBusca(value: unknown) {
     .trim();
 }
 
+function isHttpUrl(value?: string | null): value is string {
+  if (!value) return false;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function detalhesProdutoTexto(
   detalhes: ProdutoDetalhesTecnicos | undefined,
   keys: Array<keyof ProdutoDetalhesTecnicos>,
@@ -1580,37 +1591,54 @@ function ChatView({
     if (itens.length === 0 || sending) return;
 
     setSending(true);
+    let fotosFalharam = 0;
     try {
       for (const item of itens) {
         if (item.fotoUrl) {
-          await postConversation({
-            tipo: "midia_url",
-            id: active.id,
-            telefone: active.telefone,
-            mediaUrl: item.fotoUrl,
-            legenda: item.texto,
-            nomeArquivo: item.nomeArquivo,
-            mimeType: item.mimeType,
-          });
-          continue;
+          try {
+            await postConversation({
+              tipo: "midia_url",
+              id: active.id,
+              telefone: active.telefone,
+              mediaUrl: item.fotoUrl,
+              legenda: item.texto,
+              nomeArquivo: item.nomeArquivo,
+              mimeType: item.mimeType,
+            });
+            continue;
+          } catch (error) {
+            fotosFalharam += 1;
+            console.warn(
+              "[conversas] falha_envio_foto_produto",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
         }
 
         await postConversation({
           tipo: "mensagem",
           id: active.id,
           telefone: active.telefone,
-          texto: item.texto,
+          texto: isHttpUrl(item.fotoUrl) ? `${item.texto}\nFoto: ${item.fotoUrl}` : item.texto,
         });
       }
 
       setMessageText("");
-      toast.success(
-        itens.length === 1
-          ? itens[0]?.fotoUrl
-            ? "Produto enviado com foto"
-            : "Produto enviado"
-          : `${itens.length} produtos enviados`,
-      );
+      if (fotosFalharam > 0) {
+        toast.warning(
+          fotosFalharam === itens.length
+            ? "Produto enviado sem foto porque a imagem nao estava disponivel"
+            : `${fotosFalharam} foto(s) falharam; enviei o texto mesmo assim`,
+        );
+      } else {
+        toast.success(
+          itens.length === 1
+            ? itens[0]?.fotoUrl
+              ? "Produto enviado com foto"
+              : "Produto enviado"
+            : `${itens.length} produtos enviados`,
+        );
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Nao foi possivel enviar os produtos");
     } finally {
@@ -1646,7 +1674,6 @@ function ChatView({
       toast.error(error instanceof Error ? error.message : "Nao foi possivel mover a conversa");
     }
   }
-
   async function sendAiSuggestion() {
     const texto = messageText.trim() || "Sugira uma resposta curta e natural para o cliente.";
     if (sending) return;
@@ -2773,10 +2800,11 @@ function CrmPanel({
   }
 
   function produtoEnvioEstoque(produto: Produto): ProdutoEnvioCrm {
-    const fotoUrl = estoqueInfo.foto ? produto.fotoUrl : null;
+    const fotoUrl = estoqueInfo.foto && isHttpUrl(produto.fotoUrl) ? produto.fotoUrl : null;
+    const produtoMensagem = isHttpUrl(produto.fotoUrl) ? produto : { ...produto, fotoUrl: null };
 
     return {
-      texto: montarMensagemProduto(produto, estoqueInfo, !fotoUrl),
+      texto: montarMensagemProduto(produtoMensagem, estoqueInfo, !fotoUrl),
       fotoUrl,
       nomeArquivo: `produto-${produto.sku}.jpg`,
       mimeType: "image/jpeg",

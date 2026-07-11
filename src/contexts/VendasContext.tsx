@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode, useContext } from "react";
 import { VendasContext, type Venda } from "@/contexts/vendas-store";
 
 export function VendasProvider({ children }: { children: ReactNode }) {
@@ -24,4 +24,10 @@ export function VendasProvider({ children }: { children: ReactNode }) {
     [vendas, addVenda, cancelarVenda],
   );
   return <VendasContext.Provider value={value}>{children}</VendasContext.Provider>;
+}
+
+export function useVendas() {
+  const ctx = useContext(VendasContext);
+  if (!ctx) throw new Error("useVendas must be used within VendasProvider");
+  return ctx;
 }
