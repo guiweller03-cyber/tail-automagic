@@ -38,6 +38,196 @@ async function ensureOk(response: Response, label: string): Promise<void> {
   }
 }
 
+async function selectAllPages<T>(path: string, pageSize = 1000): Promise<T[]> {
+  const rows: T[] = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    const separator = path.includes("?") ? "&" : "?";
+    const response = await fetch(
+      supabaseUrl(`${path}${separator}limit=${pageSize}&offset=${offset}`),
+      { headers: supabaseHeaders() },
+    );
+    await ensureOk(response, "historico financeiro select");
+    const page = (await response.json()) as T[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
+}
+
+/* ============================================================
+   VENDAS / EXTRATO FINANCEIRO
+   A tabela vendas e a fonte unica: PDV, WhatsApp e CRM gravam nela.
+   ============================================================ */
+export type OrigemVendaFinanceira = "PDV" | "WhatsApp IA" | "CRM";
+
+export type VendaFinanceiraItem = {
+  id: string;
+  sku: string;
+  nome: string;
+  quantidade: number;
+  precoUnitario: number;
+  custoUnitario: number;
+  subtotal: number;
+  custoTotal: number;
+  petNome?: string;
+};
+
+export type VendaFinanceira = {
+  id: string;
+  clienteId?: string;
+  cliente: string;
+  telefone: string;
+  petNome?: string;
+  itens: VendaFinanceiraItem[];
+  quantidadeItens: number;
+  totalBruto: number;
+  desconto: number;
+  total: number;
+  custoProdutos: number;
+  lucro: number;
+  margem: number;
+  formaPagamento: string;
+  statusPagamento: string;
+  status: string;
+  processo: string;
+  origem: OrigemVendaFinanceira;
+  observacao: string;
+  cupom?: string;
+  vendaOrigem?: string;
+  criadoEm: string;
+  atualizadoEm: string;
+  faturadoEm?: string;
+};
+
+type VendaFinanceiraRow = {
+  id: string;
+  cliente_id: string | null;
+  cliente_nome: string | null;
+  telefone: string | null;
+  pet_nome: string | null;
+  total: number | null;
+  total_bruto: number | null;
+  desconto_cupom: number | null;
+  lucro: number | null;
+  forma_pagamento: string | null;
+  status_pagamento: string | null;
+  status: string | null;
+  processo: string | null;
+  observacao: string | null;
+  cupom_codigo: string | null;
+  venda_origem: string | null;
+  criado_em: string;
+  atualizado_em: string;
+  faturado_em: string | null;
+  clientes: {
+    id: string;
+    nome: string;
+    telefone: string;
+  } | null;
+};
+
+type VendaItemFinanceiroRow = {
+  id: string;
+  venda_id: string;
+  sku: string;
+  nome: string;
+  quantidade: number | null;
+  preco: number | null;
+  preco_compra: number | null;
+  pet_nome: string | null;
+};
+
+function numero(value: number | null | undefined): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function inferirOrigemVenda(observacao: string | null | undefined): OrigemVendaFinanceira {
+  const texto = observacao?.toLocaleLowerCase("pt-BR") ?? "";
+  if (/whatsapp|comprovante/.test(texto)) return "WhatsApp IA";
+  if (/\bpdv\b|venda r[aá]pida/.test(texto)) return "PDV";
+  return "CRM";
+}
+
+function mapVendaItem(row: VendaItemFinanceiroRow): VendaFinanceiraItem {
+  const quantidade = Math.max(0, numero(row.quantidade));
+  const precoUnitario = numero(row.preco);
+  const custoUnitario = numero(row.preco_compra);
+  return {
+    id: row.id,
+    sku: row.sku,
+    nome: row.nome,
+    quantidade,
+    precoUnitario,
+    custoUnitario,
+    subtotal: precoUnitario * quantidade,
+    custoTotal: custoUnitario * quantidade,
+    petNome: row.pet_nome?.trim() || undefined,
+  };
+}
+
+export function mapVendaFinanceira(
+  row: VendaFinanceiraRow,
+  itens: VendaFinanceiraItem[],
+): VendaFinanceira {
+  const total = numero(row.total);
+  const desconto = numero(row.desconto_cupom);
+  const totalBrutoInformado = numero(row.total_bruto);
+  const totalBruto = totalBrutoInformado > 0 ? totalBrutoInformado : total + desconto;
+  const custoItens = itens.reduce((sum, item) => sum + item.custoTotal, 0);
+  const lucro = row.lucro == null && custoItens > 0 ? total - custoItens : numero(row.lucro);
+  const custoProdutos = custoItens > 0 ? custoItens : Math.max(0, total - lucro);
+
+  return {
+    id: row.id,
+    clienteId: row.cliente_id ?? row.clientes?.id ?? undefined,
+    cliente: row.cliente_nome?.trim() || row.clientes?.nome?.trim() || "Cliente não informado",
+    telefone: row.telefone?.trim() || row.clientes?.telefone?.trim() || "",
+    petNome: row.pet_nome?.trim() || undefined,
+    itens,
+    quantidadeItens: itens.reduce((sum, item) => sum + item.quantidade, 0),
+    totalBruto,
+    desconto: Math.max(desconto, totalBruto - total),
+    total,
+    custoProdutos,
+    lucro,
+    margem: total > 0 ? (lucro / total) * 100 : 0,
+    formaPagamento: row.forma_pagamento?.trim() || "Não informado",
+    statusPagamento: row.status_pagamento?.trim() || "pendente",
+    status: row.status?.trim() || "concluida",
+    processo: row.processo?.trim() || "novo",
+    origem: inferirOrigemVenda(row.observacao),
+    observacao: row.observacao?.trim() || "",
+    cupom: row.cupom_codigo?.trim() || undefined,
+    vendaOrigem: row.venda_origem?.trim() || undefined,
+    criadoEm: row.criado_em,
+    atualizadoEm: row.atualizado_em,
+    faturadoEm: row.faturado_em ?? undefined,
+  };
+}
+
+export async function listarVendasFinanceiras(): Promise<VendaFinanceira[]> {
+  const [vendas, itensRows] = await Promise.all([
+    selectAllPages<VendaFinanceiraRow>(
+      "/vendas?select=id,cliente_id,cliente_nome,telefone,pet_nome,total,total_bruto,desconto_cupom,lucro,forma_pagamento,status_pagamento,status,processo,observacao,cupom_codigo,venda_origem,criado_em,atualizado_em,faturado_em,clientes(id,nome,telefone)&order=criado_em.desc",
+    ),
+    selectAllPages<VendaItemFinanceiroRow>(
+      "/venda_itens?select=id,venda_id,sku,nome,quantidade,preco,preco_compra,pet_nome&order=criado_em.asc",
+    ),
+  ]);
+  const itensPorVenda = new Map<string, VendaFinanceiraItem[]>();
+
+  for (const row of itensRows) {
+    const itens = itensPorVenda.get(row.venda_id) ?? [];
+    itens.push(mapVendaItem(row));
+    itensPorVenda.set(row.venda_id, itens);
+  }
+
+  return vendas.map((venda) => mapVendaFinanceira(venda, itensPorVenda.get(venda.id) ?? []));
+}
+
 /* ============================================================
    Datas: frontend usa DD/MM/YYYY, coluna no banco é date (ISO)
    ============================================================ */

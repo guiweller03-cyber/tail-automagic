@@ -19,7 +19,10 @@ export const Route = createFileRoute("/api/crm/produtos/estoque-lote")({
           const body = (await request.json()) as { atualizacoes?: unknown };
 
           if (!Array.isArray(body.atualizacoes) || body.atualizacoes.length === 0) {
-            return json({ ok: false, erro: "Lista de atualizações vazia ou inválida" }, { status: 400 });
+            return json(
+              { ok: false, erro: "Lista de atualizações vazia ou inválida" },
+              { status: 400 },
+            );
           }
 
           const itens: AtualizacaoEstoque[] = body.atualizacoes

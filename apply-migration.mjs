@@ -10,6 +10,7 @@ if (!direct) {
 const MIGRATIONS = [
   "supabase/migrations/20260616000000_financeiro_lancamentos_manuais.sql",
   "supabase/migrations/20260616120000_crm_followups.sql",
+  "supabase/migrations/20260914152909_aprovacao_mensagens_recompra.sql",
 ];
 
 const TABELAS = [

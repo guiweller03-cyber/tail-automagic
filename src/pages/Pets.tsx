@@ -1,4 +1,5 @@
 import type { Cliente, PetDetalhe } from "@/lib/crm-types";
+import { listarRacasPesoBase, type RacaPesoBase } from "@/lib/recompra-calculo";
 import {
   Cat,
   Check,
@@ -24,15 +25,19 @@ type PetListItem = {
 };
 
 const ESPECIES = ["Todos", "Cachorro", "Gato", "Sem especie"] as const;
+const RACAS_PESO_BASE = listarRacasPesoBase();
 
 type EspecieFiltro = (typeof ESPECIES)[number];
 type PetDraft = {
   nome: string;
   nascimento: string;
+  idade: string;
+  castrado: "" | "sim" | "nao";
   especie: "" | "cachorro" | "gato";
   raca: string;
-  porte: "" | "pequeno" | "medio" | "grande";
+  porte: "" | NonNullable<PetDetalhe["porte"]>;
   pesoKg: string;
+  idadeAdultaConfirmada: "" | "sim" | "nao";
   observacao: string;
 };
 
@@ -48,10 +53,13 @@ function petDraftVazio(): PetDraft {
   return {
     nome: "",
     nascimento: "",
+    idade: "",
+    castrado: "",
     especie: "",
     raca: "",
     porte: "",
     pesoKg: "",
+    idadeAdultaConfirmada: "",
     observacao: "",
   };
 }
@@ -73,11 +81,13 @@ function petsDoCliente(cliente: Cliente): PetDetalhe[] {
     Boolean(
       pet.nome ||
       pet.especie ||
+      pet.castrado !== undefined ||
       pet.raca ||
       pet.porte ||
       pet.pesoKg ||
       pet.idade ||
       pet.nascimento ||
+      pet.idadeAdultaConfirmada !== undefined ||
       pet.observacao,
     ),
   );
@@ -100,14 +110,32 @@ function petNome(pet: PetDetalhe): string {
 function detalhesPet(pet: PetDetalhe): string {
   return [
     pet.especie,
+    pet.idade,
+    pet.castrado === true ? "castrado" : pet.castrado === false ? "nao castrado" : null,
     pet.raca,
     pet.porte ? `porte ${pet.porte}` : null,
     pet.pesoKg ? `${pet.pesoKg} kg` : null,
-    pet.idade,
     pet.nascimento ? `nasc. ${pet.nascimento}` : null,
+    pet.idadeAdultaConfirmada === true
+      ? "adulto confirmado"
+      : pet.idadeAdultaConfirmada === false
+        ? "filhote/crescimento"
+        : null,
   ]
     .filter(Boolean)
     .join(" - ");
+}
+
+function racaPesoBasePorNome(nome: string): RacaPesoBase | undefined {
+  return RACAS_PESO_BASE.find((raca) => raca.nome.toLowerCase() === nome.trim().toLowerCase());
+}
+
+function formatPesoBase(pesoKg: number): string {
+  return String(pesoKg).replace(".", ",");
+}
+
+function pesoBaseLabel(raca: RacaPesoBase): string {
+  return `${raca.nome} - ${formatPesoBase(raca.pesoKg)} kg`;
 }
 
 function especieLabel(pet: PetDetalhe): EspecieFiltro {
@@ -232,6 +260,39 @@ export function Pets({ clientes }: { clientes: Cliente[] }) {
     }));
   }
 
+  function atualizarEspeciePetForm(index: number, especie: PetDraft["especie"]) {
+    setForm((current) => ({
+      ...current,
+      pets: current.pets.map((pet, petIndex) => {
+        if (petIndex !== index) return pet;
+
+        const racaAtual = racaPesoBasePorNome(pet.raca);
+        const racaIncompativel = racaAtual && especie && racaAtual.especie !== especie;
+
+        return {
+          ...pet,
+          especie,
+          ...(racaIncompativel ? { raca: "", porte: "", pesoKg: "" } : {}),
+        };
+      }),
+    }));
+  }
+
+  function selecionarRacaPetForm(index: number, racaNome: string) {
+    const raca = racaPesoBasePorNome(racaNome);
+    if (!raca) {
+      atualizarPetForm(index, { raca: racaNome });
+      return;
+    }
+
+    atualizarPetForm(index, {
+      especie: raca.especie,
+      raca: raca.nome,
+      porte: raca.porte === "gato" ? "" : raca.porte,
+      pesoKg: formatPesoBase(raca.pesoKg),
+    });
+  }
+
   function adicionarPetForm() {
     setForm((current) => ({
       ...current,
@@ -269,20 +330,28 @@ export function Pets({ clientes }: { clientes: Cliente[] }) {
       .map((pet) => ({
         nome: pet.nome.trim(),
         nascimento: pet.nascimento.trim() || undefined,
+        idade: pet.idade.trim() || undefined,
+        castrado: pet.castrado ? pet.castrado === "sim" : undefined,
         especie: pet.especie || undefined,
         raca: pet.raca.trim() || undefined,
         porte: pet.porte || undefined,
         pesoKg: pet.pesoKg.trim() ? Number(pet.pesoKg.replace(",", ".")) || undefined : undefined,
+        idadeAdultaConfirmada: pet.idadeAdultaConfirmada
+          ? pet.idadeAdultaConfirmada === "sim"
+          : undefined,
         observacao: pet.observacao.trim() || undefined,
       }))
       .filter(
         (pet) =>
           pet.nome ||
           pet.nascimento ||
+          pet.idade ||
+          pet.castrado !== undefined ||
           pet.raca ||
           pet.especie ||
           pet.porte ||
           pet.pesoKg ||
+          pet.idadeAdultaConfirmada !== undefined ||
           pet.observacao,
       );
   }
@@ -303,7 +372,16 @@ export function Pets({ clientes }: { clientes: Cliente[] }) {
     }
     if (
       novos.length === 0 ||
-      !novos.some((pet) => pet.nome || pet.nascimento || pet.raca || pet.especie)
+      !novos.some(
+        (pet) =>
+          pet.nome ||
+          pet.nascimento ||
+          pet.idade ||
+          pet.castrado !== undefined ||
+          pet.raca ||
+          pet.especie ||
+          pet.idadeAdultaConfirmada !== undefined,
+      )
     ) {
       toast.error("Informe pelo menos um dado do pet");
       return;
@@ -510,99 +588,207 @@ export function Pets({ clientes }: { clientes: Cliente[] }) {
                   </button>
                 </div>
 
-                {form.pets.map((pet, index) => (
-                  <div key={index} className="rounded-xl border border-border p-3 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs font-bold text-foreground">Pet {index + 1}</div>
-                      {form.pets.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removerPetForm(index)}
-                          className="grid size-8 place-items-center rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/15"
-                          title="Remover pet"
-                        >
-                          <X className="size-4" />
-                        </button>
-                      )}
-                    </div>
+                {form.pets.map((pet, index) => {
+                  const racaAtual = racaPesoBasePorNome(pet.raca);
+                  const racaAtualDesconhecida = pet.raca && !racaAtual;
+                  const racasDisponiveis = RACAS_PESO_BASE.filter(
+                    (raca) => !pet.especie || raca.especie === pet.especie,
+                  );
+                  const racasCachorro = racasDisponiveis.filter(
+                    (raca) => raca.especie === "cachorro",
+                  );
+                  const racasGato = racasDisponiveis.filter((raca) => raca.especie === "gato");
 
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      <PetInput
-                        label="Nome do pet"
-                        value={pet.nome}
-                        onChange={(nome) => atualizarPetForm(index, { nome })}
-                      />
-                      <label className="space-y-1.5">
-                        <span className="text-[10px] font-bold uppercase text-muted-foreground">
-                          Data de nascimento
-                        </span>
-                        <input
-                          type="date"
-                          value={pet.nascimento}
-                          onChange={(event) =>
-                            atualizarPetForm(index, { nascimento: event.target.value })
-                          }
-                          className="input h-11"
+                  return (
+                    <div key={index} className="rounded-xl border border-border p-3 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-bold text-foreground">Pet {index + 1}</div>
+                        {form.pets.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removerPetForm(index)}
+                            className="grid size-8 place-items-center rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/15"
+                            title="Remover pet"
+                          >
+                            <X className="size-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <PetInput
+                          label="Nome do pet"
+                          value={pet.nome}
+                          onChange={(nome) => atualizarPetForm(index, { nome })}
                         />
-                      </label>
-                      <label className="space-y-1.5">
-                        <span className="text-[10px] font-bold uppercase text-muted-foreground">
-                          Especie
-                        </span>
-                        <select
-                          value={pet.especie}
-                          onChange={(event) =>
-                            atualizarPetForm(index, {
-                              especie: event.target.value as PetDraft["especie"],
-                            })
-                          }
-                          className="input h-11"
-                        >
-                          <option value="">Nao sei</option>
-                          <option value="cachorro">Cachorro</option>
-                          <option value="gato">Gato</option>
-                        </select>
-                      </label>
-                      <PetInput
-                        label="Raca"
-                        value={pet.raca}
-                        onChange={(raca) => atualizarPetForm(index, { raca })}
-                      />
-                      <label className="space-y-1.5">
-                        <span className="text-[10px] font-bold uppercase text-muted-foreground">
-                          Porte
-                        </span>
-                        <select
-                          value={pet.porte}
-                          onChange={(event) =>
-                            atualizarPetForm(index, {
-                              porte: event.target.value as PetDraft["porte"],
-                            })
-                          }
-                          className="input h-11"
-                        >
-                          <option value="">Nao sei</option>
-                          <option value="pequeno">Pequeno</option>
-                          <option value="medio">Medio</option>
-                          <option value="grande">Grande</option>
-                        </select>
-                      </label>
-                      <PetInput
-                        label="Peso aprox."
-                        value={pet.pesoKg}
-                        onChange={(pesoKg) => atualizarPetForm(index, { pesoKg })}
+                        <label className="space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                            Data de nascimento
+                          </span>
+                          <input
+                            type="date"
+                            value={pet.nascimento}
+                            onChange={(event) =>
+                              atualizarPetForm(index, { nascimento: event.target.value })
+                            }
+                            className="input h-11"
+                          />
+                        </label>
+                        <label className="space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                            Fase/idade
+                          </span>
+                          <select
+                            value={pet.idade}
+                            onChange={(event) => {
+                              const idade = event.target.value;
+                              atualizarPetForm(index, {
+                                idade,
+                                ...(idade === "filhote" ? { idadeAdultaConfirmada: "nao" } : {}),
+                                ...(idade === "adulto" || idade === "senior"
+                                  ? { idadeAdultaConfirmada: "sim" }
+                                  : {}),
+                              });
+                            }}
+                            className="input h-11"
+                          >
+                            <option value="">Nao sei</option>
+                            {pet.idade && !["filhote", "adulto", "senior"].includes(pet.idade) && (
+                              <option value={pet.idade}>{pet.idade}</option>
+                            )}
+                            <option value="filhote">Filhote</option>
+                            <option value="adulto">Adulto</option>
+                            <option value="senior">Senior</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                            Especie
+                          </span>
+                          <select
+                            value={pet.especie}
+                            onChange={(event) =>
+                              atualizarEspeciePetForm(
+                                index,
+                                event.target.value as PetDraft["especie"],
+                              )
+                            }
+                            className="input h-11"
+                          >
+                            <option value="">Nao sei</option>
+                            <option value="cachorro">Cachorro</option>
+                            <option value="gato">Gato</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                            Castrado?
+                          </span>
+                          <select
+                            value={pet.castrado}
+                            onChange={(event) =>
+                              atualizarPetForm(index, {
+                                castrado: event.target.value as PetDraft["castrado"],
+                              })
+                            }
+                            className="input h-11"
+                          >
+                            <option value="">Nao sei</option>
+                            <option value="sim">Castrado</option>
+                            <option value="nao">Nao castrado</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                            Raca
+                          </span>
+                          <select
+                            value={pet.raca}
+                            onChange={(event) => selecionarRacaPetForm(index, event.target.value)}
+                            className="input h-11"
+                          >
+                            <option value="">Nao sei</option>
+                            {racaAtualDesconhecida && <option value={pet.raca}>{pet.raca}</option>}
+                            {racasCachorro.length > 0 && (
+                              <optgroup label="Cachorro">
+                                {racasCachorro.map((raca) => (
+                                  <option key={raca.nome} value={raca.nome}>
+                                    {pesoBaseLabel(raca)}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {racasGato.length > 0 && (
+                              <optgroup label="Gato">
+                                {racasGato.map((raca) => (
+                                  <option key={raca.nome} value={raca.nome}>
+                                    {pesoBaseLabel(raca)}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                          {racaAtual && (
+                            <div className="text-[10px] font-semibold text-muted-foreground">
+                              Peso medio: {formatPesoBase(racaAtual.pesoKg)} kg
+                            </div>
+                          )}
+                        </label>
+                        <label className="space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                            Porte
+                          </span>
+                          <select
+                            value={pet.porte}
+                            onChange={(event) =>
+                              atualizarPetForm(index, {
+                                porte: event.target.value as PetDraft["porte"],
+                              })
+                            }
+                            className="input h-11"
+                          >
+                            <option value="">Nao sei</option>
+                            <option value="pequeno">Pequeno</option>
+                            <option value="medio">Medio</option>
+                            <option value="grande">Grande</option>
+                          </select>
+                        </label>
+                        <PetInput
+                          label="Peso kg"
+                          value={pet.pesoKg}
+                          onChange={(pesoKg) => atualizarPetForm(index, { pesoKg })}
+                        />
+                        <label className="space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase text-muted-foreground">
+                            Peso adulto?
+                          </span>
+                          <select
+                            value={pet.idadeAdultaConfirmada}
+                            onChange={(event) =>
+                              atualizarPetForm(index, {
+                                idadeAdultaConfirmada: event.target
+                                  .value as PetDraft["idadeAdultaConfirmada"],
+                              })
+                            }
+                            className="input h-11"
+                          >
+                            <option value="">Nao sei</option>
+                            <option value="nao">Filhote/em crescimento</option>
+                            <option value="sim">Adulto confirmado</option>
+                          </select>
+                        </label>
+                      </div>
+                      <textarea
+                        value={pet.observacao}
+                        onChange={(event) =>
+                          atualizarPetForm(index, { observacao: event.target.value })
+                        }
+                        className="input min-h-20"
+                        placeholder="Ex.: sensivel a frango, porte grande, peso aproximado..."
                       />
                     </div>
-                    <textarea
-                      value={pet.observacao}
-                      onChange={(event) =>
-                        atualizarPetForm(index, { observacao: event.target.value })
-                      }
-                      className="input min-h-20"
-                      placeholder="Ex.: sensivel a frango, porte grande, peso aproximado..."
-                    />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <button
                 type="button"

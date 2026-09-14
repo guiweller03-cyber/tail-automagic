@@ -21,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import type { DashboardData } from "@/lib/crm-supabase";
 import { onCrmReload } from "@/lib/crm-refresh";
+import { HistoricoVendas } from "@/features/financeiro/HistoricoVendas";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const META_KEY = "meta_mes";
@@ -110,9 +111,9 @@ export function Financeiro() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold">Financeiro</h1>
+        <h1 className="text-2xl font-bold">Finanças</h1>
         <p className="text-sm text-muted-foreground">
-          Vendas, combustível, despesas e marketing num só lugar
+          Todas as vendas, recebimentos, combustível, despesas e marketing num só lugar
         </p>
       </div>
 
@@ -341,6 +342,8 @@ function AbaVendas() {
           📈 No ritmo atual, você fatura {brl(projecao)} este mês ({pctProj.toFixed(0)}% da meta)
         </p>
       </div>
+
+      <HistoricoVendas />
     </>
   );
 }

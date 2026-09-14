@@ -38,6 +38,7 @@ retorna `{ fileURL: "https://<host>/files/....jpg", mimetype }` (imagem real, fe
 ### Prova de que funciona
 
 Rodei o código novo num comprovante real:
+
 ```
 urlMidiaDescriptografada → baixou: petzap.uazapi.com/files/...jpg
 extrairComprovantePix → {
@@ -49,6 +50,7 @@ extrairComprovantePix → {
   confianca: 1
 }
 ```
+
 Isso dispara o registro automático da venda (→ estoque → faturamento).
 
 ## Importante entender

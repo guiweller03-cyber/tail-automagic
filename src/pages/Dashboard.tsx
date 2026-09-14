@@ -44,6 +44,7 @@ const emptyDashboard: DashboardData = {
     faturamentoHoje: 0,
     faturamentoSemana: 0,
     faturamentoMes: 0,
+    lucroHoje: 0,
     lucroMes: 0,
     ticketMedio: 0,
     pedidosHoje: 0,
@@ -181,13 +182,20 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
 
       {/* LINHA 1 — Receita */}
       <Section title="Receita" subtitle="visão financeira do período">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <Kpi
             icon={<Wallet />}
             label="Faturamento hoje"
             value={brl(kpis.faturamentoHoje)}
             delta="ao vivo"
             tone="primary"
+          />
+          <Kpi
+            icon={<Crown />}
+            label="Lucro líquido hoje"
+            value={brl(kpis.lucroHoje)}
+            delta="hoje"
+            tone="success"
           />
           <Kpi
             icon={<TrendingUp />}

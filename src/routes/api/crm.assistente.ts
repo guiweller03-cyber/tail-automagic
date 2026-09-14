@@ -876,7 +876,7 @@ async function executarFerramenta(nome: string, rawArgs: string): Promise<ToolRe
         giro: giroProduto(args.giro) ?? "baixo",
         preco: Math.max(0, numeroOpcional(args.preco) ?? 0),
         precoCompra: Math.max(0, numeroOpcional(args.precoCompra) ?? 0),
-        tipo: tipoProduto(args.tipo) ?? "próprio",
+        tipo: tipoProduto(args.tipo) ?? "consignado",
         fornecedor: typeof args.fornecedor === "string" ? args.fornecedor.trim() : undefined,
         detalhesTecnicos:
           args.detalhesTecnicos && typeof args.detalhesTecnicos === "object"
@@ -1070,7 +1070,8 @@ async function executarFerramenta(nome: string, rawArgs: string): Promise<ToolRe
     }
     case "criar_lead": {
       const telefone = typeof args.telefone === "string" ? args.telefone.replace(/\D/g, "") : "";
-      if (telefone.length < 8) throw new Error("Telefone valido (minimo 8 digitos) e obrigatorio para criar lead.");
+      if (telefone.length < 8)
+        throw new Error("Telefone valido (minimo 8 digitos) e obrigatorio para criar lead.");
       const estagio =
         args.estagio === "novo" ||
         args.estagio === "qualificando" ||
@@ -1088,7 +1089,10 @@ async function executarFerramenta(nome: string, rawArgs: string): Promise<ToolRe
         estagio,
         atualizado_em: new Date().toISOString(),
       });
-      return toolResult(`Lead criado: ${conversa.nome_cliente ?? conversa.telefone} (${conversa.estagio}).`, conversa);
+      return toolResult(
+        `Lead criado: ${conversa.nome_cliente ?? conversa.telefone} (${conversa.estagio}).`,
+        conversa,
+      );
     }
     case "excluir_lead": {
       const id = typeof args.id === "string" ? args.id.trim() : "";

@@ -6,6 +6,7 @@ import { requireSupabaseServerKey } from "./server-env";
 
 export type FollowupModo = "manual" | "ia";
 export type FollowupDisparo = "automatico" | "confirmar";
+export type FollowupOrigem = "geral" | "recompra" | "whatsapp_ia";
 export type FollowupStatus =
   | "pendente"
   | "aguardando_confirmacao"
@@ -20,6 +21,18 @@ export type FollowupContexto = {
   ultimaMensagem?: string;
   resumo?: string;
   objetivo?: string;
+  origem?: FollowupOrigem;
+  recompraId?: string;
+  recompraIds?: string[];
+  cicloCompraEm?: string;
+  produto?: string;
+  dataPrevista?: string;
+  diasRestantes?: string;
+  mensagemGerada?: string;
+  aprovadoEm?: string;
+  contatoSemCadastro?: boolean;
+  contatoSemPrevisao?: boolean;
+  conversaId?: string;
 };
 
 export type Followup = {
@@ -135,6 +148,7 @@ function inputPayload(input: FollowupInput): Record<string, unknown> {
 export async function listarFollowups(filtro?: {
   telefone?: string;
   status?: FollowupStatus[];
+  origem?: FollowupOrigem;
 }): Promise<Followup[]> {
   const params = new URLSearchParams({ select: "*", order: "agendado_para.asc" });
   if (filtro?.telefone) {
@@ -143,12 +157,21 @@ export async function listarFollowups(filtro?: {
   if (filtro?.status?.length) {
     params.set("status", `in.(${filtro.status.join(",")})`);
   }
+  if (filtro?.origem === "recompra" || filtro?.origem === "whatsapp_ia") {
+    params.set("contexto->>origem", `eq.${filtro.origem}`);
+  }
   const response = await fetch(supabaseUrl(`/crm_followups?${params.toString()}`), {
     headers: supabaseHeaders(),
   });
   await ensureOk(response, "followups select");
   const rows = (await response.json()) as FollowupRow[];
-  return rows.map(mapFollowup);
+  const followups = rows.map(mapFollowup);
+  if (filtro?.origem === "geral") {
+    return followups.filter(
+      (followup) => !followup.contexto.origem || followup.contexto.origem === "geral",
+    );
+  }
+  return followups;
 }
 
 /** Follow-ups pendentes ja vencidos — o que o worker precisa processar. */
@@ -177,11 +200,17 @@ export async function obterFollowup(id: string): Promise<Followup | null> {
   return rows[0] ? mapFollowup(rows[0]) : null;
 }
 
-export async function criarFollowup(input: FollowupInput): Promise<Followup> {
+export async function criarFollowup(
+  input: FollowupInput,
+  statusInicial?: FollowupStatus,
+): Promise<Followup> {
   const response = await fetch(supabaseUrl("/crm_followups"), {
     method: "POST",
     headers: supabaseHeaders("return=representation"),
-    body: JSON.stringify(inputPayload(input)),
+    body: JSON.stringify({
+      ...inputPayload(input),
+      ...(statusInicial ? { status: statusInicial } : {}),
+    }),
   });
   await ensureOk(response, "followup insert");
   const rows = (await response.json()) as FollowupRow[];

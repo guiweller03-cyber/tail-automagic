@@ -179,15 +179,10 @@ export const Route = createFileRoute("/api/crm/disparos")({
                 );
                 if (midiaTipo === "audio" && texto) await enviarMensagemLonga(chatid, texto);
               } else if (midiaUrl) {
-                await enviarMidia(
-                  chatid,
-                  midiaUrl,
-                  midiaTipo === "audio" ? undefined : texto,
-                  {
-                    mimetype: mimetypeDisparo(midiaTipo),
-                    fileName: body.midiaNome,
-                  },
-                );
+                await enviarMidia(chatid, midiaUrl, midiaTipo === "audio" ? undefined : texto, {
+                  mimetype: mimetypeDisparo(midiaTipo),
+                  fileName: body.midiaNome,
+                });
                 if (midiaTipo === "audio" && texto) await enviarMensagemLonga(chatid, texto);
               } else if (texto) {
                 await enviarMensagemLonga(chatid, texto);

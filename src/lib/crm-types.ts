@@ -1,4 +1,10 @@
-export type FormaPagamento = "Pix" | "Cartão débito" | "Cartão crédito" | "Dinheiro" | "Pendente";
+export type FormaPagamento =
+  | "Pix"
+  | "Cartão débito"
+  | "Cartão crédito"
+  | "Link de pagamento"
+  | "Dinheiro"
+  | "Pendente";
 
 export type Pedido = {
   id: string;
@@ -44,6 +50,7 @@ export type Conversa = {
   tag: "IA" | "Humano" | "Aguardando" | "Humano + IA";
   pet?: string;
   estagio: KanbanStage;
+  kanbanColumnId?: string;
   valorPotencial: number;
   resumoFinanceiro?: ResumoFinanceiroConversa;
   filtros: ConversaFiltro[];
@@ -103,10 +110,14 @@ export type PetDetalhe = {
   especie?: "cachorro" | "gato";
   castrado?: boolean;
   raca?: string;
-  porte?: "pequeno" | "medio" | "grande";
+  porte?: "toy" | "pequeno" | "medio" | "grande" | "gigante";
   pesoKg?: number;
+  pesoKgMedidoEm?: string;
   idade?: string;
   nascimento?: string;
+  dataNascimentoEstimada?: string;
+  idadeAdultaConfirmada?: boolean;
+  racaSlug?: string;
   observacao?: string;
 };
 
@@ -162,6 +173,19 @@ export type RecompraStatus = "ok" | "semana" | "urgente" | "atrasado";
 export type ComportamentoIA = "antecipado" | "pontual" | "atrasado" | "instavel";
 export type TendenciaIA = "acelerando" | "estavel" | "desacelerando";
 
+export type RecompraPetCalculo = {
+  nome: string;
+  especie: "cachorro" | "gato";
+  porte?: string;
+  raca?: string;
+  pesoKg?: number;
+  pesoInformado?: boolean;
+  pesoOrigem?: "informado" | "medido" | "crescimento" | "raca" | "porte";
+  consumoDiaG?: number;
+  linha?: "fresh_meat" | "pro_life" | "generica";
+  fase?: "filhote" | "adulto" | "senior" | "castrado";
+};
+
 export type RecompraPrevista = {
   id: string;
   clienteId: string;
@@ -172,13 +196,19 @@ export type RecompraPrevista = {
   pet: string;
   especie: "cachorro" | "gato";
   perfil: Cliente["perfil"];
+  sku: string;
   racao: string;
+  quantidade: number;
   pesoKg: number;
   consumoDiaKg: number;
   ultimaCompra: string;
+  ultimaCompraIso?: string;
   diasRestantes: number;
   dataPrevista: string;
+  dataPrevistaIso?: string;
   valorEstimado: number;
+  fonteCalculo?: "tabela" | "estimativa";
+  petsCalculo?: RecompraPetCalculo[];
   status: RecompraStatus;
   contatado?: boolean;
   mediaRecompra: number;
@@ -188,7 +218,15 @@ export type RecompraPrevista = {
   tendencia: TendenciaIA;
   historicoDias: number[];
   travado?: boolean;
+  /** Ciclo em dias calculado automaticamente, antes de qualquer ajuste manual. */
+  cicloCalculado?: number;
+  /** Ciclo informado pelo operador; quando existe, `previsaoBase` é igual a ele. */
+  cicloManual?: number | null;
+  /** De onde veio o ciclo automático (ver RECOMPRA_CALCULO.md). */
+  origemCiclo?: OrigemCicloRecompra;
 };
+
+export type OrigemCicloRecompra = "historico" | "observacao" | "cadastro_manual" | "consumo";
 
 export type ProdutoPrevisto = {
   id: string;

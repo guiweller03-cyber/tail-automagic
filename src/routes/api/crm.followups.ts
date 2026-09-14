@@ -6,7 +6,9 @@ import {
   editarFollowup,
   followupErrorMessage,
   listarFollowups,
+  obterFollowup,
   removerFollowup,
+  atualizarFollowupCampos,
   type FollowupContexto,
   type FollowupDisparo,
   type FollowupInput,
@@ -14,6 +16,7 @@ import {
   type FollowupStatus,
 } from "@/lib/followups-supabase";
 import { enviarFollowupAgora } from "@/lib/followups-runner";
+import { gerarFollowUp } from "@/lib/openai";
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
@@ -33,6 +36,9 @@ function asContexto(value: unknown): FollowupContexto | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const v = value as Record<string, unknown>;
   const pick = (k: string) => (typeof v[k] === "string" ? (v[k] as string) : undefined);
+  const recompraIds = Array.isArray(v.recompraIds)
+    ? v.recompraIds.filter((id): id is string => typeof id === "string")
+    : undefined;
   return {
     nome: pick("nome"),
     pet: pick("pet"),
@@ -40,7 +46,43 @@ function asContexto(value: unknown): FollowupContexto | undefined {
     ultimaMensagem: pick("ultimaMensagem"),
     resumo: pick("resumo"),
     objetivo: pick("objetivo"),
+    origem:
+      pick("origem") === "recompra"
+        ? "recompra"
+        : pick("origem") === "whatsapp_ia"
+          ? "whatsapp_ia"
+          : "geral",
+    recompraId: pick("recompraId"),
+    recompraIds,
+    cicloCompraEm: pick("cicloCompraEm"),
+    produto: pick("produto"),
+    dataPrevista: pick("dataPrevista"),
+    diasRestantes: pick("diasRestantes"),
+    mensagemGerada: pick("mensagemGerada"),
+    aprovadoEm: pick("aprovadoEm"),
+    contatoSemCadastro:
+      typeof v.contatoSemCadastro === "boolean" ? v.contatoSemCadastro : undefined,
+    contatoSemPrevisao:
+      typeof v.contatoSemPrevisao === "boolean" ? v.contatoSemPrevisao : undefined,
+    conversaId: pick("conversaId"),
   };
+}
+
+async function prepararTextoParaAprovacao(input: FollowupInput): Promise<FollowupInput> {
+  if (input.contexto?.origem !== "whatsapp_ia" || input.modo !== "ia") return input;
+
+  const mensagem = (
+    await gerarFollowUp({
+      nome: input.contexto.nome ?? input.clienteNome,
+      pet: input.contexto.pet,
+      ultimaInteracao: input.contexto.ultimaInteracao,
+      ultimaMensagem: input.contexto.ultimaMensagem,
+      resumo: input.contexto.resumo,
+      objetivo: input.contexto.objetivo,
+    })
+  ).trim();
+  if (!mensagem) throw new Error("A IA não gerou uma mensagem para aprovação");
+  return { ...input, mensagem };
 }
 
 function parseInput(body: Record<string, unknown>): FollowupInput | { erro: string } {
@@ -91,7 +133,12 @@ export const Route = createFileRoute("/api/crm/followups")({
                 | FollowupStatus[]
                 | undefined)
             : undefined;
-          return json(await listarFollowups({ telefone, status }));
+          const origemParam = url.searchParams.get("origem");
+          const origem =
+            origemParam === "recompra" || origemParam === "geral" || origemParam === "whatsapp_ia"
+              ? origemParam
+              : undefined;
+          return json(await listarFollowups({ telefone, status, origem }));
         } catch (error) {
           return json({ ok: false, erro: followupErrorMessage(error) }, { status: 500 });
         }
@@ -101,6 +148,15 @@ export const Route = createFileRoute("/api/crm/followups")({
           const body = (await request.json()) as Record<string, unknown>;
           const parsed = parseInput(body);
           if ("erro" in parsed) return json({ ok: false, erro: parsed.erro }, { status: 400 });
+          if (parsed.contexto?.origem === "whatsapp_ia") {
+            const preparado = await prepararTextoParaAprovacao({
+              ...parsed,
+              disparo: "confirmar",
+            });
+            return json(await criarFollowup(preparado, "aguardando_confirmacao"), {
+              status: 201,
+            });
+          }
           return json(await criarFollowup(parsed), { status: 201 });
         } catch (error) {
           return json({ ok: false, erro: followupErrorMessage(error) }, { status: 500 });
@@ -115,6 +171,16 @@ export const Route = createFileRoute("/api/crm/followups")({
           const acao = typeof body.acao === "string" ? body.acao : "editar";
 
           if (acao === "enviar") {
+            const followup = await obterFollowup(body.id);
+            if (followup?.contexto.origem === "whatsapp_ia") {
+              return json(
+                {
+                  ok: false,
+                  erro: "Este follow-up precisa ser autorizado na aba Aprovar Recompras",
+                },
+                { status: 409 },
+              );
+            }
             return json(await enviarFollowupAgora(body.id));
           }
           if (acao === "cancelar") {
@@ -138,6 +204,33 @@ export const Route = createFileRoute("/api/crm/followups")({
           if (typeof body.clienteNome === "string") patch.clienteNome = body.clienteNome;
           const contexto = asContexto(body.contexto);
           if (contexto) patch.contexto = contexto;
+          const atual = await obterFollowup(body.id);
+          if (!atual) {
+            return json({ ok: false, erro: "Follow-up não encontrado" }, { status: 404 });
+          }
+
+          if (atual.contexto.origem === "whatsapp_ia") {
+            const candidato: FollowupInput = {
+              telefone: atual.telefone,
+              clienteNome: patch.clienteNome ?? atual.clienteNome,
+              agendadoPara: patch.agendadoPara ?? atual.agendadoPara,
+              modo: patch.modo ?? atual.modo,
+              disparo: "confirmar",
+              mensagem: patch.mensagem ?? atual.mensagem,
+              contexto: patch.contexto ?? atual.contexto,
+              canal: patch.canal ?? atual.canal,
+            };
+            const preparado = await prepararTextoParaAprovacao(candidato);
+            const atualizado = await editarFollowup(body.id, preparado);
+            return json(
+              await atualizarFollowupCampos(atualizado.id, {
+                status: "aguardando_confirmacao",
+                disparo: "confirmar",
+                erro: null,
+              }),
+            );
+          }
+
           return json(await editarFollowup(body.id, patch));
         } catch (error) {
           return json({ ok: false, erro: followupErrorMessage(error) }, { status: 500 });

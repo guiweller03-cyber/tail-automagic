@@ -1,0 +1,68 @@
+raca,porte_slug,peso_adulto_min_kg,peso_adulto_max_kg,peso_adulto_medio_kg
+Chihuahua,toy,1.5,2.7,2.1
+Poodle Toy,toy,1.8,2.7,2.25
+Spitz Alemão / Lulu da Pomerânia,toy,1.4,3.2,2.3
+Yorkshire Terrier,toy,2,3.2,2.6
+Maltês,toy,2,3.6,2.8
+Papillon,toy,2.3,4.5,3.4
+Prazer / Affenpinscher,toy,3.2,4.5,3.85
+Pinscher Miniatura,toy,3.6,4.5,4.05
+Pequinês,toy,3,6.4,4.7
+Jack Russell Terrier,toy,4.1,6.8,5.45
+Poodle Miniatura,toy,4.5,6.8,5.65
+Shih Tzu,toy,4.1,7.3,5.7
+Lhasa Apso,pequeno,5.4,8.2,6.8
+Bichon Frisé,pequeno,5.4,8.2,6.8
+Schnauzer Miniatura,pequeno,5,9.1,7.05
+Cavalier King Charles Spaniel,pequeno,5.9,8.2,7.05
+Pug,pequeno,6.4,8.2,7.3
+Fox Paulistinha / Fox Terrier,pequeno,6.8,8.2,7.5
+West Highland White Terrier,pequeno,6.8,9.1,7.95
+Beagle,pequeno,4.1,13.6,8.85
+Dachshund (Salsicha),pequeno,5,14.5,9.75
+Buldogue Francês,pequeno,7.3,12.7,10
+Basenji,pequeno,10,10.9,10.45
+Corgi (Welsh Corgi),medio,12.7,13.6,13.15
+Cocker Spaniel Inglês,medio,11.8,15.4,13.6
+Staffordshire Bull Terrier,medio,10.9,17.2,14.05
+Whippet,medio,11.3,18.1,14.7
+Schnauzer Standard,medio,13.6,22.7,18.15
+Border Collie,medio,13.6,24.9,19.25
+Bulldog Inglês,medio,18.1,22.7,20.4
+Springer Spaniel,medio,18.1,22.7,20.4
+Pit Bull (American Pit Bull Terrier),medio,13.6,27.2,20.4
+Husky Siberiano,medio,15.9,27.2,21.55
+Samoieda,grande,15.9,29.5,22.7
+Shar Pei,grande,20.4,27.2,23.8
+Basset Hound,grande,18.1,29.5,23.8
+Australian Shepherd,grande,18.1,29.5,23.8
+Poodle Standard,grande,18.1,31.8,24.95
+Chow Chow,grande,20.4,31.8,26.1
+Dálmata,grande,20.4,31.8,26.1
+Pointer Inglês,grande,20.4,34,27.2
+Bull Terrier,grande,22.7,31.8,27.25
+Setter Inglês (English Setter),grande,20.4,36.3,28.35
+Collie (Pastor Escocês),grande,22.7,34,28.35
+Golden Retriever,grande,24.9,34,29.45
+Boxer,grande,22.7,36.3,29.5
+Setter Irlandês (Irish Setter),grande,27.2,31.8,29.5
+Labrador Retriever,grande,24.9,36.3,30.6
+Pastor Alemão,grande,22.7,40.8,31.75
+Weimaraner,grande,24.9,40.8,32.85
+Doberman,grande,27.2,45.4,36.3
+Old English Sheepdog (Bobtail),grande,27.2,45.4,36.3
+Alaskan Malamute,grande,34,38.6,36.3
+Cane Corso,grande,40,50,45
+Buldogue Campeiro,grande,30,45,37.5
+Bernese Mountain Dog (Bernês da Montanha),gigante,31.8,52.2,42
+Akita,gigante,31.8,59,45.4
+Dogue de Bordeaux,gigante,44.9,49.9,47.4
+Rottweiler,gigante,36.3,61.2,48.75
+Kangal,gigante,41,68,54.5
+Terra Nova (Newfoundland),gigante,45.4,68,56.7
+Leonberger,gigante,40.8,77.1,58.95
+Mastim Napolitano,gigante,49.9,68,58.95
+Fila Brasileiro,gigante,40,80,60
+Dogue Alemão (Great Dane),gigante,49.9,79.4,64.65
+São Bernardo,gigante,54.4,81.6,68
+Mastiff Inglês,gigante,54.4,104.3,79.35

@@ -6,11 +6,13 @@ import {
   adicionarMensagemConversa,
   atualizarConversaAguardandoHumano,
   atualizarConversaPipeline,
+  buscarConversaPorId,
   buscarConversaPorTelefone,
   buscarIaAprendizadoResumo,
   buscarIaPromptConfig,
   buscarAprendizados,
   buscarIaStatus,
+  buscarKanbanConfig,
   buscarClientePorTelefone,
   definirIaGlobalDesativada,
   definirConversaBloqueada,
@@ -18,7 +20,10 @@ import {
   listarTelefonesBloqueados,
   marcarConversaLida,
   salvarIaPromptConfig,
+  salvarKanbanConfig,
   listarConversas,
+  listarConversasAtualizadasDesde,
+  listarConversasResumo,
   resumoFinanceiroPorTelefone,
   salvarCadastroCliente,
   upsertConversas,
@@ -742,6 +747,36 @@ async function salvarPerfilExtraidoCliente({
   return { ok: true, cliente, extraido, comprovantesPix };
 }
 
+const CONVERSAS_CACHE_MS = 15_000;
+let conversasCache: { expiresAt: number; payload: unknown[] } | null = null;
+let conversasRequestInFlight: Promise<unknown[]> | null = null;
+
+async function listarConversasComResumoCache(): Promise<unknown[]> {
+  if (conversasCache && conversasCache.expiresAt > Date.now()) return conversasCache.payload;
+  if (conversasRequestInFlight) return conversasRequestInFlight;
+
+  conversasRequestInFlight = (async () => {
+    const conversas = await listarConversasResumo();
+
+    return conversas.map((conversa) => {
+      return {
+        ...conversa,
+        valor_potencial: 0,
+        pedidos_total: 0,
+        resumo_financeiro: null,
+      };
+    });
+  })();
+
+  try {
+    const payload = await conversasRequestInFlight;
+    conversasCache = { expiresAt: Date.now() + CONVERSAS_CACHE_MS, payload };
+    return payload;
+  } finally {
+    conversasRequestInFlight = null;
+  }
+}
+
 export const Route = createFileRoute("/api/crm/conversas")({
   server: {
     handlers: {
@@ -761,35 +796,47 @@ export const Route = createFileRoute("/api/crm/conversas")({
             return json({ ...config, baseSystemPrompt: BASE_SYSTEM_PROMPT, aprendizado });
           }
 
+          if (url.searchParams.get("kanban") === "config") {
+            return json({ columns: await buscarKanbanConfig() });
+          }
+
           if (url.searchParams.get("bloqueados") === "lista") {
             return json(await listarConversasBloqueadas());
           }
 
-          const [conversas, resumoFinanceiro] = await Promise.all([
-            listarConversas(),
-            resumoFinanceiroPorTelefone(),
-          ]);
+          if (url.searchParams.get("financeiro") === "resumo") {
+            return json(Object.fromEntries(await resumoFinanceiroPorTelefone()));
+          }
 
-          const conversasComValores = conversas.map((conversa) => {
-            const resumo = resumoFinanceiro.get(normalizarTelefone(conversa.telefone));
+          const telefone = normalizarTelefone(url.searchParams.get("telefone") ?? "");
+          if (telefone) {
+            const conversa = await buscarConversaPorTelefone(telefone);
+            return conversa
+              ? json(conversa)
+              : json({ ok: false, erro: "Conversa nao encontrada" }, { status: 404 });
+          }
 
-            return {
-              ...conversa,
-              valor_potencial: resumo?.totalGasto ?? 0,
-              pedidos_total: resumo?.pedidos ?? 0,
-              resumo_financeiro: resumo
-                ? {
-                    total_gasto: resumo.totalGasto,
-                    lucro_liquido: resumo.lucroLiquido,
-                    total_descontos: resumo.totalDescontos,
-                    ticket_medio: resumo.ticketMedio,
-                    pedidos: resumo.pedidos,
-                  }
-                : null,
-            };
-          });
+          const detalheId = url.searchParams.get("detalhe");
+          if (detalheId) {
+            const conversa = await buscarConversaPorId(detalheId);
+            return conversa
+              ? json(conversa)
+              : json({ ok: false, erro: "Conversa nao encontrada" }, { status: 404 });
+          }
 
-          return json(conversasComValores);
+          const desde = url.searchParams.get("desde");
+          if (desde) {
+            const timestamp = new Date(desde);
+            if (Number.isNaN(timestamp.getTime())) {
+              return json(
+                { ok: false, erro: "Timestamp de sincronizacao invalido" },
+                { status: 400 },
+              );
+            }
+            return json(await listarConversasAtualizadasDesde(timestamp.toISOString()));
+          }
+
+          return json(await listarConversasComResumoCache());
         } catch (error) {
           return apiErrorResponse(error);
         }
@@ -799,6 +846,8 @@ export const Route = createFileRoute("/api/crm/conversas")({
           const body = (await request.json()) as
             | { tipo: "conversa"; id: string; aguardandoHumano: boolean; iaAtiva?: boolean }
             | { tipo: "pipeline"; id: string; stage: string }
+            | { tipo: "pipeline"; id: string; columnId: string }
+            | { tipo: "kanban_config"; columns: unknown }
             | { tipo: "global"; desativada: boolean }
             | { tipo: "bloquear"; id: string; bloqueado: boolean }
             | { tipo: "marcar_lida"; id: string; lidoAte?: string }
@@ -836,11 +885,31 @@ export const Route = createFileRoute("/api/crm/conversas")({
             );
           }
 
+          if (body.tipo === "kanban_config") {
+            return json({ columns: await salvarKanbanConfig(body.columns) });
+          }
+
           if (body.tipo === "pipeline") {
-            const pipeline = pipelineFromKanban(body.stage);
+            const columns = await buscarKanbanConfig();
+            const requestedColumn =
+              "columnId" in body
+                ? columns.find((column) => column.id === body.columnId)
+                : columns.find((column) => column.nome === body.stage);
+            const pipeline = requestedColumn
+              ? {
+                  estagio: requestedColumn.estagioInterno,
+                  aguardandoHumano: requestedColumn.id === "aguardando-pagamento",
+                }
+              : pipelineFromKanban("stage" in body ? body.stage : undefined);
             if (!pipeline) return json({ ok: false, erro: "Etapa invalida" }, { status: 400 });
 
-            return json(await atualizarConversaPipeline({ id: body.id, ...pipeline }));
+            return json(
+              await atualizarConversaPipeline({
+                id: body.id,
+                ...pipeline,
+                kanbanColuna: requestedColumn?.id,
+              }),
+            );
           }
 
           return json(

@@ -1,6 +1,6 @@
 import { createContext } from "react";
 
-export type Pay = "Pix" | "Cartão" | "Dinheiro";
+export type Pay = "Pix" | "Cartão" | "Link de pagamento" | "Dinheiro";
 export type StatusPag = "Pago" | "Pendente";
 export type StatusVenda = "Concluída" | "Cancelada" | "Reembolsada";
 export type Item = {
@@ -15,6 +15,7 @@ export type Venda = {
   id: string;
   hora: string;
   data: string;
+  criadoEm?: string;
   cliente: string;
   telefone: string;
   itens: Item[];
@@ -35,8 +36,11 @@ export type Venda = {
 
 export type VendasContextValue = {
   vendas: Venda[];
+  setVendasRecentes: (vendas: Venda[]) => void;
   addVenda: (v: Venda) => void;
+  updateVenda: (id: string, patch: Partial<Venda>) => void;
   cancelarVenda: (id: string, motivo: string, por?: string) => void;
+  apagarVenda: (id: string) => void;
 };
 
 export const VendasContext = createContext<VendasContextValue | null>(null);

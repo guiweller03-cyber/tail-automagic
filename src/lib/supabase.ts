@@ -15,6 +15,11 @@ import {
 import { registrarLeadTotal } from "./leads-totais-supabase";
 import { recalcularRecompraVenda } from "./recompra-supabase";
 import { requireSupabaseServerKey } from "./server-env";
+import {
+  DEFAULT_KANBAN_COLUMNS,
+  sanitizeKanbanColumns,
+  type KanbanColumn,
+} from "@/features/whatsapp-crm/kanban-config";
 
 export type Conversa = {
   id: string;
@@ -24,6 +29,7 @@ export type Conversa = {
   aguardando_humano: boolean;
   ia_ativa: boolean | null;
   estagio: "novo" | "qualificando" | "vendendo" | "pos_venda" | "inativo";
+  kanban_coluna: string | null;
   criado_em: string;
   atualizado_em: string;
   lido_ate: string | null;
@@ -62,6 +68,8 @@ export type PedidoCrm = {
   bairro: string;
   total: number;
   hora: string;
+  data: string;
+  criadoEm: string;
   status: PedidoProcesso;
   pagamento: string;
   statusPagamento: string;
@@ -199,6 +207,69 @@ export async function listarConversas(): Promise<Conversa[]> {
   return rows.filter((conversa) => conversa.bloqueado !== true);
 }
 
+export async function listarConversasResumo(): Promise<
+  Array<Conversa & { historico_resumido: true }>
+> {
+  const params = new URLSearchParams({
+    select:
+      "id,telefone,nome_cliente,ultima_mensagem:historico->-1,aguardando_humano,ia_ativa,estagio,kanban_coluna,criado_em,atualizado_em,lido_ate",
+    order: "atualizado_em.desc",
+  });
+  const response = await fetch(supabaseUrl(`/conversas?${params}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase conversas resumo failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as Array<
+    Omit<Conversa, "historico"> & { ultima_mensagem: Mensagem | null }
+  >;
+  return rows.map(({ ultima_mensagem, ...conversa }) => ({
+    ...conversa,
+    historico: ultima_mensagem ? [ultima_mensagem] : [],
+    historico_resumido: true as const,
+  }));
+}
+
+export async function buscarConversaPorId(id: string): Promise<Conversa | null> {
+  const params = new URLSearchParams({ id: `eq.${id}`, select: "*", limit: "1" });
+  const response = await fetch(supabaseUrl(`/conversas?${params}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase conversa detalhe failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as Conversa[];
+  return rows[0] ?? null;
+}
+
+export async function listarConversasAtualizadasDesde(desde: string): Promise<Conversa[]> {
+  const params = new URLSearchParams({
+    select: "*",
+    atualizado_em: `gt.${desde}`,
+    order: "atualizado_em.asc",
+  });
+  const response = await fetch(supabaseUrl(`/conversas?${params}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(
+      `Supabase conversas incremental select failed (${response.status}): ${errorBody}`,
+    );
+  }
+
+  const rows = (await response.json()) as Conversa[];
+  return rows.filter((conversa) => conversa.bloqueado !== true);
+}
+
 /**
  * Telefones bloqueados pelo operador. Usado pela sincronizacao do WhatsApp para
  * nao recriar conversas que ja foram bloqueadas (a listarConversas as esconde, e
@@ -321,16 +392,19 @@ export async function atualizarConversaPipeline({
   id,
   estagio,
   aguardandoHumano,
+  kanbanColuna,
 }: {
   id: string;
   estagio: Conversa["estagio"];
   aguardandoHumano: boolean;
+  kanbanColuna?: string;
 }): Promise<Conversa> {
   const response = await fetch(supabaseUrl(`/conversas?id=eq.${encodeURIComponent(id)}`), {
     method: "PATCH",
     headers: supabaseHeaders("return=representation"),
     body: JSON.stringify({
       estagio,
+      ...(kanbanColuna ? { kanban_coluna: kanbanColuna } : {}),
       aguardando_humano: aguardandoHumano,
       atualizado_em: new Date().toISOString(),
     }),
@@ -345,6 +419,38 @@ export async function atualizarConversaPipeline({
   if (!rows[0]) throw new Error("Conversa nao encontrada");
 
   return rows[0];
+}
+
+export async function buscarKanbanConfig(): Promise<KanbanColumn[]> {
+  const params = new URLSearchParams({
+    chave: "eq.whatsapp_kanban_colunas",
+    select: "valor",
+    limit: "1",
+  });
+  const response = await fetch(supabaseUrl(`/crm_configuracoes?${params}`), {
+    headers: supabaseHeaders(),
+  });
+  if (!response.ok) return DEFAULT_KANBAN_COLUMNS.map((column) => ({ ...column }));
+  const rows = (await response.json()) as Array<{ valor: unknown }>;
+  return sanitizeKanbanColumns(rows[0]?.valor);
+}
+
+export async function salvarKanbanConfig(value: unknown): Promise<KanbanColumn[]> {
+  const columns = sanitizeKanbanColumns(value);
+  const response = await fetch(supabaseUrl("/crm_configuracoes?on_conflict=chave"), {
+    method: "POST",
+    headers: supabaseHeaders("resolution=merge-duplicates,return=minimal"),
+    body: JSON.stringify({
+      chave: "whatsapp_kanban_colunas",
+      valor: columns,
+      atualizado_em: new Date().toISOString(),
+    }),
+  });
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase kanban config upsert failed (${response.status}): ${errorBody}`);
+  }
+  return columns;
 }
 
 export async function adicionarMensagemConversa({
@@ -566,9 +672,11 @@ function normalizarListaPets(pets: string[] | null | undefined): string[] {
   const unicos = new Map<string, string>();
 
   for (const pet of pets) {
-    const nome = pet.trim();
-    if (!nome) continue;
-    unicos.set(nome.toLowerCase(), nome);
+    for (const nomePet of pet.split(",")) {
+      const nome = nomePet.trim();
+      if (!nome) continue;
+      unicos.set(nome.toLowerCase(), nome);
+    }
   }
 
   return Array.from(unicos.values());
@@ -824,6 +932,10 @@ function formatHoraPedido(criadoEm: string): string {
   });
 }
 
+function formatDataPedido(criadoEm: string): string {
+  return new Date(criadoEm).toLocaleDateString("pt-BR");
+}
+
 function resumoPedido(observacao: string | null): string {
   if (!observacao) return "Pedido registrado";
   return observacao.replace(/^Pedido WhatsApp IA:\s*/i, "").trim() || "Pedido registrado";
@@ -836,6 +948,23 @@ function primeiroPetDosItens(itens: ProdutoPedido[]): string | null {
   }
 
   return null;
+}
+
+function petNomesTexto(valor: string | null | undefined): string[] {
+  return Array.from(
+    new Set(
+      (valor ?? "")
+        .split(",")
+        .map((nome) => nome.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function petNomesPedido(pet: string | null | undefined, itens: ProdutoPedido[]): string[] {
+  return Array.from(
+    new Set([...petNomesTexto(pet), ...itens.flatMap((item) => petNomesTexto(item.petNome))]),
+  );
 }
 
 function deduplicarVendasRecentes(vendas: VendaPedidoRow[]): VendaPedidoRow[] {
@@ -983,25 +1112,31 @@ export async function resumoFinanceiroPorTelefone(): Promise<
   return mapa;
 }
 
-export async function listarPedidos(): Promise<PedidoCrm[]> {
+export async function listarPedidos(options: { desde?: Date } = {}): Promise<PedidoCrm[]> {
+  const params = new URLSearchParams({
+    select:
+      "id,cliente_id,cliente_nome,telefone,pet_nome,total,taxa_maquininha,forma_pagamento,status_pagamento,status,processo,observacao,criado_em",
+    order: "criado_em.desc",
+  });
+  if (options.desde) params.set("criado_em", `gte.${options.desde.toISOString()}`);
+
+  const fallbackParams = new URLSearchParams({
+    select:
+      "id,cliente_id,cliente_nome,telefone,total,forma_pagamento,status_pagamento,status,processo,observacao,criado_em",
+    order: "criado_em.desc",
+  });
+  if (options.desde) fallbackParams.set("criado_em", `gte.${options.desde.toISOString()}`);
+
   const [vendas, clientes] = await Promise.all([
     (async () => {
-      let response = await fetch(
-        supabaseUrl(
-          "/vendas?select=id,cliente_id,cliente_nome,telefone,pet_nome,total,taxa_maquininha,forma_pagamento,status_pagamento,status,processo,observacao,criado_em&order=criado_em.desc",
-        ),
-        { headers: supabaseHeaders() },
-      );
+      let response = await fetch(supabaseUrl(`/vendas?${params}`), { headers: supabaseHeaders() });
 
       if (!response.ok) {
         const errorBody = await response.text();
         if (errorBody.includes("pet_nome") || errorBody.includes("taxa_maquininha")) {
-          response = await fetch(
-            supabaseUrl(
-              "/vendas?select=id,cliente_id,cliente_nome,telefone,total,forma_pagamento,status_pagamento,status,processo,observacao,criado_em&order=criado_em.desc",
-            ),
-            { headers: supabaseHeaders() },
-          );
+          response = await fetch(supabaseUrl(`/vendas?${fallbackParams}`), {
+            headers: supabaseHeaders(),
+          });
 
           if (response.ok) {
             const rows = (await response.json()) as Array<
@@ -1037,6 +1172,8 @@ export async function listarPedidos(): Promise<PedidoCrm[]> {
       bairro: cliente?.bairro ?? cliente?.endereco ?? "Entrega a confirmar",
       total: venda.total ?? 0,
       hora: formatHoraPedido(venda.criado_em),
+      data: formatDataPedido(venda.criado_em),
+      criadoEm: venda.criado_em,
       status: mapProcessoVenda(venda),
       pagamento: venda.forma_pagamento ?? "A combinar",
       statusPagamento: venda.status_pagamento ?? "pendente",
@@ -1108,6 +1245,8 @@ async function mapPedidoVenda(venda: VendaPedidoRow): Promise<PedidoCrm> {
     bairro: cliente?.bairro ?? cliente?.endereco ?? "Entrega a confirmar",
     total: venda.total ?? 0,
     hora: formatHoraPedido(venda.criado_em),
+    data: formatDataPedido(venda.criado_em),
+    criadoEm: venda.criado_em,
     status: mapProcessoVenda(venda),
     pagamento: venda.forma_pagamento ?? "A combinar",
     statusPagamento: venda.status_pagamento ?? "pendente",
@@ -1171,6 +1310,7 @@ export async function editarPedidoManual({
   bairro,
   pet,
   pago,
+  criadoEm,
 }: {
   id: string;
   nome: string;
@@ -1181,6 +1321,7 @@ export async function editarPedidoManual({
   bairro?: string | null;
   pet?: string | null;
   pago?: boolean;
+  criadoEm?: string | null;
 }): Promise<PedidoCrm> {
   const nomeLimpo = nome.trim();
   const telefoneLimpo = telefone?.replace(/\D/g, "") ?? "";
@@ -1239,6 +1380,16 @@ export async function editarPedidoManual({
     atualizado_em: new Date().toISOString(),
   };
 
+  const dataCustom = criadoEm ? new Date(criadoEm) : null;
+  const dataCustomIso =
+    dataCustom && !Number.isNaN(dataCustom.getTime()) ? dataCustom.toISOString() : null;
+  if (dataCustomIso) {
+    payload.criado_em = dataCustomIso;
+    if (pago === true || vendaAtual.status_pagamento === "pago") {
+      payload.faturado_em = dataCustomIso;
+    }
+  }
+
   if (pago === true && vendaAtual.status_pagamento !== "pago") {
     payload.processo = "pago";
   } else if (pago === false && vendaAtual.status_pagamento === "pago" && !vendaAtual.faturado_em) {
@@ -1254,8 +1405,9 @@ export async function editarPedidoManual({
 
   if (!response.ok) {
     const errorBody = await response.text();
-    if (errorBody.includes("pet_nome")) {
-      delete payload.pet_nome;
+    if (errorBody.includes("pet_nome") || errorBody.includes("faturado_em")) {
+      if (errorBody.includes("pet_nome")) delete payload.pet_nome;
+      if (errorBody.includes("faturado_em")) delete payload.faturado_em;
       response = await fetch(supabaseUrl(`/vendas?id=eq.${encodeURIComponent(id)}`), {
         method: "PATCH",
         headers: supabaseHeaders("return=representation"),
@@ -1274,7 +1426,7 @@ export async function editarPedidoManual({
   }
 
   if (pago === true && vendaAtual.status_pagamento !== "pago") {
-    await registrarFaturamentoPedidoPago(id);
+    await registrarFaturamentoPedidoPago(id, { faturadoEm: dataCustomIso });
   }
 
   const pedido = await buscarPedidoPorId(id);
@@ -1348,14 +1500,15 @@ export async function criarPedidoManual({
     totalFinal -
     itensValidos.reduce((custo, item) => custo + item.precoCompra * item.quantidade, 0) -
     taxaMaquininhaFinal;
-  const petPedido = pet?.trim() || primeiroPetDosItens(itensValidos);
+  const petsPedido = petNomesPedido(pet, itensValidos);
+  const petPedido = petsPedido.join(", ") || primeiroPetDosItens(itensValidos);
 
   if (bairro?.trim() || petPedido || (nome.trim() && cliente.nome !== nome.trim())) {
     await salvarCadastroCliente({
       telefone: telefoneLimpo,
       nome,
       bairro,
-      pets: petPedido ? [petPedido] : undefined,
+      pets: petsPedido.length > 0 ? petsPedido : petPedido ? [petPedido] : undefined,
       origem: "CRM manual",
     });
   }
@@ -1373,8 +1526,11 @@ export async function criarPedidoManual({
     status: "concluida",
     processo: "novo",
     observacao: observacao?.trim() || "Pedido manual do CRM",
-    venda_origem: vendaOrigem || null,
   };
+
+  if (vendaOrigem?.trim()) {
+    vendaPayload.venda_origem = vendaOrigem.trim();
+  }
 
   if (criadoEm) {
     const dataCustom = new Date(criadoEm);
@@ -1430,7 +1586,10 @@ export async function criarPedidoManual({
       await registrarUsoCupom(cupomAplicado.cupom);
       await registrarComissaoVenda(vendaId);
     }
-    if (pago) await registrarFaturamentoPedidoPago(vendaId);
+    if (pago)
+      await registrarFaturamentoPedidoPago(vendaId, {
+        faturadoEm: vendaPayload.criado_em as string | undefined,
+      });
   } catch (error) {
     await requestSupabase(`/venda_itens?venda_id=eq.${encodeURIComponent(vendaId)}`, {
       method: "DELETE",
@@ -1531,6 +1690,7 @@ function removerCamposVendaNaoSuportados(
 
   if (errorBody.includes("pet_nome")) camposRemover.add("pet_nome");
   if (errorBody.includes("taxa_maquininha")) camposRemover.add("taxa_maquininha");
+  if (errorBody.includes("venda_origem")) camposRemover.add("venda_origem");
   if (
     errorBody.includes("cupom_id") ||
     errorBody.includes("influenciador_id") ||
@@ -1581,6 +1741,20 @@ function quantidadeFromTexto(value: string): number {
   return Math.max(1, Number(match[1]));
 }
 
+function produtosMarcadosNoPedido(value: string): string[] {
+  return Array.from(value.matchAll(/\bproduto\s*=\s*"([^"]+)"/gi))
+    .map((match) => match[1]?.trim())
+    .filter((produto): produto is string => Boolean(produto));
+}
+
+function scoreProdutoPorTexto(produto: ProdutoRow, textoNormalizado: string): number {
+  const nome = normalizeText(produto.nome);
+  const termos = nome.split(/\s+/).filter((termo) => termo.length >= 4);
+  const score = termos.filter((termo) => textoNormalizado.includes(termo)).length;
+
+  return textoNormalizado.includes(nome) ? score + 10 : score;
+}
+
 export async function buscarProdutosPorTexto(texto: string): Promise<ProdutoPedido[]> {
   const response = await fetch(
     supabaseUrl("/produtos?select=sku,nome,estoque,preco,preco_compra&order=nome.asc"),
@@ -1596,15 +1770,35 @@ export async function buscarProdutosPorTexto(texto: string): Promise<ProdutoPedi
   const textoNormalizado = normalizeText(texto);
   const quantidade = quantidadeFromTexto(texto);
   const precoInformado = dinheiroFromTexto(texto);
+  const marcadoresProduto = produtosMarcadosNoPedido(texto);
+
+  if (marcadoresProduto.length > 0) {
+    const itens = marcadoresProduto.flatMap((produtoMarcado) => {
+      const marcadoNormalizado = normalizeText(produtoMarcado);
+      const produto = rows
+        .map((row) => ({ produto: row, score: scoreProdutoPorTexto(row, marcadoNormalizado) }))
+        .filter(({ score }) => score >= 2)
+        .sort((a, b) => b.score - a.score)[0]?.produto;
+
+      if (!produto) return [];
+
+      return [
+        {
+          sku: produto.sku,
+          nome: produto.nome,
+          quantidade,
+          preco: precoInformado ?? produto.preco ?? 0,
+          precoCompra: produto.preco_compra ?? 0,
+        },
+      ];
+    });
+
+    return Array.from(new Map(itens.map((item) => [item.sku, item])).values());
+  }
 
   return rows
-    .filter((produto) => (produto.estoque ?? 0) > 0)
     .map((produto) => {
-      const nome = normalizeText(produto.nome);
-      const termos = nome.split(/\s+/).filter((termo) => termo.length >= 4);
-      const score = termos.filter((termo) => textoNormalizado.includes(termo)).length;
-
-      return { produto, score: textoNormalizado.includes(nome) ? score + 10 : score };
+      return { produto, score: scoreProdutoPorTexto(produto, textoNormalizado) };
     })
     .filter(({ score }) => score >= 2)
     .sort((a, b) => b.score - a.score)
@@ -1860,6 +2054,14 @@ async function baixarEstoque(item: ProdutoPedido): Promise<void> {
 
   const rows = (await selectResponse.json()) as Array<{ estoque: number | null }>;
   const estoqueAtual = rows[0]?.estoque ?? 0;
+  if (rows.length === 0) {
+    throw new Error(`Produto ${item.sku} nao encontrado no estoque`);
+  }
+  if (estoqueAtual < item.quantidade) {
+    throw new Error(
+      `Estoque insuficiente para ${item.nome}: disponivel ${estoqueAtual}, venda ${item.quantidade}`,
+    );
+  }
 
   const updateResponse = await fetch(
     supabaseUrl(`/produtos?sku=eq.${encodeURIComponent(item.sku)}`),
@@ -1867,7 +2069,7 @@ async function baixarEstoque(item: ProdutoPedido): Promise<void> {
       method: "PATCH",
       headers: supabaseHeaders(),
       body: JSON.stringify({
-        estoque: Math.max(0, estoqueAtual - item.quantidade),
+        estoque: estoqueAtual - item.quantidade,
         atualizado_em: new Date().toISOString(),
       }),
     },
@@ -2138,13 +2340,28 @@ export async function baixarEstoqueDaVenda(vendaId: string): Promise<number> {
     const reservados = (await reservaResponse.json()) as VendaItemRow[];
     if (!reservados[0]) continue;
 
-    await baixarEstoque({
-      sku: item.sku,
-      nome: item.nome,
-      quantidade: item.quantidade,
-      preco: item.preco,
-      precoCompra: item.preco_compra,
-    });
+    try {
+      await baixarEstoque({
+        sku: item.sku,
+        nome: item.nome,
+        quantidade: item.quantidade,
+        preco: item.preco,
+        precoCompra: item.preco_compra,
+      });
+    } catch (error) {
+      await fetch(
+        supabaseUrl(`/venda_itens?id=eq.${encodeURIComponent(item.id)}&estoque_baixado=eq.true`),
+        {
+          method: "PATCH",
+          headers: supabaseHeaders("return=minimal"),
+          body: JSON.stringify({
+            estoque_baixado: false,
+            atualizado_em: new Date().toISOString(),
+          }),
+        },
+      ).catch(() => undefined);
+      throw error;
+    }
     baixados += 1;
   }
 
@@ -2199,6 +2416,14 @@ async function buscarVendaParaFaturamento(vendaId: string): Promise<VendaFaturam
 }
 
 async function reservarVendaParaFaturamento(vendaId: string): Promise<VendaFaturamentoRow | null> {
+  return reservarVendaParaFaturamentoEm(vendaId, new Date().toISOString());
+}
+
+async function reservarVendaParaFaturamentoEm(
+  vendaId: string,
+  faturadoEm: string,
+): Promise<VendaFaturamentoRow | null> {
+  const atualizadoEm = new Date().toISOString();
   const response = await fetch(
     supabaseUrl(`/vendas?id=eq.${encodeURIComponent(vendaId)}&faturado_em=is.null`),
     {
@@ -2207,8 +2432,8 @@ async function reservarVendaParaFaturamento(vendaId: string): Promise<VendaFatur
       body: JSON.stringify({
         status_pagamento: "pago",
         processo: "pago",
-        faturado_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
+        faturado_em: faturadoEm,
+        atualizado_em: atualizadoEm,
       }),
     },
   );
@@ -2224,7 +2449,7 @@ async function reservarVendaParaFaturamento(vendaId: string): Promise<VendaFatur
           body: JSON.stringify({
             status_pagamento: "pago",
             processo: "pago",
-            atualizado_em: new Date().toISOString(),
+            atualizado_em: atualizadoEm,
           }),
         },
       );
@@ -2238,7 +2463,7 @@ async function reservarVendaParaFaturamento(vendaId: string): Promise<VendaFatur
 
       const rows = (await fallbackResponse.json()) as Omit<VendaFaturamentoRow, "faturado_em">[];
       const row = rows[0];
-      return row ? { ...row, faturado_em: new Date().toISOString() } : null;
+      return row ? { ...row, faturado_em: faturadoEm } : null;
     }
 
     throw new Error(`Supabase venda faturamento update failed (${response.status}): ${errorBody}`);
@@ -2249,6 +2474,20 @@ async function reservarVendaParaFaturamento(vendaId: string): Promise<VendaFatur
 }
 
 export async function registrarFaturamentoPedidoPago(vendaId: string): Promise<{
+  faturado: boolean;
+  estoqueBaixado: number;
+}>;
+export async function registrarFaturamentoPedidoPago(
+  vendaId: string,
+  options: { faturadoEm?: string | null },
+): Promise<{
+  faturado: boolean;
+  estoqueBaixado: number;
+}>;
+export async function registrarFaturamentoPedidoPago(
+  vendaId: string,
+  options: { faturadoEm?: string | null } = {},
+): Promise<{
   faturado: boolean;
   estoqueBaixado: number;
 }> {
@@ -2265,7 +2504,8 @@ export async function registrarFaturamentoPedidoPago(vendaId: string): Promise<{
     };
   }
 
-  const vendaReservada = await reservarVendaParaFaturamento(vendaId);
+  const faturadoEm = options.faturadoEm?.trim() || new Date().toISOString();
+  const vendaReservada = await reservarVendaParaFaturamentoEm(vendaId, faturadoEm);
 
   if (!vendaReservada) {
     return {

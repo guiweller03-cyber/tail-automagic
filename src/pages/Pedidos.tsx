@@ -57,7 +57,14 @@ const cols: {
   },
 ];
 
-const FORMAS: FormaPagamento[] = ["Pix", "Cartão débito", "Cartão crédito", "Dinheiro", "Pendente"];
+const FORMAS: FormaPagamento[] = [
+  "Pix",
+  "Cartão débito",
+  "Cartão crédito",
+  "Link de pagamento",
+  "Dinheiro",
+  "Pendente",
+];
 
 type PedidoFiltroStatus = Pedido["status"] | "todos";
 type PedidoFiltroPagamento = FormaPagamento | "todos" | "Pago" | "Pendente";

@@ -24,12 +24,35 @@ function isPedidoProcesso(value: unknown): value is PedidoProcesso {
   );
 }
 
+function inicioHojeSaoPaulo(): Date {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) return new Date();
+  return new Date(`${year}-${month}-${day}T00:00:00-03:00`);
+}
+
 export const Route = createFileRoute("/api/crm/pedidos")({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }) => {
         try {
-          const pedidos = await listarPedidos();
+          const url = new URL(request.url);
+          const today = url.searchParams.get("today") === "1";
+          const recentHours = Number(url.searchParams.get("recentHours"));
+          const desde = today
+            ? inicioHojeSaoPaulo()
+            : Number.isFinite(recentHours) && recentHours > 0
+              ? new Date(Date.now() - recentHours * 60 * 60 * 1000)
+              : undefined;
+          const pedidos = await listarPedidos({ desde });
 
           return json(pedidos);
         } catch (error) {
@@ -214,6 +237,7 @@ export const Route = createFileRoute("/api/crm/pedidos")({
               bairro: typeof body.bairro === "string" ? body.bairro : null,
               pet: typeof body.pet === "string" ? body.pet : null,
               pago: body.pago === true,
+              criadoEm: typeof body.dataVenda === "string" ? body.dataVenda : null,
             }),
           );
         } catch (error) {

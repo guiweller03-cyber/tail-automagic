@@ -26,6 +26,8 @@ import {
   LogOut,
   FileText,
   Send,
+  ListFilter,
+  MessageSquareCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -42,12 +44,14 @@ const nav = [
   { to: "/pets", label: "Pets", icon: PawPrint },
   { to: "/indicacoes", label: "Indicações", icon: Gift },
   { to: "/recompra-prevista", label: "Recompra Prevista", icon: ArrowRightLeft },
+  { to: "/painel-recompra", label: "Painel de Recompra", icon: ListFilter },
+  { to: "/aprovacoes-recompra", label: "Aprovar Recompras", icon: MessageSquareCheck },
   { to: "/pedidos", label: "Pedidos", icon: ShoppingBag },
   { to: "/pdv", label: "PDV", icon: Store },
   { to: "/entregas", label: "Entregas", icon: Truck },
   { to: "/estoque", label: "Estoque", icon: Boxes },
   { to: "/produtos-procurados", label: "Procurados", icon: PackageSearch },
-  { to: "/financeiro", label: "Financeiro", icon: Wallet },
+  { to: "/financeiro", label: "Finanças", icon: Wallet },
   { to: "/campanhas", label: "Campanhas", icon: Megaphone },
   { to: "/disparos", label: "Disparos", icon: Send },
   { to: "/automacoes", label: "Automações", icon: Zap },

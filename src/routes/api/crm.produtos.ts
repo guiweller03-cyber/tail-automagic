@@ -23,7 +23,7 @@ function produtoInput(body: Record<string, unknown>): ProdutoCrmInput | null {
   const precoCompra = Number(body.precoCompra);
   const giro =
     body.giro === "alto" || body.giro === "médio" || body.giro === "baixo" ? body.giro : "baixo";
-  const tipo = body.tipo === "próprio" || body.tipo === "consignado" ? body.tipo : "próprio";
+  const tipo = body.tipo === "próprio" || body.tipo === "consignado" ? body.tipo : "consignado";
 
   if (
     !sku ||

@@ -17,14 +17,17 @@ import {
   Trash2,
   Link,
   Clock,
+  CalendarClock,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { dispatchCrmReload, onCrmReload } from "@/lib/crm-refresh";
+import { listarRacasPesoBase, type RacaPesoBase } from "@/lib/recompra-calculo";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const WHATSAPP_SYNC_KEY = "crm_clientes_whatsapp_sync_at";
+const RACAS_PESO_BASE = listarRacasPesoBase();
 
 const STATUS_TONE: Record<Cupom["status"], string> = {
   gerado: "bg-primary/15 text-primary",
@@ -59,10 +62,13 @@ type ClienteFormState = {
 type ClientePetForm = {
   nome: string;
   nascimento: string;
+  idade: string;
+  castrado: "" | "sim" | "nao";
   especie: "" | NonNullable<PetDetalhe["especie"]>;
   raca: string;
   porte: "" | NonNullable<PetDetalhe["porte"]>;
   pesoKg: string;
+  idadeAdultaConfirmada: "" | "sim" | "nao";
   observacao: string;
 };
 
@@ -95,10 +101,13 @@ function petFormVazio(): ClientePetForm {
   return {
     nome: "",
     nascimento: "",
+    idade: "",
+    castrado: "",
     especie: "",
     raca: "",
     porte: "",
     pesoKg: "",
+    idadeAdultaConfirmada: "",
     observacao: "",
   };
 }
@@ -107,10 +116,14 @@ function petFormFromDetalhe(pet: PetDetalhe): ClientePetForm {
   return {
     nome: pet.nome ?? "",
     nascimento: pet.nascimento ?? "",
+    idade: pet.idade ?? "",
+    castrado: pet.castrado === true ? "sim" : pet.castrado === false ? "nao" : "",
     especie: pet.especie ?? "",
     raca: pet.raca ?? "",
     porte: pet.porte ?? "",
     pesoKg: pet.pesoKg ? String(pet.pesoKg).replace(".", ",") : "",
+    idadeAdultaConfirmada:
+      pet.idadeAdultaConfirmada === true ? "sim" : pet.idadeAdultaConfirmada === false ? "nao" : "",
     observacao: pet.observacao ?? "",
   };
 }
@@ -128,6 +141,7 @@ function petDetalhesFromForm(pets: ClientePetForm[]): PetDetalhe[] {
     .map((pet) => {
       const nome = pet.nome.trim();
       const nascimento = pet.nascimento.trim();
+      const idade = pet.idade.trim();
       const raca = pet.raca.trim();
       const observacao = pet.observacao.trim();
       const pesoTexto = pet.pesoKg.trim().replace(",", ".");
@@ -136,10 +150,13 @@ function petDetalhesFromForm(pets: ClientePetForm[]): PetDetalhe[] {
       if (
         !nome &&
         !nascimento &&
+        !idade &&
+        !pet.castrado &&
         !pet.especie &&
         !raca &&
         !pet.porte &&
         !Number.isFinite(pesoKg) &&
+        !pet.idadeAdultaConfirmada &&
         !observacao
       ) {
         return null;
@@ -148,14 +165,31 @@ function petDetalhesFromForm(pets: ClientePetForm[]): PetDetalhe[] {
       return {
         nome,
         ...(nascimento ? { nascimento } : {}),
+        ...(idade ? { idade } : {}),
+        ...(pet.castrado ? { castrado: pet.castrado === "sim" } : {}),
         ...(pet.especie ? { especie: pet.especie } : {}),
         ...(raca ? { raca } : {}),
         ...(pet.porte ? { porte: pet.porte } : {}),
         ...(Number.isFinite(pesoKg) && pesoKg > 0 ? { pesoKg } : {}),
+        ...(pet.idadeAdultaConfirmada
+          ? { idadeAdultaConfirmada: pet.idadeAdultaConfirmada === "sim" }
+          : {}),
         ...(observacao ? { observacao } : {}),
       } satisfies PetDetalhe;
     })
     .filter((pet): pet is PetDetalhe => pet !== null);
+}
+
+function racaPesoBasePorNome(nome: string): RacaPesoBase | undefined {
+  return RACAS_PESO_BASE.find((raca) => raca.nome.toLowerCase() === nome.trim().toLowerCase());
+}
+
+function pesoBaseLabel(raca: RacaPesoBase): string {
+  return `${raca.nome} - ${String(raca.pesoKg).replace(".", ",")} kg`;
+}
+
+function pesoBaseValue(raca: RacaPesoBase): string {
+  return String(raca.pesoKg).replace(".", ",");
 }
 
 function petsResumoCliente(cliente: Cliente): PetDetalhe[] {
@@ -166,10 +200,17 @@ function petsResumoCliente(cliente: Cliente): PetDetalhe[] {
 function petLinhaResumo(pet: PetDetalhe): string {
   return [
     pet.nascimento ? `Nasc. ${pet.nascimento}` : null,
+    pet.idade,
     pet.especie,
+    pet.castrado === true ? "castrado" : pet.castrado === false ? "nao castrado" : null,
     pet.raca,
     pet.porte ? `porte ${pet.porte}` : null,
     pet.pesoKg ? `${pet.pesoKg} kg` : null,
+    pet.idadeAdultaConfirmada === true
+      ? "adulto confirmado"
+      : pet.idadeAdultaConfirmada === false
+        ? "filhote/crescimento"
+        : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -350,6 +391,17 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
     });
   }
 
+  function abrirRecompraCliente(clienteAtual: Cliente) {
+    const pet = petsResumoCliente(clienteAtual)[0]?.nome;
+    navigate({
+      to: "/recompra-prevista",
+      search: {
+        clienteId: clienteAtual.id,
+        pet: pet || undefined,
+      },
+    });
+  }
+
   function atualizarPetForm(index: number, patch: Partial<ClientePetForm>) {
     setClienteForm((state) => ({
       ...state,
@@ -357,6 +409,39 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
         petIndex === index ? { ...pet, ...patch } : pet,
       ),
     }));
+  }
+
+  function atualizarEspeciePetForm(index: number, especie: ClientePetForm["especie"]) {
+    setClienteForm((state) => ({
+      ...state,
+      petsDetalhes: state.petsDetalhes.map((pet, petIndex) => {
+        if (petIndex !== index) return pet;
+
+        const racaAtual = racaPesoBasePorNome(pet.raca);
+        const racaIncompativel = racaAtual && especie && racaAtual.especie !== especie;
+
+        return {
+          ...pet,
+          especie,
+          ...(racaIncompativel ? { raca: "", porte: "", pesoKg: "" } : {}),
+        };
+      }),
+    }));
+  }
+
+  function selecionarRacaPetForm(index: number, racaNome: string) {
+    const raca = racaPesoBasePorNome(racaNome);
+    if (!raca) {
+      atualizarPetForm(index, { raca: racaNome });
+      return;
+    }
+
+    atualizarPetForm(index, {
+      especie: raca.especie,
+      raca: raca.nome,
+      porte: raca.porte === "gato" ? "" : raca.porte,
+      pesoKg: pesoBaseValue(raca),
+    });
   }
 
   function adicionarPetForm() {
@@ -707,6 +792,14 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
                         >
                           <Phone className="size-4" />
                         </a>
+                        <button
+                          type="button"
+                          onClick={() => abrirRecompraCliente(c)}
+                          className="p-2 rounded-lg hover:bg-primary/10 text-primary"
+                          title="Registrar recompra"
+                        >
+                          <ShoppingBag className="size-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -799,95 +892,184 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
                   </button>
                 </div>
                 <div className="space-y-3">
-                  {clienteForm.petsDetalhes.map((pet, index) => (
-                    <div key={index} className="space-y-2 rounded-lg bg-secondary/60 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-muted-foreground">
-                          Pet {index + 1}
+                  {clienteForm.petsDetalhes.map((pet, index) => {
+                    const racaAtual = racaPesoBasePorNome(pet.raca);
+                    const racaAtualDesconhecida = pet.raca && !racaAtual;
+                    const racasDisponiveis = RACAS_PESO_BASE.filter(
+                      (raca) => !pet.especie || raca.especie === pet.especie,
+                    );
+                    const racasCachorro = racasDisponiveis.filter(
+                      (raca) => raca.especie === "cachorro",
+                    );
+                    const racasGato = racasDisponiveis.filter((raca) => raca.especie === "gato");
+
+                    return (
+                      <div key={index} className="space-y-2 rounded-lg bg-secondary/60 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-muted-foreground">
+                            Pet {index + 1}
+                          </div>
+                          {clienteForm.petsDetalhes.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removerPetForm(index)}
+                              className="size-7 rounded-md text-destructive hover:bg-destructive/10 grid place-items-center"
+                              title="Remover pet"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          )}
                         </div>
-                        {clienteForm.petsDetalhes.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removerPetForm(index)}
-                            className="size-7 rounded-md text-destructive hover:bg-destructive/10 grid place-items-center"
-                            title="Remover pet"
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input
+                            value={pet.nome}
+                            onChange={(event) =>
+                              atualizarPetForm(index, { nome: event.target.value })
+                            }
+                            placeholder="Nome do pet"
+                            className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                          />
+                          <input
+                            type="date"
+                            value={pet.nascimento}
+                            onChange={(event) =>
+                              atualizarPetForm(index, { nascimento: event.target.value })
+                            }
+                            className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                          />
+                          <select
+                            value={pet.idade}
+                            onChange={(event) => {
+                              const idade = event.target.value;
+                              atualizarPetForm(index, {
+                                idade,
+                                ...(idade === "filhote" ? { idadeAdultaConfirmada: "nao" } : {}),
+                                ...(idade === "adulto" || idade === "senior"
+                                  ? { idadeAdultaConfirmada: "sim" }
+                                  : {}),
+                              });
+                            }}
+                            className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
                           >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        )}
+                            <option value="">Fase/idade</option>
+                            {pet.idade && !["filhote", "adulto", "senior"].includes(pet.idade) && (
+                              <option value={pet.idade}>{pet.idade}</option>
+                            )}
+                            <option value="filhote">Filhote</option>
+                            <option value="adulto">Adulto</option>
+                            <option value="senior">Senior</option>
+                          </select>
+                          <select
+                            value={pet.especie}
+                            onChange={(event) =>
+                              atualizarEspeciePetForm(
+                                index,
+                                event.target.value as ClientePetForm["especie"],
+                              )
+                            }
+                            className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                          >
+                            <option value="">Especie</option>
+                            <option value="cachorro">Cachorro</option>
+                            <option value="gato">Gato</option>
+                          </select>
+                          <select
+                            value={pet.castrado}
+                            onChange={(event) =>
+                              atualizarPetForm(index, {
+                                castrado: event.target.value as ClientePetForm["castrado"],
+                              })
+                            }
+                            className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                          >
+                            <option value="">Castrado?</option>
+                            <option value="sim">Castrado</option>
+                            <option value="nao">Nao castrado</option>
+                          </select>
+                          <div className="space-y-1">
+                            <select
+                              value={pet.raca}
+                              onChange={(event) => selecionarRacaPetForm(index, event.target.value)}
+                              className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                            >
+                              <option value="">Raca</option>
+                              {racaAtualDesconhecida && (
+                                <option value={pet.raca}>{pet.raca}</option>
+                              )}
+                              {racasCachorro.length > 0 && (
+                                <optgroup label="Cachorro">
+                                  {racasCachorro.map((raca) => (
+                                    <option key={raca.nome} value={raca.nome}>
+                                      {pesoBaseLabel(raca)}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {racasGato.length > 0 && (
+                                <optgroup label="Gato">
+                                  {racasGato.map((raca) => (
+                                    <option key={raca.nome} value={raca.nome}>
+                                      {pesoBaseLabel(raca)}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </select>
+                            {racaAtual && (
+                              <div className="text-[10px] font-semibold text-muted-foreground">
+                                Peso base: {String(racaAtual.pesoKg).replace(".", ",")} kg
+                              </div>
+                            )}
+                          </div>
+                          <select
+                            value={pet.porte}
+                            onChange={(event) =>
+                              atualizarPetForm(index, {
+                                porte: event.target.value as ClientePetForm["porte"],
+                              })
+                            }
+                            className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                          >
+                            <option value="">Porte</option>
+                            <option value="pequeno">Pequeno</option>
+                            <option value="medio">Medio</option>
+                            <option value="grande">Grande</option>
+                          </select>
+                          <input
+                            value={pet.pesoKg}
+                            onChange={(event) =>
+                              atualizarPetForm(index, { pesoKg: event.target.value })
+                            }
+                            inputMode="decimal"
+                            placeholder="Peso kg"
+                            className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                          />
+                          <select
+                            value={pet.idadeAdultaConfirmada}
+                            onChange={(event) =>
+                              atualizarPetForm(index, {
+                                idadeAdultaConfirmada: event.target
+                                  .value as ClientePetForm["idadeAdultaConfirmada"],
+                              })
+                            }
+                            className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
+                          >
+                            <option value="">Peso adulto?</option>
+                            <option value="nao">Filhote/em crescimento</option>
+                            <option value="sim">Adulto confirmado</option>
+                          </select>
+                          <input
+                            value={pet.observacao}
+                            onChange={(event) =>
+                              atualizarPetForm(index, { observacao: event.target.value })
+                            }
+                            placeholder="Observacao"
+                            className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30 sm:col-span-2"
+                          />
+                        </div>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <input
-                          value={pet.nome}
-                          onChange={(event) =>
-                            atualizarPetForm(index, { nome: event.target.value })
-                          }
-                          placeholder="Nome do pet"
-                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
-                        />
-                        <input
-                          type="date"
-                          value={pet.nascimento}
-                          onChange={(event) =>
-                            atualizarPetForm(index, { nascimento: event.target.value })
-                          }
-                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
-                        />
-                        <select
-                          value={pet.especie}
-                          onChange={(event) =>
-                            atualizarPetForm(index, {
-                              especie: event.target.value as ClientePetForm["especie"],
-                            })
-                          }
-                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
-                        >
-                          <option value="">Especie</option>
-                          <option value="cachorro">Cachorro</option>
-                          <option value="gato">Gato</option>
-                        </select>
-                        <input
-                          value={pet.raca}
-                          onChange={(event) =>
-                            atualizarPetForm(index, { raca: event.target.value })
-                          }
-                          placeholder="Raca"
-                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
-                        />
-                        <select
-                          value={pet.porte}
-                          onChange={(event) =>
-                            atualizarPetForm(index, {
-                              porte: event.target.value as ClientePetForm["porte"],
-                            })
-                          }
-                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
-                        >
-                          <option value="">Porte</option>
-                          <option value="pequeno">Pequeno</option>
-                          <option value="medio">Medio</option>
-                          <option value="grande">Grande</option>
-                        </select>
-                        <input
-                          value={pet.pesoKg}
-                          onChange={(event) =>
-                            atualizarPetForm(index, { pesoKg: event.target.value })
-                          }
-                          inputMode="decimal"
-                          placeholder="Peso kg"
-                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30"
-                        />
-                        <input
-                          value={pet.observacao}
-                          onChange={(event) =>
-                            atualizarPetForm(index, { observacao: event.target.value })
-                          }
-                          placeholder="Observacao"
-                          className="h-10 w-full px-3 rounded-lg bg-card border border-border text-sm outline-none focus:ring-2 ring-primary/30 sm:col-span-2"
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               <FormField label="Endereco" full>
@@ -1334,6 +1516,12 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
                 className="flex-1 min-w-[140px] h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center justify-center gap-2"
               >
                 <ShoppingBag className="size-4" /> Adicionar pedido
+              </button>
+              <button
+                onClick={() => abrirRecompraCliente(active)}
+                className="h-10 px-4 rounded-xl bg-primary/15 text-primary text-sm font-semibold inline-flex items-center justify-center gap-2"
+              >
+                <CalendarClock className="size-4" /> Recompra
               </button>
               <button
                 onClick={() => setShowCupomModal(true)}

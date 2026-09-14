@@ -12,6 +12,7 @@ export type DashboardData = {
     faturamentoHoje: number;
     faturamentoSemana: number;
     faturamentoMes: number;
+    lucroHoje: number;
     lucroMes: number;
     ticketMedio: number;
     pedidosHoje: number;
@@ -310,7 +311,11 @@ function normalizarPetDetalhe(value: unknown): PetDetalhe | null {
           ? false
           : undefined;
   const porte =
-    item.porte === "pequeno" || item.porte === "medio" || item.porte === "grande"
+    item.porte === "toy" ||
+    item.porte === "pequeno" ||
+    item.porte === "medio" ||
+    item.porte === "grande" ||
+    item.porte === "gigante"
       ? item.porte
       : undefined;
   const pesoKg =
@@ -323,6 +328,16 @@ function normalizarPetDetalhe(value: unknown): PetDetalhe | null {
       : typeof item.dataNascimento === "string"
         ? item.dataNascimento.trim() || undefined
         : undefined;
+  const dataNascimentoEstimada =
+    typeof item.dataNascimentoEstimada === "string"
+      ? item.dataNascimentoEstimada.trim() || undefined
+      : nascimento;
+  const idadeAdultaConfirmada =
+    typeof item.idadeAdultaConfirmada === "boolean" ? item.idadeAdultaConfirmada : undefined;
+  const racaSlug =
+    typeof item.racaSlug === "string" ? item.racaSlug.trim() || undefined : undefined;
+  const pesoKgMedidoEm =
+    typeof item.pesoKgMedidoEm === "string" ? item.pesoKgMedidoEm.trim() || undefined : undefined;
   const observacao =
     typeof item.observacao === "string"
       ? item.observacao.trim().slice(0, 300) || undefined
@@ -335,13 +350,31 @@ function normalizarPetDetalhe(value: unknown): PetDetalhe | null {
     !raca &&
     !porte &&
     !pesoKg &&
+    !pesoKgMedidoEm &&
     !idade &&
     !nascimento &&
+    !dataNascimentoEstimada &&
+    idadeAdultaConfirmada === undefined &&
+    !racaSlug &&
     !observacao
   )
     return null;
 
-  return { nome, especie, castrado, raca, porte, pesoKg, idade, nascimento, observacao };
+  return {
+    nome,
+    especie,
+    castrado,
+    raca,
+    porte,
+    pesoKg,
+    pesoKgMedidoEm,
+    idade,
+    nascimento,
+    dataNascimentoEstimada,
+    idadeAdultaConfirmada,
+    racaSlug,
+    observacao,
+  };
 }
 
 function normalizarPetsDetalhes(value: unknown): PetDetalhe[] {
@@ -396,7 +429,7 @@ function mapProduto(row: ProdutoRow): Produto {
     giro: row.giro ?? "baixo",
     preco: row.preco ?? 0,
     precoCompra: row.preco_compra ?? 0,
-    tipo: row.tipo ?? "próprio",
+    tipo: row.tipo ?? "consignado",
     fornecedor: row.fornecedor ?? undefined,
     fotoUrl: row.foto_url ?? null,
     fotoPath: row.foto_path ?? null,
@@ -736,7 +769,7 @@ function validarProdutoFoto(file: ProdutoFotoArquivo): string {
   return contentType;
 }
 
-async function buscarProdutoPorSku(sku: string): Promise<Produto | null> {
+export async function buscarProdutoPorSku(sku: string): Promise<Produto | null> {
   const params = new URLSearchParams({
     sku: `eq.${sku.trim().toUpperCase()}`,
     select: "*",
@@ -745,6 +778,41 @@ async function buscarProdutoPorSku(sku: string): Promise<Produto | null> {
   const rows = await selectFromSupabase<ProdutoRow>(`/produtos?${params}`);
 
   return rows[0] ? mapProduto(rows[0]) : null;
+}
+
+export async function buscarProdutoFotoCrm(sku: string): Promise<{
+  bytes: ArrayBuffer;
+  contentType: string;
+  cacheKey: string;
+} | null> {
+  const produto = await buscarProdutoPorSku(sku);
+  if (!produto?.fotoPath && !produto?.fotoUrl) return null;
+
+  const response = await fetch(
+    produto.fotoPath
+      ? supabaseStorageUrl(`/object/${PRODUTO_FOTOS_BUCKET}/${encodeStoragePath(produto.fotoPath)}`)
+      : produto.fotoUrl!,
+    {
+      headers: produto.fotoPath ? supabaseStorageHeaders() : undefined,
+    },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(`Supabase produto foto fetch failed (${response.status}): ${errorBody}`);
+  }
+
+  const contentType =
+    response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() || "image/jpeg";
+  if (!contentType.startsWith("image/")) {
+    throw new Error("Arquivo salvo nao e uma imagem");
+  }
+
+  return {
+    bytes: await response.arrayBuffer(),
+    contentType,
+    cacheKey: produto.fotoPath ?? produto.fotoUrl ?? produto.sku,
+  };
 }
 
 async function atualizarProdutoFotoCampos({
@@ -1283,6 +1351,7 @@ async function carregarDashboardSemCache(): Promise<DashboardData> {
       faturamentoHoje: sum(vendasHoje, "total"),
       faturamentoSemana: sum(vendasSemanaAtual, "total"),
       faturamentoMes,
+      lucroHoje: sum(vendasHoje, "lucro"),
       lucroMes,
       ticketMedio,
       pedidosHoje: pedidosHoje.length,

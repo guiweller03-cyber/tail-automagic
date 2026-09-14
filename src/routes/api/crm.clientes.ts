@@ -47,7 +47,11 @@ function parsePetsDetalhes(value: unknown): PetDetalhe[] | undefined {
               ? false
               : undefined;
       const porte =
-        pet.porte === "pequeno" || pet.porte === "medio" || pet.porte === "grande"
+        pet.porte === "toy" ||
+        pet.porte === "pequeno" ||
+        pet.porte === "medio" ||
+        pet.porte === "grande" ||
+        pet.porte === "gigante"
           ? pet.porte
           : undefined;
       const pesoKg =
@@ -60,6 +64,16 @@ function parsePetsDetalhes(value: unknown): PetDetalhe[] | undefined {
           : typeof pet.dataNascimento === "string"
             ? pet.dataNascimento.trim() || undefined
             : undefined;
+      const dataNascimentoEstimada =
+        typeof pet.dataNascimentoEstimada === "string"
+          ? pet.dataNascimentoEstimada.trim() || undefined
+          : nascimento;
+      const idadeAdultaConfirmada =
+        typeof pet.idadeAdultaConfirmada === "boolean" ? pet.idadeAdultaConfirmada : undefined;
+      const racaSlug =
+        typeof pet.racaSlug === "string" ? pet.racaSlug.trim() || undefined : undefined;
+      const pesoKgMedidoEm =
+        typeof pet.pesoKgMedidoEm === "string" ? pet.pesoKgMedidoEm.trim() || undefined : undefined;
       const observacao =
         typeof pet.observacao === "string"
           ? pet.observacao.trim().slice(0, 300) || undefined
@@ -72,13 +86,31 @@ function parsePetsDetalhes(value: unknown): PetDetalhe[] | undefined {
         !raca &&
         !porte &&
         !pesoKg &&
+        !pesoKgMedidoEm &&
         !idade &&
         !nascimento &&
+        !dataNascimentoEstimada &&
+        idadeAdultaConfirmada === undefined &&
+        !racaSlug &&
         !observacao
       )
         return null;
 
-      return { nome, especie, castrado, raca, porte, pesoKg, idade, nascimento, observacao };
+      return {
+        nome,
+        especie,
+        castrado,
+        raca,
+        porte,
+        pesoKg,
+        pesoKgMedidoEm,
+        idade,
+        nascimento,
+        dataNascimentoEstimada,
+        idadeAdultaConfirmada,
+        racaSlug,
+        observacao,
+      };
     })
     .filter((pet): pet is PetDetalhe => pet !== null)
     .slice(0, 20);

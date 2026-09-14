@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 import {
+  definirCicloManualRecompra,
   listarRecompraPrevista,
   marcarRecompraContato,
   marcarRecompraTravada,
@@ -8,9 +9,61 @@ import {
   registrarRecompraManual,
   salvarModeloRecompraRacao,
 } from "@/lib/recompra-supabase";
+import type { PetDetalhe } from "@/lib/crm-types";
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
+}
+
+function parsePetsDetalhes(value: unknown): PetDetalhe[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  return value
+    .map((item): PetDetalhe | null => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const pet = item as Record<string, unknown>;
+      const nome = typeof pet.nome === "string" ? pet.nome.trim() : "";
+      if (!nome) return null;
+
+      const especie =
+        pet.especie === "cachorro" || pet.especie === "gato" ? pet.especie : undefined;
+      const porte =
+        pet.porte === "toy" ||
+        pet.porte === "pequeno" ||
+        pet.porte === "medio" ||
+        pet.porte === "grande" ||
+        pet.porte === "gigante"
+          ? pet.porte
+          : undefined;
+      const raca = typeof pet.raca === "string" ? pet.raca.trim() || undefined : undefined;
+      const pesoKg = Number(pet.pesoKg);
+      const nascimento =
+        typeof pet.nascimento === "string" ? pet.nascimento.trim() || undefined : undefined;
+      const dataNascimentoEstimada =
+        typeof pet.dataNascimentoEstimada === "string"
+          ? pet.dataNascimentoEstimada.trim() || undefined
+          : nascimento;
+      const idadeAdultaConfirmada =
+        typeof pet.idadeAdultaConfirmada === "boolean" ? pet.idadeAdultaConfirmada : undefined;
+      const racaSlug =
+        typeof pet.racaSlug === "string" ? pet.racaSlug.trim() || undefined : undefined;
+      const pesoKgMedidoEm =
+        typeof pet.pesoKgMedidoEm === "string" ? pet.pesoKgMedidoEm.trim() || undefined : undefined;
+
+      return {
+        nome,
+        ...(especie ? { especie } : {}),
+        ...(porte ? { porte } : {}),
+        ...(raca ? { raca } : {}),
+        ...(Number.isFinite(pesoKg) && pesoKg > 0 ? { pesoKg } : {}),
+        ...(pesoKgMedidoEm ? { pesoKgMedidoEm } : {}),
+        ...(nascimento ? { nascimento } : {}),
+        ...(dataNascimentoEstimada ? { dataNascimentoEstimada } : {}),
+        ...(idadeAdultaConfirmada !== undefined ? { idadeAdultaConfirmada } : {}),
+        ...(racaSlug ? { racaSlug } : {}),
+      };
+    })
+    .filter((pet): pet is PetDetalhe => pet !== null);
 }
 
 export const Route = createFileRoute("/api/crm/recompra-prevista")({
@@ -34,6 +87,13 @@ export const Route = createFileRoute("/api/crm/recompra-prevista")({
           if (body.tipo === "contatado") {
             await marcarRecompraContato(body.id, body.contatado === true);
             return json({ ok: true });
+          }
+
+          if (body.tipo === "ciclo_manual") {
+            return json({
+              ok: true,
+              recompra: await definirCicloManualRecompra(body.id, body.dias),
+            });
           }
 
           if (body.tipo === "travado") {
@@ -84,8 +144,8 @@ export const Route = createFileRoute("/api/crm/recompra-prevista")({
                 sku: String(body.sku ?? ""),
                 petNome: String(body.petNome ?? ""),
                 petNomes,
-                modoDistribuicao:
-                  body.modoDistribuicao === "por_pet" ? "por_pet" : "compartilhada",
+                petsDetalhes: parsePetsDetalhes(body.petsDetalhes),
+                modoDistribuicao: body.modoDistribuicao === "por_pet" ? "por_pet" : "compartilhada",
                 compraEm: String(body.compraEm ?? ""),
                 diasRecompra: Number(body.diasRecompra),
                 quantidade:

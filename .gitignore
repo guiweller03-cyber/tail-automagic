@@ -27,6 +27,12 @@ dist-ssr
 # Supabase local state
 supabase/.temp/
 
+# Artefatos locais de teste/agentes (contem dados de clientes)
+.playwright-cli/
+output/
+.codex-remote-attachments/
+/sql
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

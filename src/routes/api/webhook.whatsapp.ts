@@ -831,12 +831,12 @@ function textoPedidoAutomatico(
   const contexto = janela
     .map((mensagem) => `${mensagem.role === "user" ? "Cliente" : "Atendente"}: ${mensagem.content}`)
     .join("\n");
-  const produto = compra.produtos?.[0];
+  const produtos = compra.produtos?.map((produto) => produto.trim()).filter(Boolean) ?? [];
   const quantidade = compra.quantidade ?? 1;
   const total = compra.total ? brl(compra.total) : undefined;
   const marcador = [
     "[PEDIDO]",
-    produto ? `produto="${produto}"` : null,
+    ...produtos.map((produto) => `produto="${produto}"`),
     `quantidade=${quantidade}`,
     `pagamento="${formaPagamentoCompra(compra)}"`,
     total ? `total="${total}"` : null,
@@ -1554,9 +1554,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
         historico_recente: conversa.historico.slice(-80),
       },
       pedidos_recentes: pedidosRecentes,
-      produtos_relevantes: produtos.map(
-        ({ estoque: _estoque, precoCompra: _precoCompra, ...produto }) => produto,
-      ),
+      produtos_relevantes: produtos.map(({ precoCompra: _precoCompra, ...produto }) => produto),
       fichas_tecnicas_relevantes: fichasTecnicas,
       horario_atendimento: horarioAtendimento(),
       aprendizados,

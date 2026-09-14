@@ -2,6 +2,7 @@ import type {
   Cliente,
   DemandaBairro,
   ModeloRecompraRacao,
+  PetDetalhe,
   Produto,
   ProdutoPrevisto,
   RecompraPrevista,
@@ -9,12 +10,20 @@ import type {
   ComportamentoIA,
   TendenciaIA,
 } from "@/lib/crm-types";
+import {
+  calcularDiasRecompraRacao,
+  consumoDiarioPetRacao,
+  inferirPesoRacaoKg,
+} from "@/lib/recompra-calculo";
+import { useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   MessageCircle,
   ShoppingBag,
   Bell,
+  CalendarClock,
+  Check,
   CheckCheck,
   ArrowRightLeft,
   AlertTriangle,
@@ -41,6 +50,7 @@ import {
   ShoppingCart,
   RefreshCw,
   Loader2,
+  Send,
 } from "lucide-react";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -48,6 +58,11 @@ const recomprasPrevistas: RecompraPrevista[] = [];
 const produtosPrevistos: ProdutoPrevisto[] = [];
 const demandaBairros: DemandaBairro[] = [];
 const iaRecompraAlertas: { tipo: string; cliente: string; msg: string }[] = [];
+
+function numeroPositivo(value: string): number | null {
+  const number = Number(value.replace(",", "."));
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
 
 type RecompraApiData = {
   recompras: RecompraPrevista[];
@@ -61,6 +76,15 @@ type VendaManualForm = {
   clienteId: string;
   petNome: string;
   petNomes: string[];
+  petsDetalhes: Record<
+    string,
+    {
+      especie: "" | NonNullable<PetDetalhe["especie"]>;
+      raca: string;
+      porte: "" | NonNullable<PetDetalhe["porte"]>;
+      pesoKg: string;
+    }
+  >;
   modoDistribuicao: "compartilhada" | "por_pet";
   sku: string;
   compraEm: string;
@@ -70,14 +94,96 @@ type VendaManualForm = {
   consumoDiarioG: string;
 };
 
+type AgendamentoTutorDraft = {
+  grupo: TutorAvisoGrupo;
+  texto: string;
+};
+
+type AvisoTutorFollowup = {
+  id: string;
+  telefone: string;
+  agendadoPara: string;
+  disparo: "automatico" | "confirmar";
+  status: "pendente" | "aguardando_confirmacao" | "enviado" | "cancelado" | "erro";
+  contexto?: {
+    objetivo?: string;
+  };
+};
+
 function todayInputValue(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function defaultAgendamentoLocal(): string {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  date.setHours(9, 0, 0, 0);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(
+    date.getHours(),
+  )}:${pad2(date.getMinutes())}`;
+}
+
+function localDateTimeParaIso(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function telefoneWhatsApp(telefone: string): string {
+  const digits = telefone.replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("55")) return digits;
+  return `55${digits}`;
+}
+
+function telefoneKey(telefone: string): string {
+  const digits = telefone.replace(/\D/g, "");
+  if (!digits) return "";
+  return digits.startsWith("55") ? digits : `55${digits}`;
+}
+
+function dataHoraAgendamentoLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "data invalida";
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function urlPedidoPdv(item: RecompraPrevista): string {
+  const params = new URLSearchParams({
+    cliente: item.cliente,
+    telefone: item.telefone,
+    sku: item.sku,
+    pet: item.pet,
+    quantidade: String(Math.max(1, item.quantidade)),
+  });
+
+  return `/pdv?${params.toString()}`;
+}
+
+function urlConversaWhatsAppIa(item: RecompraPrevista): string {
+  const params = new URLSearchParams({
+    telefone: telefoneWhatsApp(item.telefone),
+    clienteId: item.clienteId,
+    cliente: item.cliente,
+    origem: "recompra",
+  });
+
+  return `/conversas?${params.toString()}`;
 }
 
 const VENDA_MANUAL_INICIAL: VendaManualForm = {
   clienteId: "",
   petNome: "",
   petNomes: [],
+  petsDetalhes: {},
   modoDistribuicao: "compartilhada",
   sku: "",
   compraEm: todayInputValue(),
@@ -105,6 +211,10 @@ const statusMap: Record<RecompraStatus, { label: string; cls: string; dot: strin
     dot: "bg-destructive",
   },
 };
+
+function petDetalheKey(nome: string): string {
+  return nome.trim().toLowerCase();
+}
 
 type Filtro =
   | "Todos"
@@ -134,6 +244,7 @@ const filtros: Filtro[] = [
 ];
 
 export function RecompraPrevista() {
+  const search = useSearch({ from: "/recompra-prevista" });
   const [items, setItems] = useState<RecompraPrevista[]>(recomprasPrevistas);
   const [produtos, setProdutos] = useState<ProdutoPrevisto[]>(produtosPrevistos);
   const [catalogoProdutos, setCatalogoProdutos] = useState<Produto[]>([]);
@@ -191,16 +302,77 @@ export function RecompraPrevista() {
   const clienteManual = clientes.find((cliente) => cliente.id === vendaManual.clienteId) ?? null;
   const produtoManual = catalogoProdutos.find((produto) => produto.sku === vendaManual.sku) ?? null;
   const modeloManual = modelosRacao.find((modelo) => modelo.sku === vendaManual.sku) ?? null;
+  const petNomesManualSelecionados = useMemo(() => {
+    return Array.from(
+      new Set(
+        [
+          ...vendaManual.petNomes,
+          ...(vendaManual.petNome.trim() ? [vendaManual.petNome.trim()] : []),
+        ]
+          .map((pet) => pet.trim())
+          .filter(Boolean),
+      ),
+    );
+  }, [vendaManual.petNome, vendaManual.petNomes]);
+  const petDetalhesManualSelecionados = useMemo(() => {
+    return petNomesManualSelecionados.map((nome) => {
+      const existente = clienteManual?.petsDetalhes?.find(
+        (pet) => pet.nome.trim().toLowerCase() === nome.toLowerCase(),
+      );
+      const manual = vendaManual.petsDetalhes[petDetalheKey(nome)];
+      const pesoManual = manual?.pesoKg ? numeroPositivo(manual.pesoKg) : null;
+
+      return {
+        nome: existente?.nome || nome,
+        especie: manual?.especie || existente?.especie,
+        raca: manual?.raca.trim() || existente?.raca,
+        porte: manual?.porte || existente?.porte,
+        pesoKg: pesoManual ?? existente?.pesoKg,
+      } satisfies PetDetalhe;
+    });
+  }, [clienteManual, petNomesManualSelecionados, vendaManual.petsDetalhes]);
+  const diasRecompraSugeridos = useMemo(() => {
+    if (!produtoManual || petNomesManualSelecionados.length === 0) return null;
+
+    const quantidade = numeroPositivo(vendaManual.quantidade) ?? 1;
+    const pesoRacaoKg =
+      numeroPositivo(vendaManual.pesoKg) ?? inferirPesoRacaoKg(produtoManual, quantidade);
+    const consumoManual = numeroPositivo(vendaManual.consumoDiarioG);
+    const consumoDiarioG =
+      consumoManual ??
+      petDetalhesManualSelecionados.reduce((sum, pet) => {
+        const consumo = consumoDiarioPetRacao({
+          produto: produtoManual,
+          pet,
+          especiePadrao: clienteManual?.especies?.[0] ?? "cachorro",
+          portePadrao: "medio",
+        });
+        return sum + consumo.consumoDiaG;
+      }, 0);
+
+    return calcularDiasRecompraRacao(pesoRacaoKg, consumoDiarioG);
+  }, [
+    clienteManual,
+    petDetalhesManualSelecionados,
+    petNomesManualSelecionados,
+    produtoManual,
+    vendaManual.consumoDiarioG,
+    vendaManual.pesoKg,
+    vendaManual.quantidade,
+  ]);
+  function petNomesCliente(cliente: Cliente): string[] {
+    const detalhes = cliente.petsDetalhes?.map((pet) => pet.nome).filter(Boolean) ?? [];
+    return Array.from(new Set([...detalhes, ...(cliente.pets ?? [])])).filter(Boolean);
+  }
   const petsClienteManual = useMemo(() => {
     if (!clienteManual) return [];
-    const detalhes = clienteManual.petsDetalhes?.map((pet) => pet.nome).filter(Boolean) ?? [];
-    return Array.from(new Set([...detalhes, ...(clienteManual.pets ?? [])])).filter(Boolean);
+    return petNomesCliente(clienteManual);
   }, [clienteManual]);
   const clientesManualFiltrados = useMemo(() => {
     const termo = clienteManualBusca.trim().toLowerCase();
     const lista = termo
       ? clientes.filter((cliente) =>
-          [cliente.nome, cliente.telefone, cliente.bairro, cliente.pets?.join(" ")]
+          [cliente.nome, cliente.telefone, cliente.bairro, petNomesCliente(cliente).join(" ")]
             .filter(Boolean)
             .join(" ")
             .toLowerCase()
@@ -210,6 +382,42 @@ export function RecompraPrevista() {
 
     return lista.slice(0, 80);
   }, [clienteManualBusca, clientes]);
+  const petsCadastradosManual = useMemo(() => {
+    return clientes.flatMap((cliente) =>
+      petNomesCliente(cliente).map((pet) => ({
+        pet,
+        cliente,
+        label: `${pet} - ${cliente.nome}`,
+      })),
+    );
+  }, [clientes]);
+
+  useEffect(() => {
+    if (!search.clienteId || clientes.length === 0) return;
+
+    const cliente = clientes.find((item) => item.id === search.clienteId);
+    if (!cliente) return;
+
+    const pet = search.pet?.trim() || "";
+    setClienteManualBusca(clienteManualLabel(cliente));
+    setVendaManual((current) => {
+      if (current.clienteId === cliente.id) return current;
+      return {
+        ...current,
+        clienteId: cliente.id,
+        petNome: pet,
+        petNomes: pet ? [pet] : [],
+      };
+    });
+  }, [clientes, search.clienteId, search.pet]);
+
+  useEffect(() => {
+    if (modeloManual || !diasRecompraSugeridos) return;
+    const proximo = String(diasRecompraSugeridos);
+    if (vendaManual.diasRecompra !== proximo) {
+      updateVendaManual({ diasRecompra: proximo });
+    }
+  }, [diasRecompraSugeridos, modeloManual, vendaManual.diasRecompra]);
 
   const carregar = useCallback(async () => {
     try {
@@ -309,6 +517,24 @@ export function RecompraPrevista() {
     });
   }
 
+  function escolherPetManualPorTexto(value: string) {
+    updateVendaManual({ petNome: value });
+    const termo = value.trim().toLowerCase();
+    if (!termo) return;
+
+    const match = petsCadastradosManual.find(
+      (item) => item.pet.toLowerCase() === termo || item.label.toLowerCase() === termo,
+    );
+    if (!match || match.cliente.id === vendaManual.clienteId) return;
+
+    setClienteManualBusca(clienteManualLabel(match.cliente));
+    updateVendaManual({
+      clienteId: match.cliente.id,
+      petNome: match.pet,
+      petNomes: [match.pet],
+    });
+  }
+
   function escolherProdutoManual(sku: string) {
     const produto = catalogoProdutos.find((item) => item.sku === sku);
     const modelo = modelosRacao.find((item) => item.sku === sku);
@@ -323,14 +549,7 @@ export function RecompraPrevista() {
   }
 
   function petsSelecionadosManual(): string[] {
-    return Array.from(
-      new Set(
-        [
-          ...vendaManual.petNomes,
-          ...(vendaManual.petNome.trim() ? [vendaManual.petNome.trim()] : []),
-        ].map((pet) => pet.trim()).filter(Boolean),
-      ),
-    );
+    return petNomesManualSelecionados;
   }
 
   function togglePetManual(pet: string) {
@@ -339,6 +558,40 @@ export function RecompraPrevista() {
         ? vendaManual.petNomes.filter((item) => item !== pet)
         : [...vendaManual.petNomes, pet],
     });
+  }
+
+  function atualizarPetDetalheManual(
+    petNome: string,
+    patch: Partial<VendaManualForm["petsDetalhes"][string]>,
+  ) {
+    const key = petDetalheKey(petNome);
+    setVendaManual((current) => {
+      const atual = current.petsDetalhes[key];
+      const proximo = {
+        especie: patch.especie ?? atual?.especie ?? "",
+        raca: patch.raca ?? atual?.raca ?? "",
+        porte: patch.porte ?? atual?.porte ?? "",
+        pesoKg: patch.pesoKg ?? atual?.pesoKg ?? "",
+      };
+
+      return {
+        ...current,
+        petsDetalhes: {
+          ...current.petsDetalhes,
+          [key]: proximo,
+        },
+      };
+    });
+  }
+
+  function petsDetalhesParaPayload(): PetDetalhe[] {
+    return petDetalhesManualSelecionados.map((pet) => ({
+      nome: pet.nome,
+      ...(pet.especie ? { especie: pet.especie } : {}),
+      ...(pet.raca ? { raca: pet.raca } : {}),
+      ...(pet.porte ? { porte: pet.porte } : {}),
+      ...(pet.pesoKg ? { pesoKg: pet.pesoKg } : {}),
+    }));
   }
 
   async function salvarModeloAtual() {
@@ -411,6 +664,7 @@ export function RecompraPrevista() {
           clienteId: clienteManual.id,
           petNome: petNomes[0],
           petNomes,
+          petsDetalhes: petsDetalhesParaPayload(),
           modoDistribuicao: vendaManual.modoDistribuicao,
           sku: produtoManual.sku,
           produtoNome: produtoManual.nome,
@@ -421,7 +675,10 @@ export function RecompraPrevista() {
           consumoDiarioG: vendaManual.consumoDiarioG,
         }),
       });
-      const data = (await response.json()) as RecompraPrevista | RecompraPrevista[] | { erro?: string };
+      const data = (await response.json()) as
+        | RecompraPrevista
+        | RecompraPrevista[]
+        | { erro?: string };
       if (!response.ok || (!Array.isArray(data) && !("id" in data))) {
         throw new Error("erro" in data ? data.erro : "Falha ao registrar recompra");
       }
@@ -470,6 +727,7 @@ export function RecompraPrevista() {
       }
     });
   }, [items, filtro, busca, cidade, bairro]);
+  const avisosTutorSemana = useMemo(() => agruparAvisosPorTutor(filtrados), [filtrados]);
 
   // KPIs do topo
   const valorPrevistoProdutos = produtos.reduce(
@@ -493,6 +751,30 @@ export function RecompraPrevista() {
       body: JSON.stringify({ tipo: "contatado", id, contatado }),
     }).catch(() => undefined);
   }
+
+  function gerarPedido(item: RecompraPrevista) {
+    if (!item.sku) {
+      toast.error("Nao foi possivel identificar o SKU dessa racao");
+      return;
+    }
+
+    window.location.href = urlPedidoPdv(item);
+  }
+
+  function abrirConversaWhatsAppIa(item: RecompraPrevista) {
+    if (!telefoneWhatsApp(item.telefone)) {
+      toast.error("Cliente sem telefone para abrir conversa");
+      return;
+    }
+
+    window.location.href = urlConversaWhatsAppIa(item);
+  }
+
+  function registrarFollowUp(item: RecompraPrevista) {
+    if (!item.contatado) marcarContatado(item.id);
+    toast.success("Follow-up marcado para esse cliente");
+  }
+
   function toggleTravado(id: string) {
     const atual = items.find((r) => r.id === id);
     const travado = !atual?.travado;
@@ -662,13 +944,16 @@ export function RecompraPrevista() {
             <input
               list="pets-recompra"
               value={vendaManual.petNome}
-              onChange={(event) => updateVendaManual({ petNome: event.target.value })}
+              onChange={(event) => escolherPetManualPorTexto(event.target.value)}
               className="input h-9"
-              placeholder="Adicionar pet manual"
+              placeholder="Buscar ou adicionar pet"
             />
             <datalist id="pets-recompra">
               {petsClienteManual.map((pet) => (
-                <option key={pet} value={pet} />
+                <option key={`cliente-${pet}`} value={pet} />
+              ))}
+              {petsCadastradosManual.map((item) => (
+                <option key={`${item.cliente.id}-${item.pet}`} value={item.pet} label={item.cliente.nome} />
               ))}
             </datalist>
           </div>
@@ -755,6 +1040,79 @@ export function RecompraPrevista() {
             </div>
           </div>
         </div>
+
+        {petDetalhesManualSelecionados.length > 0 && (
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {petDetalhesManualSelecionados.map((pet) => {
+              const key = petDetalheKey(pet.nome);
+              const manual = vendaManual.petsDetalhes[key] ?? {
+                especie: "",
+                raca: "",
+                porte: "",
+                pesoKg: "",
+              };
+              const racaValue = manual.raca || pet.raca || "";
+              const especieValue = manual.especie || pet.especie || "";
+              const porteValue = manual.porte || pet.porte || "";
+              const pesoValue = manual.pesoKg || (pet.pesoKg ? String(pet.pesoKg) : "");
+
+              return (
+                <div key={pet.nome} className="rounded-lg border border-border bg-secondary/20 p-3">
+                  <div className="mb-2 text-[10px] font-bold uppercase text-muted-foreground">
+                    Dados do pet - {pet.nome}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={especieValue}
+                      onChange={(event) =>
+                        atualizarPetDetalheManual(pet.nome, {
+                          especie: event.target
+                            .value as VendaManualForm["petsDetalhes"][string]["especie"],
+                        })
+                      }
+                      className="input h-9 text-xs"
+                    >
+                      <option value="">Especie</option>
+                      <option value="cachorro">Cachorro</option>
+                      <option value="gato">Gato</option>
+                    </select>
+                    <select
+                      value={porteValue}
+                      onChange={(event) =>
+                        atualizarPetDetalheManual(pet.nome, {
+                          porte: event.target
+                            .value as VendaManualForm["petsDetalhes"][string]["porte"],
+                        })
+                      }
+                      className="input h-9 text-xs"
+                    >
+                      <option value="">Porte</option>
+                      <option value="pequeno">Pequeno</option>
+                      <option value="medio">Medio</option>
+                      <option value="grande">Grande</option>
+                    </select>
+                    <input
+                      value={racaValue}
+                      onChange={(event) =>
+                        atualizarPetDetalheManual(pet.nome, { raca: event.target.value })
+                      }
+                      className="input h-9 text-xs"
+                      placeholder="Raca"
+                    />
+                    <input
+                      value={pesoValue}
+                      onChange={(event) =>
+                        atualizarPetDetalheManual(pet.nome, { pesoKg: event.target.value })
+                      }
+                      className="input h-9 text-xs"
+                      placeholder="Peso do pet kg"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <RecompraInput
@@ -966,6 +1324,8 @@ export function RecompraPrevista() {
       {/* AUTOMAÇÕES POR CATEGORIA DE PRODUTO */}
       <AutomacoesCategoria produtosPrevistos={produtos} />
 
+      <AvisosTutorSemana grupos={avisosTutorSemana} loading={loading} />
+
       {/* FILTROS */}
 
       <section className="space-y-3">
@@ -1049,9 +1409,6 @@ export function RecompraPrevista() {
               <tbody>
                 {filtrados.map((r) => {
                   const st = statusMap[r.status];
-                  const wpp = `https://wa.me/55${r.telefone.replace(/\D/g, "")}?text=${encodeURIComponent(
-                    `Oi ${r.cliente.split(" ")[0]}! 🐾 A ${r.racao} do ${r.pet} deve estar acabando essa semana. Posso já separar?`,
-                  )}`;
                   return (
                     <tr
                       key={r.id}
@@ -1074,6 +1431,9 @@ export function RecompraPrevista() {
                       </td>
                       <td className="px-3 py-3 text-xs">
                         {r.racao}
+                        <div className="text-[10px] font-bold text-foreground mt-0.5">
+                          {r.quantidade} un
+                        </div>
                         <div className="text-[10px] text-muted-foreground mt-0.5">
                           última {r.ultimaCompra} · {(r.consumoDiaKg * 1000).toFixed(0)}g/dia
                         </div>
@@ -1129,28 +1489,33 @@ export function RecompraPrevista() {
                       </td>
                       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
-                          <a
-                            href={wpp}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Abrir WhatsApp"
+                          <button
+                            type="button"
+                            onClick={() => abrirConversaWhatsAppIa(r)}
+                            title="Abrir conversa no WhatsApp IA"
                             className="size-8 grid place-items-center rounded-lg bg-success/15 text-success hover:bg-success/25 transition"
                           >
                             <MessageCircle className="size-4" />
-                          </a>
+                          </button>
                           <button
+                            type="button"
+                            onClick={() => gerarPedido(r)}
                             title="Gerar pedido"
                             className="size-8 grid place-items-center rounded-lg bg-primary/15 text-primary hover:bg-primary/25 transition"
                           >
                             <ShoppingBag className="size-4" />
                           </button>
                           <button
-                            title="Lembrete IA"
+                            type="button"
+                            onClick={() => abrirConversaWhatsAppIa(r)}
+                            title="Abrir conversa no WhatsApp IA"
                             className="size-8 grid place-items-center rounded-lg bg-accent/15 text-accent hover:bg-accent/25 transition"
                           >
                             <Sparkles className="size-4" />
                           </button>
                           <button
+                            type="button"
+                            onClick={() => registrarFollowUp(r)}
                             title="Follow-up"
                             className="size-8 grid place-items-center rounded-lg bg-secondary hover:bg-secondary/70 transition"
                           >
@@ -1203,7 +1568,470 @@ export function RecompraPrevista() {
         </div>
       </section>
 
-      {drawerItem && <ClienteDrawer item={drawerItem} onClose={() => setDrawerId(null)} />}
+      {drawerItem && (
+        <ClienteDrawer
+          item={drawerItem}
+          onClose={() => setDrawerId(null)}
+          onWhatsAppIa={abrirConversaWhatsAppIa}
+          onGerarPedido={gerarPedido}
+          onFollowUp={registrarFollowUp}
+        />
+      )}
+    </div>
+  );
+}
+
+type TutorAvisoGrupo = {
+  key: string;
+  clienteId: string;
+  cliente: string;
+  telefone: string;
+  cidade: string;
+  bairro: string;
+  totalQuantidade: number;
+  totalValor: number;
+  maisUrgente: number;
+  itens: RecompraPrevista[];
+};
+
+function quantidadeLabel(quantidade: number): string {
+  return `${quantidade} un`;
+}
+
+function prazoLabel(dias: number): string {
+  if (dias < 0) return `venceu ha ${Math.abs(dias)}d`;
+  if (dias === 0) return "vence hoje";
+  if (dias === 1) return "vence amanha";
+  return `vence em ${dias}d`;
+}
+
+function agruparAvisosPorTutor(recompras: RecompraPrevista[]): TutorAvisoGrupo[] {
+  const grupos = new Map<string, TutorAvisoGrupo>();
+
+  for (const recompra of recompras) {
+    if (recompra.diasRestantes > 7) continue;
+
+    const key = recompra.clienteId || recompra.telefone || recompra.cliente;
+    const atual =
+      grupos.get(key) ??
+      ({
+        key,
+        clienteId: recompra.clienteId,
+        cliente: recompra.cliente,
+        telefone: recompra.telefone,
+        cidade: recompra.cidade,
+        bairro: recompra.bairro,
+        totalQuantidade: 0,
+        totalValor: 0,
+        maisUrgente: recompra.diasRestantes,
+        itens: [],
+      } satisfies TutorAvisoGrupo);
+
+    atual.totalQuantidade += recompra.quantidade;
+    atual.totalValor += recompra.valorEstimado;
+    atual.maisUrgente = Math.min(atual.maisUrgente, recompra.diasRestantes);
+    atual.itens.push(recompra);
+    grupos.set(key, atual);
+  }
+
+  return Array.from(grupos.values())
+    .map((grupo) => ({
+      ...grupo,
+      itens: grupo.itens.sort((a, b) => a.diasRestantes - b.diasRestantes),
+    }))
+    .sort((a, b) => a.maisUrgente - b.maisUrgente || b.totalValor - a.totalValor);
+}
+
+function urlConversaTutorWhatsAppIa(grupo: TutorAvisoGrupo): string {
+  const params = new URLSearchParams({
+    telefone: telefoneWhatsApp(grupo.telefone),
+    cliente: grupo.cliente,
+    origem: "avisos-tutor",
+  });
+
+  if (grupo.clienteId) params.set("clienteId", grupo.clienteId);
+
+  return `/conversas?${params.toString()}`;
+}
+
+function abrirConversaTutorWhatsAppIa(grupo: TutorAvisoGrupo) {
+  if (!telefoneWhatsApp(grupo.telefone)) {
+    toast.error("Tutor sem telefone para abrir conversa");
+    return;
+  }
+
+  window.location.href = urlConversaTutorWhatsAppIa(grupo);
+}
+
+function mensagemAvisoTutor(grupo: TutorAvisoGrupo): string {
+  const primeiroNome = grupo.cliente.split(" ")[0] || grupo.cliente;
+  const linhas = grupo.itens
+    .map(
+      (item) =>
+        `- ${item.pet}: ${item.racao} (${quantidadeLabel(item.quantidade)}), ${prazoLabel(
+          item.diasRestantes,
+        )}`,
+    )
+    .join("\n");
+
+  return `Oi ${primeiroNome}! A recompra esta prevista para essa semana:\n${linhas}\nPosso separar pra voce?`;
+}
+
+function AvisosTutorSemana({ grupos, loading }: { grupos: TutorAvisoGrupo[]; loading: boolean }) {
+  const [draft, setDraft] = useState<AgendamentoTutorDraft | null>(null);
+  const [followupsAbertos, setFollowupsAbertos] = useState<AvisoTutorFollowup[]>([]);
+  const [carregandoFollowups, setCarregandoFollowups] = useState(false);
+
+  const carregarFollowupsAbertos = useCallback(async () => {
+    setCarregandoFollowups(true);
+    try {
+      const response = await fetch(
+        "/api/crm/followups?status=pendente,aguardando_confirmacao,erro",
+        { cache: "no-store" },
+      );
+      const data = (await response.json()) as AvisoTutorFollowup[] | { erro?: string };
+      if (!response.ok || !Array.isArray(data)) {
+        throw new Error(Array.isArray(data) ? "Falha ao carregar agendamentos" : data.erro);
+      }
+      setFollowupsAbertos(
+        data.filter((followup) => followup.contexto?.objetivo === "Aviso de recompra prevista"),
+      );
+    } catch {
+      setFollowupsAbertos([]);
+    } finally {
+      setCarregandoFollowups(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void carregarFollowupsAbertos();
+  }, [carregarFollowupsAbertos]);
+
+  const proximoFollowupPorTelefone = useMemo(() => {
+    const mapa = new Map<string, AvisoTutorFollowup>();
+    for (const followup of followupsAbertos) {
+      const key = telefoneKey(followup.telefone);
+      if (!key) continue;
+      const atual = mapa.get(key);
+      if (!atual || followup.agendadoPara.localeCompare(atual.agendadoPara) < 0) {
+        mapa.set(key, followup);
+      }
+    }
+    return mapa;
+  }, [followupsAbertos]);
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
+            <Bell className="size-4 text-amber-600" /> Avisos por tutor
+          </h2>
+          <p className="text-[11px] text-muted-foreground">
+            Tutores com recompra vencida ou vencendo nos proximos 7 dias.
+          </p>
+        </div>
+        <span className="rounded-lg bg-secondary px-3 py-1.5 text-[11px] font-bold text-muted-foreground">
+          {grupos.length} tutor(es)
+          {carregandoFollowups ? " - agenda..." : ""}
+        </span>
+      </div>
+
+      {grupos.length === 0 ? (
+        <div className="card-soft px-4 py-5 text-xs text-muted-foreground">
+          {loading ? "Carregando avisos..." : "Nenhum tutor para avisar nesse filtro."}
+        </div>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+          {grupos.map((grupo) => {
+            const telefone = grupo.telefone.replace(/\D/g, "");
+            const followupAberto = proximoFollowupPorTelefone.get(telefoneKey(grupo.telefone));
+
+            return (
+              <div key={grupo.key} className="card-soft p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-bold text-sm truncate">{grupo.cliente}</div>
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <MapPin className="size-3" /> {grupo.cidade} Â· {grupo.bairro}
+                    </div>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-bold ${
+                      grupo.maisUrgente < 0
+                        ? "border-destructive/30 bg-destructive/10 text-destructive"
+                        : grupo.maisUrgente <= 3
+                          ? "border-destructive/30 bg-destructive/10 text-destructive"
+                          : "border-amber-500/30 bg-amber-500/10 text-amber-600"
+                    }`}
+                  >
+                    {prazoLabel(grupo.maisUrgente)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Mini label="Quantidade" value={quantidadeLabel(grupo.totalQuantidade)} />
+                  <Mini label="Estimado" value={brl(grupo.totalValor)} accent="success" />
+                </div>
+
+                {followupAberto && (
+                  <div
+                    className={`rounded-lg border px-3 py-2 text-xs ${
+                      followupAberto.status === "erro"
+                        ? "border-destructive/30 bg-destructive/10 text-destructive"
+                        : followupAberto.status === "aguardando_confirmacao"
+                          ? "border-primary/30 bg-primary/10 text-primary"
+                          : "border-success/30 bg-success/10 text-success"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 font-bold">
+                        <CalendarClock className="size-3.5" /> Agendado
+                      </span>
+                      <span className="shrink-0 font-bold tabular-nums">
+                        {dataHoraAgendamentoLabel(followupAberto.agendadoPara)}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] opacity-80">
+                      {followupAberto.status === "aguardando_confirmacao"
+                        ? "Aguardando confirmacao"
+                        : followupAberto.status === "erro"
+                          ? "Falhou no envio"
+                          : followupAberto.disparo === "automatico"
+                            ? "Vai disparar sozinho"
+                            : "Vai pedir confirmacao"}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  {grupo.itens.slice(0, 4).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="w-full rounded-lg border border-border bg-secondary/35 px-3 py-2 text-left hover:bg-secondary/60"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold truncate">{item.racao}</span>
+                        <span className="text-[10px] font-bold text-muted-foreground">
+                          {quantidadeLabel(item.quantidade)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <span className="truncate">{item.pet}</span>
+                        <span className="shrink-0">{prazoLabel(item.diasRestantes)}</span>
+                      </div>
+                    </button>
+                  ))}
+                  {grupo.itens.length > 4 && (
+                    <div className="text-[11px] font-semibold text-muted-foreground">
+                      +{grupo.itens.length - 4} outro(s) item(ns)
+                    </div>
+                  )}
+                </div>
+
+                {telefone ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => abrirConversaTutorWhatsAppIa(grupo)}
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-accent/15 px-3 text-xs font-bold text-accent hover:bg-accent/25"
+                    >
+                      <MessageCircle className="size-4" /> Conversa IA
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraft({ grupo, texto: mensagemAvisoTutor(grupo) })}
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-success/15 px-3 text-xs font-bold text-success hover:bg-success/25"
+                    >
+                      <CalendarClock className="size-4" /> Agendar aviso
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-secondary text-xs font-bold text-muted-foreground opacity-70"
+                  >
+                    <MessageCircle className="size-4" /> Sem telefone
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {draft && (
+        <AgendarAvisoTutorModal
+          draft={draft}
+          onChange={(texto) => setDraft((current) => (current ? { ...current, texto } : current))}
+          onClose={() => setDraft(null)}
+          onScheduled={() => void carregarFollowupsAbertos()}
+        />
+      )}
+    </section>
+  );
+}
+
+function AgendarAvisoTutorModal({
+  draft,
+  onChange,
+  onClose,
+  onScheduled,
+}: {
+  draft: AgendamentoTutorDraft;
+  onChange: (texto: string) => void;
+  onClose: () => void;
+  onScheduled: () => void;
+}) {
+  const [quando, setQuando] = useState(defaultAgendamentoLocal);
+  const [disparo, setDisparo] = useState<"automatico" | "confirmar">("automatico");
+  const [salvando, setSalvando] = useState(false);
+
+  async function agendar() {
+    const telefone = draft.grupo.telefone.replace(/\D/g, "");
+    const agendadoPara = localDateTimeParaIso(quando);
+
+    if (!telefone) {
+      toast.error("Tutor sem telefone valido");
+      return;
+    }
+    if (!agendadoPara) {
+      toast.error("Escolha uma data e hora validas");
+      return;
+    }
+    if (!draft.texto.trim()) {
+      toast.error("Escreva a mensagem que sera enviada");
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      const response = await fetch("/api/crm/followups", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          telefone,
+          clienteNome: draft.grupo.cliente,
+          agendadoPara,
+          modo: "manual",
+          disparo,
+          mensagem: draft.texto.trim(),
+          contexto: {
+            nome: draft.grupo.cliente,
+            pet: draft.grupo.itens.map((item) => item.pet).filter(Boolean).join(", "),
+            resumo: draft.grupo.itens
+              .map((item) => `${item.pet}: ${item.racao} (${prazoLabel(item.diasRestantes)})`)
+              .join("; "),
+            objetivo: "Aviso de recompra prevista",
+          },
+        }),
+      });
+      const data = (await response.json()) as { erro?: string };
+      if (!response.ok) throw new Error(data.erro || "Falha ao agendar aviso");
+      toast.success(
+        disparo === "automatico"
+          ? "Aviso agendado para disparar sozinho"
+          : "Aviso agendado para confirmar no horario",
+      );
+      onScheduled();
+      onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao agendar aviso");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg rounded-lg border border-border bg-card p-4 shadow-2xl space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Aviso de recompra agendado
+            </div>
+            <h3 className="text-base font-bold">{draft.grupo.cliente}</h3>
+            <p className="text-xs text-muted-foreground">
+              {draft.grupo.itens.length} item(ns) - {prazoLabel(draft.grupo.maisUrgente)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid size-8 place-items-center rounded-lg bg-secondary hover:bg-secondary/70"
+            aria-label="Fechar"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <label className="space-y-1.5 block">
+          <span className="text-[10px] font-bold uppercase text-muted-foreground">Quando</span>
+          <input
+            type="datetime-local"
+            value={quando}
+            onChange={(event) => setQuando(event.target.value)}
+            className="input h-10"
+          />
+        </label>
+
+        <textarea
+          value={draft.texto}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full min-h-36 rounded-lg border border-border bg-background p-3 text-sm outline-none focus:ring-2 ring-primary/30 resize-y"
+          placeholder="Mensagem que sera enviada no horario"
+        />
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setDisparo("automatico")}
+            className={`h-9 rounded-lg border text-xs font-bold inline-flex items-center justify-center gap-1.5 ${
+              disparo === "automatico"
+                ? "border-success/40 bg-success/15 text-success"
+                : "border-border bg-secondary text-muted-foreground hover:bg-secondary/70"
+            }`}
+          >
+            <Send className="size-3.5" /> Envia sozinho
+          </button>
+          <button
+            type="button"
+            onClick={() => setDisparo("confirmar")}
+            className={`h-9 rounded-lg border text-xs font-bold inline-flex items-center justify-center gap-1.5 ${
+              disparo === "confirmar"
+                ? "border-primary/40 bg-primary/15 text-primary"
+                : "border-border bg-secondary text-muted-foreground hover:bg-secondary/70"
+            }`}
+          >
+            <Check className="size-3.5" /> Eu confirmo
+          </button>
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 px-3 rounded-lg bg-secondary text-xs font-bold hover:bg-secondary/70"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={() => void agendar()}
+            disabled={salvando || !draft.texto.trim()}
+            className="h-9 px-3 rounded-lg bg-success text-success-foreground text-xs font-bold inline-flex items-center gap-1.5 hover:bg-success/90 disabled:opacity-50"
+          >
+            {salvando ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <CalendarClock className="size-3.5" />
+            )}
+            {salvando ? "Agendando..." : "Agendar aviso"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1413,7 +2241,19 @@ function PrecisaoBar({ v }: { v: number }) {
   );
 }
 
-function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () => void }) {
+function ClienteDrawer({
+  item,
+  onClose,
+  onWhatsAppIa,
+  onGerarPedido,
+  onFollowUp,
+}: {
+  item: RecompraPrevista;
+  onClose: () => void;
+  onWhatsAppIa: (item: RecompraPrevista) => void;
+  onGerarPedido: (item: RecompraPrevista) => void;
+  onFollowUp: (item: RecompraPrevista) => void;
+}) {
   const hist = item.historicoDias;
   const max = Math.max(...hist);
   const min = Math.min(...hist);
@@ -1520,16 +2360,32 @@ function ClienteDrawer({ item, onClose }: { item: RecompraPrevista; onClose: () 
         </div>
 
         <div className="grid grid-cols-2 gap-2 pt-2">
-          <button className="h-9 rounded-lg bg-success/15 text-success text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-success/25">
+          <button
+            type="button"
+            onClick={() => onWhatsAppIa(item)}
+            className="h-9 rounded-lg bg-success/15 text-success text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-success/25"
+          >
             <MessageCircle className="size-3.5" /> WhatsApp
           </button>
-          <button className="h-9 rounded-lg bg-primary/15 text-primary text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-primary/25">
+          <button
+            type="button"
+            onClick={() => onGerarPedido(item)}
+            className="h-9 rounded-lg bg-primary/15 text-primary text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-primary/25"
+          >
             <ShoppingBag className="size-3.5" /> Gerar pedido
           </button>
-          <button className="h-9 rounded-lg bg-accent/15 text-accent text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-accent/25">
+          <button
+            type="button"
+            onClick={() => onWhatsAppIa(item)}
+            className="h-9 rounded-lg bg-accent/15 text-accent text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-accent/25"
+          >
             <Sparkles className="size-3.5" /> Lembrete IA
           </button>
-          <button className="h-9 rounded-lg bg-secondary text-foreground text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-secondary/70">
+          <button
+            type="button"
+            onClick={() => onFollowUp(item)}
+            className="h-9 rounded-lg bg-secondary text-foreground text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:bg-secondary/70"
+          >
             <Bell className="size-3.5" /> Follow-up
           </button>
         </div>

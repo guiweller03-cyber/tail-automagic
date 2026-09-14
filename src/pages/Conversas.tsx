@@ -45,17 +45,26 @@ import {
   Clock,
   Link,
   ArrowLeft,
+  ArrowRight,
   Bell,
   BellOff,
   Banknote,
   Ban,
 } from "lucide-react";
+import { useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SpeciePill } from "@/pages/RecompraPrevista";
 import { AIAssistantToggle } from "@/features/whatsapp-crm/components/AIAssistantToggle";
 import { FollowupScheduler } from "@/features/whatsapp-crm/components/FollowupScheduler";
 import { useMessageNotifications } from "@/features/whatsapp-crm/hooks/useMessageNotifications";
 import { toast } from "sonner";
+import {
+  DEFAULT_KANBAN_COLUMNS,
+  defaultKanbanColumnId,
+  sanitizeKanbanColumns,
+  type KanbanColumn,
+  type KanbanColumnColor,
+} from "@/features/whatsapp-crm/kanban-config";
 
 type IaRegra = { id: string; titulo: string; instrucao: string; ativa: boolean };
 type IaAprendizado = {
@@ -128,7 +137,45 @@ type QuickMessageTemplate = {
 };
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+function precoComDesconto(preco: number, descontoPercentual: number) {
+  const percentual = Number.isFinite(descontoPercentual)
+    ? Math.min(100, Math.max(0, descontoPercentual))
+    : 0;
+  return Math.round(Math.max(0, preco) * (1 - percentual / 100) * 100) / 100;
+}
 const onlyDigits = (value: unknown) => String(value ?? "").replace(/\D/g, "");
+function phoneForMatch(value: unknown): string {
+  const digits = onlyDigits(value);
+  if (digits.startsWith("55") && digits.length > 11) return digits.slice(2);
+  return digits;
+}
+function phoneCandidates(value: unknown): string[] {
+  const raw = onlyDigits(value);
+  const withoutCountry = phoneForMatch(value);
+  return Array.from(
+    new Set(
+      [
+        raw,
+        withoutCountry,
+        withoutCountry.slice(-11),
+        withoutCountry.slice(-10),
+        withoutCountry.slice(-9),
+        withoutCountry.slice(-8),
+      ].filter((item) => item.length >= 8),
+    ),
+  );
+}
+function phoneMatches(a: unknown, b: unknown): boolean {
+  const left = phoneCandidates(a);
+  const right = phoneCandidates(b);
+  return left.some((item) => right.includes(item));
+}
+function phoneIncludes(value: unknown, query: unknown): boolean {
+  const phone = phoneForMatch(value);
+  const term = phoneForMatch(query);
+  return Boolean(term && (phone.includes(term) || onlyDigits(value).includes(onlyDigits(query))));
+}
 const normalizeName = (value: unknown) =>
   String(value ?? "")
     .trim()
@@ -233,11 +280,24 @@ function montarMensagemProduto(
   produto: Produto,
   info: Record<EstoqueInfoKey, boolean>,
   incluirLinkFoto = true,
+  descontoPercentual = 10,
 ) {
   const detalhes = produto.detalhesTecnicos;
+  const descontoSeguro = Number.isFinite(descontoPercentual)
+    ? Math.min(100, Math.max(0, descontoPercentual))
+    : 0;
   const linhas = [`Tenho essa opcao aqui: ${produto.nome}`];
 
-  if (info.preco) linhas.push(`Valor: ${brl(produto.preco)}`);
+  if (info.preco) {
+    linhas.push(`Preco real: ${brl(produto.preco)}`);
+    if (descontoSeguro > 0) {
+      linhas.push(
+        `Etiqueta: ${descontoSeguro}% de desconto - por apenas ${brl(
+          precoComDesconto(produto.preco, descontoSeguro),
+        )}`,
+      );
+    }
+  }
   if (info.disponibilidade) {
     linhas.push(
       produto.estoque > 0
@@ -523,6 +583,7 @@ export type ConversaView = Conversa & {
   iaAtiva: boolean | null;
   atualizado_em?: string;
   lidoAte?: string | null;
+  historicoResumido?: boolean;
 };
 
 /** Conta as mensagens recebidas do cliente ainda nao lidas pelo operador. */
@@ -576,6 +637,10 @@ function mapApiConversa(row: Record<string, unknown>): ConversaView {
     naoLidas: row.aguardando_humano ? 1 : 0,
     tag: statusConversaIa(aguardandoHumano, iaAtiva),
     estagio: mapStageFromApi(row.estagio),
+    kanbanColumnId:
+      typeof row.kanban_coluna === "string" && row.kanban_coluna
+        ? row.kanban_coluna
+        : defaultKanbanColumnId(row.estagio),
     valorPotencial: Number(row.valor_potencial ?? 0),
     resumoFinanceiro: mapResumoFinanceiroApi(row.resumo_financeiro),
     filtros: [],
@@ -584,6 +649,7 @@ function mapApiConversa(row: Record<string, unknown>): ConversaView {
     iaAtiva,
     atualizado_em: atualizadoEm,
     lidoAte: typeof row.lido_ate === "string" ? row.lido_ate : null,
+    historicoResumido: row.historico_resumido === true,
   };
 }
 
@@ -670,13 +736,10 @@ function clienteFromConversa(active: ConversaView): Cliente {
 }
 
 function findClienteForConversation(active: ConversaView, clientes: Cliente[]) {
-  const activePhone = onlyDigits(active?.telefone);
   const activeName = normalizeName(active?.cliente);
 
   const base =
-    (activePhone
-      ? clientes.find((cliente) => onlyDigits(cliente.telefone) === activePhone)
-      : undefined) ??
+    clientes.find((cliente) => phoneMatches(cliente.telefone, active?.telefone)) ??
     (activeName
       ? clientes.find((cliente) => normalizeName(cliente.nome) === activeName)
       : undefined) ??
@@ -708,14 +771,23 @@ export function Conversas({
   conversasIniciais,
   clientesIniciais,
   iaStatus,
+  kanbanColumns: kanbanColumnsIniciais = DEFAULT_KANBAN_COLUMNS,
 }: {
   conversasIniciais: ConversaView[];
   clientesIniciais: Cliente[];
   iaStatus?: IaStatusPayload | null;
+  kanbanColumns?: KanbanColumn[];
 }) {
+  const conversaSearch = useSearch({ from: "/conversas" });
+  const telefoneLink = onlyDigits(conversaSearch.telefone);
+  const clienteIdLink = conversaSearch.clienteId;
+  const clienteNomeLink = conversaSearch.cliente;
   const [view, setView] = useState<"chat" | "kanban" | "regras">("chat");
   const [active, setActive] = useState<ConversaView | null>(conversasIniciais[0] ?? null);
   const [items, setItems] = useState<ConversaView[]>(conversasIniciais);
+  const [kanbanColumns, setKanbanColumns] = useState<KanbanColumn[]>(
+    sanitizeKanbanColumns(kanbanColumnsIniciais),
+  );
   const [clientesAtuais, setClientesAtuais] = useState<Cliente[]>(clientesIniciais);
   const [filtro, setFiltro] = useState<(typeof filtrosConversa)[number]>("Todos");
   const [busca, setBusca] = useState("");
@@ -734,10 +806,154 @@ export function Conversas({
   const [readOverrides, setReadOverrides] = useState<Record<string, number>>({});
   const activeIdRef = useRef<string | null>(active?.id ?? null);
   const lastReadSentRef = useRef<Map<string, number>>(new Map());
+  const lastConversationSyncRef = useRef(
+    conversasIniciais.reduce<string | null>((latest, conversa) => {
+      const value = conversa.atualizado_em;
+      if (!value) return latest;
+      return !latest || new Date(value).getTime() > new Date(latest).getTime() ? value : latest;
+    }, null),
+  );
+  const notificationsPrimedRef = useRef(false);
+  const resumosFinanceirosRef = useRef<
+    Record<string, NonNullable<ConversaView["resumoFinanceiro"]>>
+  >({});
 
   useEffect(() => {
     activeIdRef.current = active?.id ?? null;
   }, [active]);
+
+  useEffect(() => {
+    if (!active?.id || !active.historicoResumido) return;
+
+    const controller = new AbortController();
+    void fetch(`/api/crm/conversas?detalhe=${encodeURIComponent(active.id)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.erro || "Falha ao carregar a conversa");
+        return mapApiConversa(data as Record<string, unknown>);
+      })
+      .then((detail) => {
+        setItems((current) =>
+          current.map((item) =>
+            item.id === detail.id
+              ? {
+                  ...item,
+                  ...detail,
+                  valorPotencial: item.valorPotencial,
+                  resumoFinanceiro: item.resumoFinanceiro,
+                }
+              : item,
+          ),
+        );
+        setActive((current) =>
+          current?.id === detail.id
+            ? {
+                ...current,
+                ...detail,
+                valorPotencial: current.valorPotencial,
+                resumoFinanceiro: current.resumoFinanceiro,
+              }
+            : current,
+        );
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error(error);
+      });
+
+    return () => controller.abort();
+  }, [active?.historicoResumido, active?.id]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/crm/conversas?financeiro=resumo", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.erro || "Falha ao carregar resumo financeiro");
+        return data as Record<
+          string,
+          {
+            totalGasto: number;
+            lucroLiquido: number;
+            totalDescontos: number;
+            ticketMedio: number;
+            pedidos: number;
+          }
+        >;
+      })
+      .then((resumos) => {
+        resumosFinanceirosRef.current = resumos;
+        const applyResumo = (item: ConversaView): ConversaView => {
+          const resumo = resumos[onlyDigits(item.telefone)];
+          return resumo
+            ? { ...item, valorPotencial: resumo.totalGasto, resumoFinanceiro: resumo }
+            : item;
+        };
+        setItems((current) => current.map(applyResumo));
+        setActive((current) => (current ? applyResumo(current) : current));
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error(error);
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const findLinkedConversation = useCallback(
+    (list: ConversaView[]) => {
+      const clienteCadastro = clienteIdLink
+        ? clientesAtuais.find((cliente) => cliente.id === clienteIdLink)
+        : undefined;
+      const telefonesBusca = [telefoneLink, clienteCadastro?.telefone].filter(Boolean);
+      const nomesBusca = [clienteNomeLink, clienteCadastro?.nome]
+        .map((nome) => normalizeName(nome))
+        .filter(Boolean);
+
+      const byExactPhone = list.find((item) =>
+        telefonesBusca.some((telefone) => phoneForMatch(item.telefone) === phoneForMatch(telefone)),
+      );
+      const byPhone = list.find((item) =>
+        telefonesBusca.some((telefone) => phoneMatches(item.telefone, telefone)),
+      );
+      const byExactName = list.find((item) => nomesBusca.includes(normalizeName(item.cliente)));
+      const byLooseName = list.find((item) => {
+        const nomeConversa = normalizeName(item.cliente);
+        return nomesBusca.some(
+          (nome) =>
+            nome.length >= 3 && (nomeConversa.includes(nome) || nome.includes(nomeConversa)),
+        );
+      });
+
+      return byExactPhone ?? byPhone ?? byExactName ?? byLooseName ?? null;
+    },
+    [clienteIdLink, clienteNomeLink, clientesAtuais, telefoneLink],
+  );
+
+  useEffect(() => {
+    if (!telefoneLink && !clienteIdLink) return;
+
+    const next = findLinkedConversation(items);
+
+    setView("chat");
+    const nextBusca = next?.telefone || clienteNomeLink || telefoneLink;
+    if (nextBusca && busca !== nextBusca) setBusca(nextBusca);
+    if (next?.id !== active?.id) setActive(next);
+  }, [
+    active?.id,
+    busca,
+    clienteIdLink,
+    clienteNomeLink,
+    findLinkedConversation,
+    items,
+    telefoneLink,
+  ]);
 
   // Marca a conversa como lida: zera o badge na hora e persiste no banco (com throttle).
   const markRead = useCallback((id: string | null | undefined) => {
@@ -773,20 +989,67 @@ export function Conversas({
     return map;
   }, [items, readOverrides]);
 
-  const applyRemoteConversations = useCallback((next: ConversaView[]) => {
-    setItems(next);
+  const applyRemoteConversations = useCallback(
+    (next: ConversaView[]) => {
+      const nextComResumo = next.map((item) => {
+        const resumo = resumosFinanceirosRef.current[onlyDigits(item.telefone)];
+        return resumo
+          ? { ...item, valorPotencial: resumo.totalGasto, resumoFinanceiro: resumo }
+          : item;
+      });
+      setItems(nextComResumo);
+      setActive((current) => {
+        if (telefoneLink || clienteIdLink) return findLinkedConversation(nextComResumo);
+        if (!current) return nextComResumo[0] ?? null;
+
+        const byId = nextComResumo.find((item) => item.id === current.id);
+        if (byId) return byId;
+
+        const byPhone = nextComResumo.find((item) => phoneMatches(item.telefone, current.telefone));
+
+        return byPhone ?? nextComResumo[0] ?? current;
+      });
+    },
+    [clienteIdLink, findLinkedConversation, telefoneLink],
+  );
+
+  const applyRemoteConversationUpdates = useCallback((updates: ConversaView[]) => {
+    if (updates.length === 0) return;
+
+    const updatesComResumo = updates.map((item) => {
+      const resumo = resumosFinanceirosRef.current[onlyDigits(item.telefone)];
+      return resumo
+        ? { ...item, valorPotencial: resumo.totalGasto, resumoFinanceiro: resumo }
+        : item;
+    });
+
+    const merge = (previous: ConversaView, next: ConversaView): ConversaView => ({
+      ...previous,
+      ...next,
+      valorPotencial:
+        next.resumoFinanceiro === undefined ? previous.valorPotencial : next.valorPotencial,
+      resumoFinanceiro: next.resumoFinanceiro ?? previous.resumoFinanceiro,
+    });
+    const byId = new Map(updatesComResumo.map((item) => [item.id, item]));
+
+    setItems((current) => {
+      const currentIds = new Set(current.map((item) => item.id));
+      const merged = current.map((item) => {
+        const update = byId.get(item.id);
+        return update ? merge(item, update) : item;
+      });
+      for (const update of updatesComResumo) {
+        if (!currentIds.has(update.id)) merged.push(update);
+      }
+      return merged.sort(
+        (a, b) =>
+          new Date(b.atualizado_em ?? 0).getTime() - new Date(a.atualizado_em ?? 0).getTime(),
+      );
+    });
     setActive((current) => {
-      if (!current) return next[0] ?? null;
-
-      const byId = next.find((item) => item.id === current.id);
-      if (byId) return byId;
-
-      const currentPhone = onlyDigits(current.telefone);
-      const byPhone = currentPhone
-        ? next.find((item) => onlyDigits(item.telefone) === currentPhone)
-        : undefined;
-
-      return byPhone ?? next[0] ?? current;
+      if (!current) return current;
+      const update = byId.get(current.id);
+      return update ? merge(current, update) : current;
     });
   }, []);
 
@@ -796,18 +1059,39 @@ export function Conversas({
     refreshingRef.current = true;
     setRefreshing(true);
     try {
-      const response = await fetch("/api/crm/conversas", { cache: "no-store" });
+      const desde = lastConversationSyncRef.current;
+      const endpoint = desde
+        ? `/api/crm/conversas?desde=${encodeURIComponent(desde)}`
+        : "/api/crm/conversas";
+      const response = await fetch(endpoint, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.erro || "Falha ao atualizar conversas");
       if (Array.isArray(data)) {
         const next = data.map((row) => mapApiConversa(row as Record<string, unknown>));
-        applyRemoteConversations(next);
+        if (desde) applyRemoteConversationUpdates(next);
+        else applyRemoteConversations(next);
+
+        for (const conversa of next) {
+          if (
+            conversa.atualizado_em &&
+            (!lastConversationSyncRef.current ||
+              new Date(conversa.atualizado_em).getTime() >
+                new Date(lastConversationSyncRef.current).getTime())
+          ) {
+            lastConversationSyncRef.current = conversa.atualizado_em;
+          }
+        }
 
         // Dispara o som/toast/titulo para mensagens novas (controle proprio de sessao).
         notify(next, activeIdRef.current);
 
         // Mantem a conversa aberta como lida enquanto a aba esta em foco.
-        if (typeof document !== "undefined" && document.hasFocus() && activeIdRef.current) {
+        if (
+          typeof document !== "undefined" &&
+          document.hasFocus() &&
+          activeIdRef.current &&
+          next.some((conversa) => conversa.id === activeIdRef.current)
+        ) {
           markRead(activeIdRef.current);
         }
       }
@@ -817,7 +1101,7 @@ export function Conversas({
       refreshingRef.current = false;
       setRefreshing(false);
     }
-  }, [applyRemoteConversations, notify, markRead]);
+  }, [applyRemoteConversationUpdates, applyRemoteConversations, notify, markRead]);
 
   const refreshClientes = useCallback(async () => {
     if (refreshingClientesRef.current) return;
@@ -835,20 +1119,70 @@ export function Conversas({
     }
   }, []);
 
-  useEffect(() => {
-    void refreshConversations();
-    void refreshClientes();
+  const refreshConversationsRef = useRef(refreshConversations);
+  const refreshClientesRef = useRef(refreshClientes);
+  const applyRemoteConversationsRef = useRef(applyRemoteConversations);
 
+  useEffect(() => {
+    refreshConversationsRef.current = refreshConversations;
+    refreshClientesRef.current = refreshClientes;
+    applyRemoteConversationsRef.current = applyRemoteConversations;
+  }, [applyRemoteConversations, refreshClientes, refreshConversations]);
+
+  useEffect(() => {
+    if (!telefoneLink && !clienteIdLink) return;
+
+    const controller = new AbortController();
+    const conversaDireta = conversasIniciais[0];
+
+    void fetch("/api/crm/conversas", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.erro || "Falha ao carregar conversas");
+        if (!Array.isArray(data)) return;
+
+        const lista = data.map((row) => mapApiConversa(row as Record<string, unknown>));
+        const listaComDetalhe = conversaDireta
+          ? lista.map((item) =>
+              item.id === conversaDireta.id
+                ? {
+                    ...item,
+                    ...conversaDireta,
+                    atualizado_em: item.atualizado_em ?? conversaDireta.atualizado_em,
+                  }
+                : item,
+            )
+          : lista;
+        applyRemoteConversationsRef.current(listaComDetalhe);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error(error);
+      });
+
+    void refreshClientesRef.current();
+
+    return () => controller.abort();
+  }, [clienteIdLink, conversasIniciais, telefoneLink]);
+
+  useEffect(() => {
+    if (!notificationsPrimedRef.current) {
+      notify(conversasIniciais, activeIdRef.current);
+      notificationsPrimedRef.current = true;
+    }
+  }, [conversasIniciais, notify]);
+
+  useEffect(() => {
     const conversationsInterval = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshConversations();
-    }, 2000);
-    const clientesInterval = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshClientes();
+      if (document.visibilityState === "visible") void refreshConversationsRef.current();
     }, 10000);
+    const clientesInterval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshClientesRef.current();
+    }, 60000);
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        void refreshConversations();
-        void refreshClientes();
+        void refreshConversationsRef.current();
+        void refreshClientesRef.current();
       }
     };
 
@@ -861,7 +1195,7 @@ export function Conversas({
       window.removeEventListener("focus", onVisible);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshClientes, refreshConversations]);
+  }, []);
 
   const filtered = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -875,7 +1209,7 @@ export function Conversas({
         !String(c.ultima ?? "")
           .toLowerCase()
           .includes(termo) &&
-        !(termoNumerico && onlyDigits(c.telefone).includes(termoNumerico))
+        !(termoNumerico && phoneIncludes(c.telefone, termoNumerico))
       ) {
         return false;
       }
@@ -1202,6 +1536,86 @@ export function Conversas({
     }
   }
 
+  async function moveKanbanConversation(conversation: ConversaView, column: KanbanColumn) {
+    if (conversation.kanbanColumnId === column.id) return;
+
+    const previous = conversation;
+    const stage = mapStageFromApi(column.estagioInterno);
+    const applyStage = (item: ConversaView): ConversaView =>
+      item.id === conversation.id ? { ...item, estagio: stage, kanbanColumnId: column.id } : item;
+
+    setItems((current) => current.map(applyStage));
+    setActive((current) => (current?.id === conversation.id ? applyStage(current) : current));
+
+    try {
+      const response = await fetch("/api/crm/conversas", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo: "pipeline", id: conversation.id, columnId: column.id }),
+      });
+      const responseText = await response.text();
+      const data = responseText
+        ? (() => {
+            try {
+              return JSON.parse(responseText) as Record<string, unknown>;
+            } catch {
+              return { erro: responseText };
+            }
+          })()
+        : {};
+
+      if (!response.ok) {
+        throw new Error(String(data.erro || "Falha ao mover conversa"));
+      }
+
+      const aguardandoHumano = Boolean(data.aguardando_humano);
+      const iaAtiva =
+        typeof data.ia_ativa === "boolean"
+          ? data.ia_ativa
+          : typeof previous.iaAtiva === "boolean"
+            ? previous.iaAtiva
+            : null;
+      const applyServerState = (item: ConversaView): ConversaView =>
+        item.id === conversation.id
+          ? {
+              ...item,
+              estagio: stage,
+              kanbanColumnId: column.id,
+              aguardandoHumano,
+              iaAtiva,
+              tag: statusConversaIa(aguardandoHumano, iaAtiva),
+            }
+          : item;
+
+      setItems((current) => current.map(applyServerState));
+      setActive((current) =>
+        current?.id === conversation.id ? applyServerState(current) : current,
+      );
+      toast.success(`Conversa movida para ${column.nome}`);
+    } catch (error) {
+      setItems((current) => current.map((item) => (item.id === previous.id ? previous : item)));
+      setActive((current) => (current?.id === previous.id ? previous : current));
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel mover a conversa");
+    }
+  }
+
+  async function saveKanbanColumns(columns: KanbanColumn[]) {
+    const normalized = sanitizeKanbanColumns(columns);
+    const response = await fetch("/api/crm/conversas", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "kanban_config", columns: normalized }),
+    });
+    const data = (await response.json().catch(() => null)) as {
+      columns?: unknown;
+      erro?: string;
+    } | null;
+    if (!response.ok) throw new Error(data?.erro || "Falha ao salvar as colunas");
+    const saved = sanitizeKanbanColumns(data?.columns ?? normalized);
+    setKanbanColumns(saved);
+    toast.success("Colunas do Kanban salvas");
+  }
+
   return (
     <div className="flex h-[calc(100dvh-4.5rem)] min-h-0 flex-col gap-2 overflow-hidden md:h-[calc(100vh-7rem)] md:gap-3">
       {/* Header */}
@@ -1380,7 +1794,16 @@ export function Conversas({
           </div>
         )
       ) : view === "kanban" ? (
-        <KanbanView items={items} setItems={setItems} />
+        <KanbanView
+          items={items}
+          columns={kanbanColumns}
+          onMoveColumn={moveKanbanConversation}
+          onSaveColumns={saveKanbanColumns}
+          onOpenConversation={(conversation) => {
+            setActive(conversation);
+            setView("chat");
+          }}
+        />
       ) : (
         <IaRulesView />
       )}
@@ -1663,6 +2086,8 @@ function ChatView({
       const updated = {
         ...active,
         estagio: stage,
+        kanbanColumnId:
+          typeof data.kanban_coluna === "string" ? data.kanban_coluna : active.kanbanColumnId,
         aguardandoHumano: Boolean(data.aguardando_humano),
       };
       setActive(updated);
@@ -2094,9 +2519,7 @@ function ChatView({
         onClienteSaved={(cliente) => {
           setClientes((current) => {
             const index = current.findIndex(
-              (item) =>
-                item.id === cliente.id ||
-                onlyDigits(item.telefone) === onlyDigits(cliente.telefone),
+              (item) => item.id === cliente.id || phoneMatches(item.telefone, cliente.telefone),
             );
             if (index < 0) return [cliente, ...current];
             return current.map((item, itemIndex) => (itemIndex === index ? cliente : item));
@@ -2479,6 +2902,7 @@ function CrmPanel({
   const [buscaEstoque, setBuscaEstoque] = useState("");
   const [estoqueInfo, setEstoqueInfo] =
     useState<Record<EstoqueInfoKey, boolean>>(DEFAULT_ESTOQUE_INFO);
+  const [descontoEstoque, setDescontoEstoque] = useState("10");
   const [showEstoquePopup, setShowEstoquePopup] = useState(false);
   const [selecionadosSku, setSelecionadosSku] = useState<string[]>([]);
   const [conjuntosEstoque, setConjuntosEstoque] = useState<EstoqueConjunto[]>(() =>
@@ -2802,9 +3226,10 @@ function CrmPanel({
   function produtoEnvioEstoque(produto: Produto): ProdutoEnvioCrm {
     const fotoUrl = estoqueInfo.foto && isHttpUrl(produto.fotoUrl) ? produto.fotoUrl : null;
     const produtoMensagem = isHttpUrl(produto.fotoUrl) ? produto : { ...produto, fotoUrl: null };
+    const descontoPercentual = Number(descontoEstoque.replace(",", "."));
 
     return {
-      texto: montarMensagemProduto(produtoMensagem, estoqueInfo, !fotoUrl),
+      texto: montarMensagemProduto(produtoMensagem, estoqueInfo, !fotoUrl, descontoPercentual),
       fotoUrl,
       nomeArquivo: `produto-${produto.sku}.jpg`,
       mimeType: "image/jpeg",
@@ -3743,8 +4168,24 @@ function CrmPanel({
                   </div>
 
                   <div className="rounded-lg border border-border p-2">
-                    <div className="mb-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-                      <SlidersHorizontal className="size-3" /> Enviar junto
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                        <SlidersHorizontal className="size-3" /> Enviar junto
+                      </div>
+                      <label className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+                        <Tag className="size-3" />
+                        Desconto
+                        <input
+                          inputMode="decimal"
+                          value={descontoEstoque}
+                          onChange={(event) =>
+                            setDescontoEstoque(event.target.value.replace(/[^\d.,]/g, ""))
+                          }
+                          className="h-7 w-14 rounded-md bg-secondary px-2 text-right text-xs font-bold text-foreground outline-none focus:ring-2 focus:ring-ring"
+                          aria-label="Percentual de desconto no envio do produto"
+                        />
+                        %
+                      </label>
                     </div>
                     <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
                       {ESTOQUE_INFO_LABELS.map((item) => (
@@ -3822,7 +4263,17 @@ function CrmPanel({
                                   {produto.nome}
                                 </div>
                                 <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                                  <span>{brl(produto.preco)}</span>
+                                  <span>Real {brl(produto.preco)}</span>
+                                  <span>-</span>
+                                  <span>
+                                    {Number(descontoEstoque.replace(",", ".")) || 0}%{" "}
+                                    {brl(
+                                      precoComDesconto(
+                                        produto.preco,
+                                        Number(descontoEstoque.replace(",", ".")) || 0,
+                                      ),
+                                    )}
+                                  </span>
                                   <span>-</span>
                                   <span>{produto.estoque > 0 ? "Disponivel" : "Sem estoque"}</span>
                                 </div>
@@ -4345,75 +4796,596 @@ function Bubble({
   );
 }
 
-function KanbanView<T extends Conversa>({
+const KANBAN_COLOR_CLASSES: Record<
+  KanbanColumnColor,
+  { dot: string; badge: string; border: string }
+> = {
+  sky: {
+    dot: "bg-sky-500",
+    badge: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    border: "border-t-sky-500",
+  },
+  violet: {
+    dot: "bg-violet-500",
+    badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
+    border: "border-t-violet-500",
+  },
+  amber: {
+    dot: "bg-amber-500",
+    badge: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    border: "border-t-amber-500",
+  },
+  emerald: {
+    dot: "bg-emerald-500",
+    badge: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    border: "border-t-emerald-500",
+  },
+  rose: {
+    dot: "bg-rose-500",
+    badge: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
+    border: "border-t-rose-500",
+  },
+  slate: {
+    dot: "bg-slate-500",
+    badge: "bg-slate-500/10 text-slate-700 dark:text-slate-300",
+    border: "border-t-slate-500",
+  },
+};
+
+function KanbanView<T extends Conversa & { telefone?: string }>({
   items,
-  setItems,
+  columns,
+  onMoveColumn,
+  onSaveColumns,
+  onOpenConversation,
 }: {
   items: T[];
-  setItems: (i: T[]) => void;
+  columns: KanbanColumn[];
+  onMoveColumn: (conversation: T, column: KanbanColumn) => Promise<void> | void;
+  onSaveColumns: (columns: KanbanColumn[]) => Promise<void> | void;
+  onOpenConversation: (conversation: T) => void;
 }) {
   const [drag, setDrag] = useState<string | null>(null);
+  const [selected, setSelected] = useState<T | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [mobileColumnId, setMobileColumnId] = useState(columns[0]?.id ?? "");
+  const boardRef = useRef<HTMLDivElement>(null);
 
-  function move(stage: KanbanStage) {
+  useEffect(() => {
+    if (columns.some((column) => column.id === mobileColumnId)) return;
+    setMobileColumnId(columns[0]?.id ?? "");
+  }, [columns, mobileColumnId]);
+
+  function scrollBoard(direction: -1 | 1) {
+    boardRef.current?.scrollBy({ left: direction * 640, behavior: "smooth" });
+  }
+
+  async function move(column: KanbanColumn) {
     if (!drag) return;
-    setItems(items.map((c) => (c.id === drag ? { ...c, estagio: stage } : c)));
-    setDrag(null);
+    const conversation = items.find((c) => c.id === drag);
+    if (!conversation) {
+      setDrag(null);
+      return;
+    }
+
+    try {
+      await onMoveColumn(conversation, column);
+    } finally {
+      setDrag(null);
+    }
   }
 
   return (
-    <div className="flex-1 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 overflow-auto pb-2 min-h-0">
-      {kanbanStages.map((stage) => {
-        const list = items.filter((c) => c.estagio === stage);
-        const total = list.reduce((s, c) => s + c.valorPotencial, 0);
-        return (
-          <div
-            key={stage}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => move(stage)}
-            className="bg-secondary/50 rounded-2xl p-3 min-h-[280px] flex flex-col"
+    <div className="flex min-h-0 flex-1 flex-col gap-2.5 md:gap-3">
+      <div className="flex shrink-0 items-center justify-between gap-2 rounded-2xl border border-border bg-card px-3 py-2.5 shadow-sm sm:px-4 sm:py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <LayoutGrid className="size-4 text-primary" /> Pipeline de atendimento
+          </div>
+          <p className="mt-0.5 truncate text-[10px] text-muted-foreground sm:text-[11px]">
+            <span className="md:hidden">Escolha uma etapa e toque no cliente para mover.</span>
+            <span className="hidden md:inline">
+              Arraste os clientes entre as colunas. Cada coluna tem sua propria rolagem.
+            </span>
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => scrollBoard(-1)}
+            className="hidden size-9 place-items-center rounded-xl border border-border bg-secondary transition hover:border-primary/40 hover:text-primary md:grid"
+            title="Ver colunas anteriores"
+            aria-label="Rolar Kanban para a esquerda"
           >
-            <div className="flex items-center justify-between px-1 pb-2.5">
-              <div>
-                <div className="font-semibold text-sm">{stage}</div>
-                <div className="text-[10px] text-success font-bold">{brl(total)}</div>
-              </div>
-              <span className="text-xs font-bold size-5 grid place-items-center rounded-md bg-card text-muted-foreground">
-                {list.length}
+            <ArrowLeft className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollBoard(1)}
+            className="hidden size-9 place-items-center rounded-xl border border-border bg-secondary transition hover:border-primary/40 hover:text-primary md:grid"
+            title="Ver proximas colunas"
+            aria-label="Rolar Kanban para a direita"
+          >
+            <ArrowRight className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="grid size-9 shrink-0 place-items-center rounded-xl border border-border bg-secondary text-xs font-semibold transition hover:border-primary/40 hover:text-primary sm:inline-flex sm:w-auto sm:px-3"
+          >
+            <Settings2 className="size-3.5" />{" "}
+            <span className="hidden sm:inline">Editar colunas</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="kanban-scrollbar -mx-0.5 flex shrink-0 gap-1.5 overflow-x-auto px-0.5 pb-1 md:hidden">
+        {columns.map((column) => {
+          const count = items.filter(
+            (conversation) =>
+              (conversation.kanbanColumnId ?? defaultKanbanColumnId(conversation.estagio)) ===
+              column.id,
+          ).length;
+          const color = KANBAN_COLOR_CLASSES[column.cor];
+          const active = column.id === mobileColumnId;
+
+          return (
+            <button
+              key={column.id}
+              type="button"
+              onClick={() => setMobileColumnId(column.id)}
+              aria-pressed={active}
+              className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border px-3 text-xs font-bold transition ${
+                active
+                  ? "border-foreground bg-foreground text-background shadow-sm"
+                  : "border-border bg-card text-muted-foreground"
+              }`}
+            >
+              <span className={`size-2 rounded-full ${color.dot}`} />
+              <span>{column.nome}</span>
+              <span
+                className={`grid min-w-5 place-items-center rounded-md px-1 py-0.5 text-[10px] ${
+                  active ? "bg-background/15" : color.badge
+                }`}
+              >
+                {count}
               </span>
-            </div>
-            <div className="space-y-2 flex-1">
-              {list.map((c) => (
-                <div
-                  key={c.id}
-                  draggable
-                  onDragStart={() => setDrag(c.id)}
-                  className="card-soft p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="size-7 rounded-full bg-primary/15 grid place-items-center text-primary font-semibold text-[10px]">
-                      {c.cliente
-                        .split(" ")
-                        .map((n) => n[0])
-                        .slice(0, 2)
-                        .join("")}
+            </button>
+          );
+        })}
+      </div>
+
+      <div
+        ref={boardRef}
+        className="flex min-h-0 flex-1 overflow-hidden md:kanban-scrollbar md:snap-x md:gap-3 md:overflow-x-scroll md:overflow-y-hidden md:pb-3"
+      >
+        {columns.map((column) => {
+          const list = items.filter(
+            (conversation) =>
+              (conversation.kanbanColumnId ?? defaultKanbanColumnId(conversation.estagio)) ===
+              column.id,
+          );
+          const total = list.reduce((sum, conversation) => sum + conversation.valorPotencial, 0);
+          const color = KANBAN_COLOR_CLASSES[column.cor];
+          return (
+            <section
+              key={column.id}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => void move(column)}
+              className={`${column.id === mobileColumnId ? "flex" : "hidden"} h-full min-h-[300px] w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-border border-t-4 bg-secondary/35 md:flex md:min-h-[360px] md:w-[310px] md:snap-start ${color.border}`}
+            >
+              <div className="shrink-0 border-b border-border/70 bg-card/70 px-3.5 py-3 backdrop-blur">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`size-2 rounded-full ${color.dot}`} />
+                      <h3 className="truncate text-sm font-bold">{column.nome}</h3>
                     </div>
-                    <div className="font-semibold text-xs truncate">{c.cliente}</div>
+                    <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                      {column.descricao}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1.5 line-clamp-2">
-                    {c.ultima}
-                  </p>
-                  <div className="mt-2 flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-success">
-                      {brl(c.valorPotencial)}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">{c.hora}</span>
-                  </div>
+                  <span
+                    className={`grid min-w-6 place-items-center rounded-lg px-1.5 py-1 text-[11px] font-bold ${color.badge}`}
+                  >
+                    {list.length}
+                  </span>
                 </div>
-              ))}
+                <div className="mt-2 text-[10px] font-bold text-success">
+                  {brl(total)} em potencial
+                </div>
+              </div>
+
+              <div className="scrollbar-thin min-h-0 flex-1 space-y-2 overflow-y-auto p-2.5">
+                {list.map((conversation) => (
+                  <button
+                    key={conversation.id}
+                    type="button"
+                    draggable
+                    onDragStart={() => setDrag(conversation.id)}
+                    onClick={() => setSelected(conversation)}
+                    className="group w-full cursor-grab rounded-xl border border-border bg-card p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md active:cursor-grabbing"
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <div
+                        className={`grid size-8 shrink-0 place-items-center rounded-full text-[10px] font-bold ${color.badge}`}
+                      >
+                        {conversation.cliente
+                          .split(" ")
+                          .map((name) => name[0])
+                          .slice(0, 2)
+                          .join("")}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-bold group-hover:text-primary">
+                          {conversation.cliente}
+                        </div>
+                        <div className="truncate text-[10px] text-muted-foreground">
+                          {conversation.telefone || "Sem telefone"}
+                        </div>
+                      </div>
+                      {conversation.naoLidas > 0 && (
+                        <span className="grid size-5 shrink-0 place-items-center rounded-full bg-success text-[9px] font-bold text-success-foreground">
+                          {conversation.naoLidas}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+                      {conversation.ultima || "Sem mensagens recentes"}
+                    </p>
+                    <div className="mt-2.5 flex items-center justify-between border-t border-border/70 pt-2">
+                      <span className="text-[10px] font-bold text-success">
+                        {brl(conversation.valorPotencial)}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">{conversation.hora}</span>
+                    </div>
+                  </button>
+                ))}
+                {list.length === 0 && (
+                  <div className="grid min-h-24 place-items-center rounded-xl border border-dashed border-border bg-card/40 px-4 text-center text-[10px] text-muted-foreground">
+                    Arraste um cliente para esta coluna
+                  </div>
+                )}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <KanbanContactModal
+          conversation={selected}
+          column={columns.find((column) => column.id === selected.kanbanColumnId)}
+          columns={columns}
+          onClose={() => setSelected(null)}
+          onOpen={() => onOpenConversation(selected)}
+          onMove={async (column) => {
+            await onMoveColumn(selected, column);
+            setMobileColumnId(column.id);
+          }}
+        />
+      )}
+      {editing && (
+        <KanbanColumnsModal
+          columns={columns}
+          items={items}
+          onClose={() => setEditing(false)}
+          onSave={async (next) => {
+            await onSaveColumns(next);
+            setEditing(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function KanbanContactModal<T extends Conversa & { telefone?: string }>({
+  conversation,
+  column,
+  columns,
+  onClose,
+  onOpen,
+  onMove,
+}: {
+  conversation: T;
+  column?: KanbanColumn;
+  columns: KanbanColumn[];
+  onClose: () => void;
+  onOpen: () => void;
+  onMove: (column: KanbanColumn) => Promise<void> | void;
+}) {
+  const [targetColumnId, setTargetColumnId] = useState(column?.id ?? "");
+  const [moving, setMoving] = useState(false);
+
+  async function moveConversation() {
+    const target = columns.find((item) => item.id === targetColumnId);
+    if (!target || target.id === column?.id || moving) return;
+
+    setMoving(true);
+    await onMove(target);
+    setMoving(false);
+    onClose();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"
+      onMouseDown={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-3xl border border-border bg-card p-5 shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-sm font-black text-primary">
+              {conversation.cliente
+                .split(" ")
+                .map((name) => name[0])
+                .slice(0, 2)
+                .join("")}
+            </div>
+            <div className="min-w-0">
+              <h3 className="truncate text-base font-bold">{conversation.cliente}</h3>
+              <p className="text-xs text-muted-foreground">{conversation.telefone}</p>
             </div>
           </div>
-        );
-      })}
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid size-8 place-items-center rounded-lg hover:bg-secondary"
+            aria-label="Fechar"
+          >
+            <XIcon className="size-4" />
+          </button>
+        </div>
+        <div className="mt-4 rounded-2xl bg-secondary/60 p-3.5">
+          <div className="flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+            <span>{column?.nome ?? "Kanban"}</span>
+            <span>{conversation.hora}</span>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed">
+            {conversation.ultima || "Sem mensagens recentes."}
+          </p>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="rounded-xl border border-border p-3">
+            <div className="text-[10px] text-muted-foreground">Potencial</div>
+            <div className="mt-0.5 text-sm font-bold text-success">
+              {brl(conversation.valorPotencial)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-border p-3">
+            <div className="text-[10px] text-muted-foreground">Mensagens novas</div>
+            <div className="mt-0.5 text-sm font-bold">{conversation.naoLidas}</div>
+          </div>
+        </div>
+        <div className="mt-4 rounded-2xl border border-border bg-secondary/35 p-3 md:hidden">
+          <label
+            htmlFor="kanban-mobile-destination"
+            className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground"
+          >
+            Mover para outra etapa
+          </label>
+          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <select
+              id="kanban-mobile-destination"
+              value={targetColumnId}
+              onChange={(event) => setTargetColumnId(event.target.value)}
+              className="h-11 min-w-0 rounded-xl border border-border bg-card px-3 text-sm font-semibold outline-none focus:border-primary"
+            >
+              {columns.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.nome}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void moveConversation()}
+              disabled={moving || !targetColumnId || targetColumnId === column?.id}
+              className="h-11 rounded-xl bg-foreground px-4 text-xs font-bold text-background disabled:opacity-40"
+            >
+              {moving ? "Movendo..." : "Mover"}
+            </button>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-primary-foreground hover:opacity-90"
+        >
+          <MessageSquare className="size-4" /> Abrir conversa completa
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function KanbanColumnsModal<T extends Conversa & { telefone?: string }>({
+  columns,
+  items,
+  onClose,
+  onSave,
+}: {
+  columns: KanbanColumn[];
+  items: T[];
+  onClose: () => void;
+  onSave: (columns: KanbanColumn[]) => Promise<void> | void;
+}) {
+  const [draft, setDraft] = useState(() => columns.map((column) => ({ ...column })));
+  const [saving, setSaving] = useState(false);
+
+  function update(id: string, patch: Partial<KanbanColumn>) {
+    setDraft((current) =>
+      current.map((column) => (column.id === id ? { ...column, ...patch } : column)),
+    );
+  }
+
+  function addColumn() {
+    const id = `personalizada-${Date.now().toString(36)}`;
+    setDraft((current) => [
+      ...current,
+      {
+        id,
+        nome: "Nova coluna",
+        descricao: "Descreva quando usar esta coluna",
+        cor: "slate",
+        estagioInterno: "qualificando",
+      },
+    ]);
+  }
+
+  function moveColumn(index: number, direction: -1 | 1) {
+    setDraft((current) => {
+      const next = [...current];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return current;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  async function save() {
+    if (draft.some((column) => !column.nome.trim())) {
+      toast.error("Todas as colunas precisam de um nome");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(draft);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel salvar as colunas");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/35 p-3 backdrop-blur-sm"
+      onMouseDown={onClose}
+    >
+      <div
+        className="flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-start justify-between border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-lg font-bold">Organizar Kanban</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Renomeie, reordene ou crie colunas para o seu processo.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid size-8 place-items-center rounded-lg hover:bg-secondary"
+            aria-label="Fechar"
+          >
+            <XIcon className="size-4" />
+          </button>
+        </div>
+        <div className="scrollbar-thin min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+          {draft.map((column, index) => {
+            const count = items.filter(
+              (item) => (item.kanbanColumnId ?? defaultKanbanColumnId(item.estagio)) === column.id,
+            ).length;
+            return (
+              <div
+                key={column.id}
+                className="grid gap-2 rounded-2xl border border-border bg-secondary/30 p-3 sm:grid-cols-[1fr_1.35fr_110px_auto] sm:items-center"
+              >
+                <input
+                  value={column.nome}
+                  onChange={(event) => update(column.id, { nome: event.target.value })}
+                  className="h-9 min-w-0 rounded-lg border border-border bg-card px-3 text-xs font-semibold outline-none focus:border-primary"
+                  aria-label="Nome da coluna"
+                />
+                <input
+                  value={column.descricao}
+                  onChange={(event) => update(column.id, { descricao: event.target.value })}
+                  className="h-9 min-w-0 rounded-lg border border-border bg-card px-3 text-xs outline-none focus:border-primary"
+                  aria-label="Descricao da coluna"
+                />
+                <select
+                  value={column.cor}
+                  onChange={(event) =>
+                    update(column.id, { cor: event.target.value as KanbanColumnColor })
+                  }
+                  className="h-9 rounded-lg border border-border bg-card px-2 text-xs outline-none focus:border-primary"
+                  aria-label="Cor da coluna"
+                >
+                  <option value="sky">Azul</option>
+                  <option value="violet">Violeta</option>
+                  <option value="amber">Amarelo</option>
+                  <option value="emerald">Verde</option>
+                  <option value="rose">Vermelho</option>
+                  <option value="slate">Cinza</option>
+                </select>
+                <div className="flex items-center justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => moveColumn(index, -1)}
+                    disabled={index === 0}
+                    className="grid size-8 place-items-center rounded-lg bg-card text-xs font-bold disabled:opacity-30"
+                    title="Mover para esquerda"
+                  >
+                    &larr;
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveColumn(index, 1)}
+                    disabled={index === draft.length - 1}
+                    className="grid size-8 place-items-center rounded-lg bg-card text-xs font-bold disabled:opacity-30"
+                    title="Mover para direita"
+                  >
+                    &rarr;
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraft((current) => current.filter((item) => item.id !== column.id))
+                    }
+                    disabled={count > 0 || draft.length === 1}
+                    className="grid size-8 place-items-center rounded-lg bg-card text-destructive disabled:opacity-30"
+                    title={
+                      count > 0 ? `Mova os ${count} clientes antes de excluir` : "Excluir coluna"
+                    }
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            onClick={addColumn}
+            disabled={draft.length >= 16}
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 text-xs font-bold text-primary hover:bg-primary/5 disabled:opacity-50"
+          >
+            <Plus className="size-4" /> Criar nova coluna
+          </button>
+        </div>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 rounded-xl px-4 text-xs font-semibold hover:bg-secondary"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground disabled:opacity-60"
+          >
+            <Save className="size-3.5" /> {saving ? "Salvando..." : "Salvar alteracoes"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

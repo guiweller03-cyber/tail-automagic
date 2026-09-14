@@ -92,6 +92,18 @@ async function parsearExcelLinhas(file: File, produtos: Produto[]): Promise<Exce
 }
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const DESCONTO_INFLUENCIADOR = 0.1;
+
+function produtoFotoProxyUrl(produto: Produto): string {
+  const version = produto.fotoPath ?? produto.fotoUrl ?? "";
+  const params = new URLSearchParams({ sku: produto.sku });
+  if (version) params.set("v", version);
+  return `/api/crm/produtos/foto?${params}`;
+}
+
+function precoInfluenciador(preco: number) {
+  return Math.round(Math.max(0, preco) * (1 - DESCONTO_INFLUENCIADOR) * 100) / 100;
+}
 
 type EditCell = { sku: string; field: "preco" | "precoCompra" } | null;
 type ImportStatus = "pronto" | "pendente" | "enviando" | "ok" | "erro";
@@ -174,6 +186,89 @@ function textoProduto(produto: Produto) {
       .filter((item) => item !== undefined && item !== null)
       .join(" "),
   );
+}
+
+type FiltroOption = {
+  value: string;
+  label: string;
+};
+
+function detalheProduto(produto: Produto, campo: keyof ProdutoDetalhesTecnicos) {
+  return produto.detalhesTecnicos?.[campo]?.trim() ?? "";
+}
+
+function marcaProduto(produto: Produto) {
+  return detalheProduto(produto, "marca") || produto.fornecedor?.trim() || "";
+}
+
+function especieProduto(produto: Produto) {
+  const texto = normalizarBusca(
+    [
+      detalheProduto(produto, "especie"),
+      detalheProduto(produto, "racaEspecifica"),
+      produto.nome,
+      produto.sku,
+    ].join(" "),
+  );
+
+  if (/\bgat|gato|gatos|felin/.test(texto)) return "Gatos";
+  if (/\bcae|cao|caes|cachorro|cachorros|canin/.test(texto)) return "Cachorros";
+  return "";
+}
+
+function grupoProduto(produto: Produto) {
+  const texto = normalizarBusca(
+    [produto.categoria, detalheProduto(produto, "tipoProduto"), produto.nome, produto.sku].join(
+      " ",
+    ),
+  );
+
+  if (texto.includes("petisco") || texto.includes("snack") || texto.includes("biscoito")) {
+    return "Petiscos";
+  }
+  if (
+    texto.includes("medic") ||
+    texto.includes("saude") ||
+    texto.includes("vermif") ||
+    texto.includes("bravecto") ||
+    texto.includes("drontal") ||
+    texto.includes("frontline")
+  ) {
+    return "Medicamentos";
+  }
+  if (
+    texto.includes("areia") ||
+    texto.includes("higien") ||
+    texto.includes("tapete") ||
+    texto.includes("granulado")
+  ) {
+    return "Areias e higiene";
+  }
+  if (texto.includes("racao") || texto.includes("racoes")) return "Racoes";
+
+  return detalheProduto(produto, "tipoProduto") || produto.categoria || "Outros";
+}
+
+function filtroValue(label: string) {
+  return normalizarBusca(label);
+}
+
+function opcoesUnicas(labels: string[]) {
+  const mapa = new Map<string, string>();
+  labels.forEach((label) => {
+    const limpo = label.trim();
+    if (!limpo) return;
+    const value = filtroValue(limpo);
+    if (!mapa.has(value)) mapa.set(value, limpo);
+  });
+
+  return Array.from(mapa.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+}
+
+function produtoBateFiltro(valorProduto: string, filtro: string) {
+  return filtro === "todos" || filtroValue(valorProduto) === filtro;
 }
 
 function calcMargem(p: Produto) {
@@ -348,7 +443,12 @@ function atualizarSkuConjuntosEstoqueStorage(skuAtual: string, skuNovo?: string)
 
 export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
   const [produtos, setProdutos] = useState<Produto[]>(produtosIniciais);
+  const [carregandoProdutos, setCarregandoProdutos] = useState(produtosIniciais.length === 0);
   const [tipo, setTipo] = useState<"todos" | "próprio" | "consignado">("todos");
+  const [grupoFiltro, setGrupoFiltro] = useState("todos");
+  const [especieFiltro, setEspecieFiltro] = useState("todos");
+  const [categoriaFiltro, setCategoriaFiltro] = useState("todos");
+  const [marcaFiltro, setMarcaFiltro] = useState("todos");
   const [edit, setEdit] = useState<EditCell>(null);
   const [draft, setDraft] = useState("");
   const [showNovo, setShowNovo] = useState(false);
@@ -367,7 +467,36 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
 
   useEffect(() => {
     setProdutos(produtosIniciais);
+    if (produtosIniciais.length > 0) {
+      setCarregandoProdutos(false);
+    }
   }, [produtosIniciais]);
+
+  useEffect(() => {
+    if (produtosIniciais.length > 0) return;
+
+    let cancelado = false;
+    setCarregandoProdutos(true);
+
+    void fetch("/api/crm/produtos", { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Falha ao carregar produtos");
+        return response.json() as Promise<Produto[]>;
+      })
+      .then((produtosAtualizados) => {
+        if (!cancelado) setProdutos(produtosAtualizados);
+      })
+      .catch(() => {
+        if (!cancelado) toast.error("Nao foi possivel carregar os produtos do estoque");
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoProdutos(false);
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, [produtosIniciais.length]);
 
   useEffect(() => {
     fotosImportRef.current = fotosImport;
@@ -396,7 +525,7 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
     sku: "",
     nome: "",
     categoria: "Ração",
-    tipo: "próprio" as Produto["tipo"],
+    tipo: "consignado" as Produto["tipo"],
     estoque: "",
     minimo: "",
     precoCompra: "",
@@ -415,17 +544,68 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
   }, [showNovo]);
 
   const termoBusca = normalizarBusca(buscaGlobal);
-  const list = (tipo === "todos" ? produtos : produtos.filter((p) => p.tipo === tipo)).filter(
-    (produto) => !termoBusca || textoProduto(produto).includes(termoBusca),
+  const produtosPorOrigem = tipo === "todos" ? produtos : produtos.filter((p) => p.tipo === tipo);
+  const opcoesGrupo = opcoesUnicas(produtosPorOrigem.map(grupoProduto));
+  const produtosPorGrupo = produtosPorOrigem.filter((produto) =>
+    produtoBateFiltro(grupoProduto(produto), grupoFiltro),
+  );
+  const opcoesEspecie = opcoesUnicas(produtosPorGrupo.map(especieProduto));
+  const produtosPorEspecie = produtosPorGrupo.filter((produto) =>
+    produtoBateFiltro(especieProduto(produto), especieFiltro),
+  );
+  const opcoesCategoria = opcoesUnicas(produtosPorEspecie.map((produto) => produto.categoria));
+  const produtosPorCategoria = produtosPorEspecie.filter((produto) =>
+    produtoBateFiltro(produto.categoria, categoriaFiltro),
+  );
+  const opcoesMarca = opcoesUnicas(produtosPorCategoria.map(marcaProduto));
+  const list = produtosPorCategoria.filter(
+    (produto) =>
+      produtoBateFiltro(marcaProduto(produto), marcaFiltro) &&
+      (!termoBusca || textoProduto(produto).includes(termoBusca)),
   );
   const criticos = list.filter((p) => p.estoque < p.minimo);
+  const filtrosCatalogoAtivos =
+    grupoFiltro !== "todos" ||
+    especieFiltro !== "todos" ||
+    categoriaFiltro !== "todos" ||
+    marcaFiltro !== "todos";
 
-  const valorProprio = produtos
+  useEffect(() => {
+    if (grupoFiltro !== "todos" && !opcoesGrupo.some((opcao) => opcao.value === grupoFiltro)) {
+      setGrupoFiltro("todos");
+    }
+  }, [grupoFiltro, opcoesGrupo]);
+
+  useEffect(() => {
+    if (
+      especieFiltro !== "todos" &&
+      !opcoesEspecie.some((opcao) => opcao.value === especieFiltro)
+    ) {
+      setEspecieFiltro("todos");
+    }
+  }, [especieFiltro, opcoesEspecie]);
+
+  useEffect(() => {
+    if (
+      categoriaFiltro !== "todos" &&
+      !opcoesCategoria.some((opcao) => opcao.value === categoriaFiltro)
+    ) {
+      setCategoriaFiltro("todos");
+    }
+  }, [categoriaFiltro, opcoesCategoria]);
+
+  useEffect(() => {
+    if (marcaFiltro !== "todos" && !opcoesMarca.some((opcao) => opcao.value === marcaFiltro)) {
+      setMarcaFiltro("todos");
+    }
+  }, [marcaFiltro, opcoesMarca]);
+
+  const qtdProprio = produtos
     .filter((p) => p.tipo === "próprio")
-    .reduce((s, p) => s + p.estoque * p.precoCompra, 0);
-  const valorConsig = produtos
+    .reduce((s, p) => s + p.estoque, 0);
+  const qtdConsig = produtos
     .filter((p) => p.tipo === "consignado")
-    .reduce((s, p) => s + p.estoque * p.precoCompra, 0);
+    .reduce((s, p) => s + p.estoque, 0);
   const margemMedia =
     produtos.length > 0 ? produtos.reduce((s, p) => s + calcMargem(p).pct, 0) / produtos.length : 0;
   const fotosImportProntas = fotosImport.filter((item) => item.sku && item.status !== "ok").length;
@@ -433,6 +613,13 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
     (item) => !item.sku && item.status !== "ok",
   ).length;
   const fotosImportSalvas = fotosImport.filter((item) => item.status === "ok").length;
+
+  function limparFiltrosCatalogo() {
+    setGrupoFiltro("todos");
+    setEspecieFiltro("todos");
+    setCategoriaFiltro("todos");
+    setMarcaFiltro("todos");
+  }
 
   function startEdit(sku: string, field: "preco" | "precoCompra", val: number) {
     setEdit({ sku, field });
@@ -916,7 +1103,7 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
         sku: "",
         nome: "",
         categoria: "Ração",
-        tipo: "próprio",
+        tipo: "consignado",
         estoque: "",
         minimo: "",
         precoCompra: "",
@@ -959,13 +1146,13 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
         <KCard
           icon={<Boxes className="size-4" />}
           label="Estoque próprio"
-          value={brl(valorProprio)}
+          value={`${qtdProprio} un.`}
           tone="primary"
         />
         <KCard
           icon={<Handshake className="size-4" />}
           label="Consignado"
-          value={brl(valorConsig)}
+          value={`${qtdConsig} un.`}
           tone="accent"
         />
         <KCard
@@ -1282,27 +1469,86 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
         )}
       </div>
 
-      <div className="card-soft p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="relative w-full md:max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={buscaGlobal}
-            onChange={(event) => setBuscaGlobal(event.target.value)}
-            aria-label="Buscar rações no estoque"
-            placeholder="Buscar ração por nome, SKU, marca ou peso"
-            className="h-10 w-full rounded-xl border border-transparent bg-secondary pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:bg-card"
-          />
+      <div className="card-soft p-3 space-y-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={buscaGlobal}
+              onChange={(event) => setBuscaGlobal(event.target.value)}
+              aria-label="Buscar rações no estoque"
+              placeholder="Buscar por nome, SKU, marca ou peso"
+              className="h-10 w-full rounded-xl border border-transparent bg-secondary pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:bg-card"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(["todos", "próprio", "consignado"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTipo(t)}
+                className={`h-9 px-4 rounded-lg text-xs font-semibold capitalize ${tipo === t ? "bg-foreground text-background" : "bg-secondary hover:bg-secondary/70"}`}
+              >
+                {t === "todos" ? "Todos" : t === "próprio" ? "Estoque próprio" : "Consignado"}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {(["todos", "próprio", "consignado"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTipo(t)}
-              className={`h-9 px-4 rounded-lg text-xs font-semibold capitalize ${tipo === t ? "bg-foreground text-background" : "bg-secondary hover:bg-secondary/70"}`}
-            >
-              {t === "todos" ? "Todos" : t === "próprio" ? "Estoque próprio" : "Consignado"}
-            </button>
-          ))}
+
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+          <FiltroSelect
+            label="Produto"
+            value={grupoFiltro}
+            options={opcoesGrupo}
+            allLabel="Todos os produtos"
+            onChange={(value) => {
+              setGrupoFiltro(value);
+              setEspecieFiltro("todos");
+              setCategoriaFiltro("todos");
+              setMarcaFiltro("todos");
+            }}
+          />
+          <FiltroSelect
+            label="Pet"
+            value={especieFiltro}
+            options={opcoesEspecie}
+            allLabel="Gatos e cachorros"
+            onChange={(value) => {
+              setEspecieFiltro(value);
+              setCategoriaFiltro("todos");
+              setMarcaFiltro("todos");
+            }}
+          />
+          <FiltroSelect
+            label="Categoria"
+            value={categoriaFiltro}
+            options={opcoesCategoria}
+            allLabel="Todas as categorias"
+            onChange={(value) => {
+              setCategoriaFiltro(value);
+              setMarcaFiltro("todos");
+            }}
+          />
+          <FiltroSelect
+            label="Marca"
+            value={marcaFiltro}
+            options={opcoesMarca}
+            allLabel="Todas as marcas"
+            onChange={setMarcaFiltro}
+          />
+          <div className="flex items-end gap-2">
+            <div className="h-10 min-w-24 rounded-lg bg-secondary px-3 text-xs font-bold text-muted-foreground inline-flex items-center justify-center">
+              {list.length} item{list.length === 1 ? "" : "s"}
+            </div>
+            {filtrosCatalogoAtivos && (
+              <button
+                type="button"
+                onClick={limparFiltrosCatalogo}
+                className="h-10 rounded-lg bg-secondary px-3 text-xs font-bold hover:bg-secondary/70"
+              >
+                Limpar
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1315,7 +1561,8 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                 <th className="font-medium px-4 py-3 hidden lg:table-cell">Tipo</th>
                 <th className="font-medium px-4 py-3 text-center">Estoque</th>
                 <th className="font-medium px-4 py-3 text-right hidden md:table-cell">Custo</th>
-                <th className="font-medium px-4 py-3 text-right">Venda</th>
+                <th className="font-medium px-4 py-3 text-right">Preço real</th>
+                <th className="font-medium px-4 py-3 text-right">Influenciador -10%</th>
                 <th className="font-medium px-4 py-3 text-right">Margem</th>
                 <th className="font-medium px-4 py-3 hidden xl:table-cell">Tipo margem</th>
                 <th className="font-medium px-4 py-3 text-right hidden md:table-cell">Lucro un.</th>
@@ -1415,6 +1662,12 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                         </button>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="font-semibold text-success tabular-nums">
+                        {brl(precoInfluenciador(p.preco))}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">desconto do cliente</div>
+                    </td>
                     <td
                       className={`px-4 py-3 text-right font-bold ${negativa ? "text-destructive" : semMargem ? "text-destructive" : "text-success"}`}
                     >
@@ -1462,9 +1715,18 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                   </tr>
                 );
               })}
-              {list.length === 0 && (
+              {carregandoProdutos && produtos.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center">
+                  <td colSpan={11} className="px-4 py-10 text-center">
+                    <div className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                      <Loader2 className="size-4 animate-spin" />
+                      Carregando produtos do estoque...
+                    </div>
+                  </td>
+                </tr>
+              ) : list.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="px-4 py-10 text-center">
                     <div className="mx-auto max-w-sm">
                       <div className="text-sm font-semibold">Nenhum produto encontrado</div>
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -1801,13 +2063,34 @@ function ProdutoFotoControl({
   onUpload: (produto: Produto, file: File) => Promise<void>;
   onRemove: (produto: Produto) => Promise<void>;
 }) {
-  const label = produto.fotoUrl ? "Trocar foto" : "Adicionar foto";
+  const temFoto = Boolean(produto.fotoUrl || produto.fotoPath);
+  const label = temFoto ? "Trocar foto" : "Adicionar foto";
+  const [usarUrlDireta, setUsarUrlDireta] = useState(false);
+  const fotoSrc = temFoto
+    ? usarUrlDireta && produto.fotoUrl
+      ? produto.fotoUrl
+      : produtoFotoProxyUrl(produto)
+    : "";
+
+  useEffect(() => {
+    setUsarUrlDireta(false);
+  }, [produto.sku, produto.fotoPath, produto.fotoUrl]);
 
   return (
     <div className="flex shrink-0 items-center gap-2">
       <div className="relative size-14 overflow-hidden rounded-lg border border-border bg-secondary">
-        {produto.fotoUrl ? (
-          <img src={produto.fotoUrl} alt={produto.nome} className="size-full object-cover" />
+        {temFoto ? (
+          <img
+            src={fotoSrc}
+            alt={produto.nome}
+            className="size-full object-cover"
+            loading="lazy"
+            onError={() => {
+              if (!usarUrlDireta && produto.fotoUrl) {
+                setUsarUrlDireta(true);
+              }
+            }}
+          />
         ) : (
           <div className="grid size-full place-items-center text-muted-foreground">
             <ImageIcon className="size-5" />
@@ -1837,7 +2120,7 @@ function ProdutoFotoControl({
             }}
           />
         </label>
-        {produto.fotoUrl && (
+        {temFoto && (
           <button
             type="button"
             disabled={salvando}
@@ -1905,6 +2188,40 @@ function ProdutoDetalhesFields({
         ))}
       </div>
     </div>
+  );
+}
+
+function FiltroSelect({
+  label,
+  value,
+  options,
+  allLabel,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: FiltroOption[];
+  allLabel: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full rounded-lg bg-secondary px-3 text-sm font-semibold outline-none focus:ring-2 ring-primary/30"
+      >
+        <option value="todos">{allLabel}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

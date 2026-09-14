@@ -36,6 +36,7 @@ type Followup = {
   modo: FollowupModo;
   disparo: FollowupDisparo;
   mensagem: string;
+  contexto?: { origem?: "geral" | "recompra" | "whatsapp_ia" };
   status: FollowupStatus;
   erro?: string;
 };
@@ -222,7 +223,7 @@ export function Disparos() {
       try {
         const [clientesRes, followupsRes] = await Promise.all([
           fetch(CLIENTES_ENDPOINT, { cache: "no-store" }),
-          fetch(`${FOLLOWUPS_ENDPOINT}?status=pendente,aguardando_confirmacao,erro`, {
+          fetch(`${FOLLOWUPS_ENDPOINT}?status=pendente,aguardando_confirmacao,erro&origem=geral`, {
             cache: "no-store",
           }),
         ]);

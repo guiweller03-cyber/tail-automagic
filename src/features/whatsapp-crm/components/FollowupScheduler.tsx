@@ -4,13 +4,13 @@ import {
   CalendarClock,
   Sparkles,
   Pencil,
-  Send,
   X,
   Check,
   Bot,
   Clock,
   AlertTriangle,
   Plus,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 
@@ -127,7 +127,6 @@ export function FollowupScheduler({
 
   const [quando, setQuando] = useState(defaultDateTimeLocal);
   const [modo, setModo] = useState<FollowupModo>("manual");
-  const [disparo, setDisparo] = useState<FollowupDisparo>("confirmar");
   const [mensagem, setMensagem] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [acaoId, setAcaoId] = useState<string | null>(null);
@@ -143,9 +142,10 @@ export function FollowupScheduler({
     }
     setCarregando(true);
     try {
-      const res = await fetch(`${ENDPOINT}?telefone=${encodeURIComponent(telefoneDigits)}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `${ENDPOINT}?telefone=${encodeURIComponent(telefoneDigits)}&origem=whatsapp_ia`,
+        { cache: "no-store" },
+      );
       const data = (await res.json()) as Followup[] | { erro?: string };
       if (Array.isArray(data)) setLista(data);
       else if (data?.erro) toast.error(data.erro);
@@ -184,9 +184,14 @@ export function FollowupScheduler({
           clienteNome: nome,
           agendadoPara: iso,
           modo,
-          disparo,
+          disparo: "confirmar",
           mensagem: modo === "manual" ? mensagem.trim() : "",
-          contexto: { ...contexto, nome: contexto?.nome ?? nome },
+          contexto: {
+            ...contexto,
+            nome: contexto?.nome ?? nome,
+            origem: "whatsapp_ia",
+            objetivo: contexto?.resumo || "Retomar o atendimento no WhatsApp",
+          },
         }),
       });
       const data = (await res.json()) as Followup & { erro?: string };
@@ -197,11 +202,7 @@ export function FollowupScheduler({
       setMensagem("");
       setQuando(defaultDateTimeLocal());
       setAberto(false);
-      toast.success(
-        disparo === "automatico"
-          ? "Follow-up agendado — vai disparar sozinho no horario ⏰"
-          : "Follow-up agendado — vai ficar pronto pra você confirmar ⏰",
-      );
+      toast.success("Follow-up enviado para aprovação na aba Aprovar Recompras");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao agendar");
     } finally {
@@ -209,18 +210,18 @@ export function FollowupScheduler({
     }
   }
 
-  async function acao(id: string, acaoTipo: "enviar" | "cancelar") {
+  async function cancelar(id: string) {
     setAcaoId(id);
     try {
       const res = await fetch(ENDPOINT, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id, acao: acaoTipo }),
+        body: JSON.stringify({ id, acao: "cancelar" }),
       });
       const data = (await res.json()) as Followup & { erro?: string };
       if (!res.ok) throw new Error(data?.erro || "Falha na acao");
       setLista((prev) => prev.map((f) => (f.id === id ? data : f)));
-      toast.success(acaoTipo === "enviar" ? "Follow-up enviado ✅" : "Follow-up cancelado");
+      toast.success("Follow-up cancelado");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha na acao");
     } finally {
@@ -231,7 +232,6 @@ export function FollowupScheduler({
   function resetForm() {
     setEditandoId(null);
     setModo("manual");
-    setDisparo("confirmar");
     setMensagem("");
     setQuando(defaultDateTimeLocal());
   }
@@ -250,7 +250,6 @@ export function FollowupScheduler({
     setEditandoId(f.id);
     setQuando(isoParaInputLocal(f.agendadoPara));
     setModo(f.modo);
-    setDisparo(f.disparo);
     setMensagem(f.mensagem ?? "");
     setConfirmandoId(null);
     setAberto(true);
@@ -277,7 +276,7 @@ export function FollowupScheduler({
           acao: "editar",
           agendadoPara: iso,
           modo,
-          disparo,
+          disparo: "confirmar",
           mensagem: modo === "manual" ? mensagem.trim() : "",
         }),
       });
@@ -388,28 +387,18 @@ export function FollowupScheduler({
           ) : (
             <div className="rounded-lg bg-card p-2 text-[11px] text-muted-foreground inline-flex items-start gap-1.5">
               <Bot className="size-3.5 shrink-0 mt-0.5 text-primary" />
-              <span>A IA vai escrever a mensagem na hora, usando o contexto do cliente.</span>
+              <span>
+                A IA vai escrever a mensagem agora para ela poder ser revisada antes do envio.
+              </span>
             </div>
           )}
 
-          <div>
-            <label className="text-[10px] font-semibold text-muted-foreground">No horário</label>
-            <div className="mt-0.5 grid grid-cols-2 gap-1.5">
-              <ChoiceButton
-                active={disparo === "automatico"}
-                onClick={() => setDisparo("automatico")}
-                icon={<Send className="size-3" />}
-              >
-                Envia sozinho
-              </ChoiceButton>
-              <ChoiceButton
-                active={disparo === "confirmar"}
-                onClick={() => setDisparo("confirmar")}
-                icon={<Check className="size-3" />}
-              >
-                Eu confirmo
-              </ChoiceButton>
-            </div>
+          <div className="flex items-start gap-1.5 rounded-lg border border-primary/20 bg-primary/5 p-2 text-[11px] text-muted-foreground">
+            <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-primary" />
+            <span>
+              Depois de agendar, revise e autorize a mensagem na aba <b>Aprovar Recompras</b>. Ela
+              só será enviada no horário escolhido depois da aprovação.
+            </span>
           </div>
 
           <button
@@ -442,7 +431,10 @@ export function FollowupScheduler({
         <ul className="space-y-1.5">
           {ativos.map((f) => {
             const meta = STATUS_META[f.status];
-            const podeAgir = f.status === "aguardando_confirmacao" || f.status === "pendente";
+            const podeAgir =
+              f.status === "aguardando_confirmacao" ||
+              f.status === "pendente" ||
+              f.status === "erro";
             const ocupado = acaoId === f.id;
             return (
               <li
@@ -465,7 +457,7 @@ export function FollowupScheduler({
                     f.mensagem
                   ) : (
                     <span className="inline-flex items-center gap-1">
-                      <Sparkles className="size-3 text-primary" /> Texto gerado pela IA no envio
+                      <Sparkles className="size-3 text-primary" /> Preparando texto para aprovação
                     </span>
                   )}
                 </div>
@@ -482,7 +474,13 @@ export function FollowupScheduler({
                     {f.modo === "ia" ? "IA" : "Manual"}
                   </span>
                   <span>·</span>
-                  <span>{f.disparo === "automatico" ? "Auto" : "Confirmar"}</span>
+                  <span>
+                    {f.status === "aguardando_confirmacao"
+                      ? "Aguardando em Aprovar Recompras"
+                      : f.status === "pendente" && f.disparo === "automatico"
+                        ? "Envio autorizado"
+                        : "Revisão necessária"}
+                  </span>
                 </div>
                 {confirmandoId === f.id ? (
                   <div className="space-y-1.5 rounded-md border border-destructive/20 bg-destructive/10 p-2">
@@ -513,16 +511,6 @@ export function FollowupScheduler({
                     {podeAgir && (
                       <button
                         type="button"
-                        onClick={() => void acao(f.id, "enviar")}
-                        disabled={ocupado}
-                        className="h-7 rounded-md bg-success/90 text-[11px] font-semibold text-success-foreground inline-flex items-center justify-center gap-1 hover:bg-success disabled:opacity-60"
-                      >
-                        <Send className="size-3" /> Enviar agora
-                      </button>
-                    )}
-                    {(podeAgir || f.status === "erro") && (
-                      <button
-                        type="button"
                         onClick={() => abrirEdicao(f)}
                         disabled={ocupado}
                         className="h-7 rounded-md bg-secondary text-[11px] font-semibold inline-flex items-center justify-center gap-1 hover:bg-secondary/70 disabled:opacity-60"
@@ -533,7 +521,7 @@ export function FollowupScheduler({
                     {podeAgir && (
                       <button
                         type="button"
-                        onClick={() => void acao(f.id, "cancelar")}
+                        onClick={() => void cancelar(f.id)}
                         disabled={ocupado}
                         className="h-7 rounded-md bg-secondary text-[11px] font-semibold inline-flex items-center justify-center gap-1 hover:bg-secondary/70 disabled:opacity-60"
                       >
