@@ -4,4 +4,15 @@
   "compatibility_date": "2026-06-04",
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/server.ts",
+  // Cache das fotos de produtos (evita egress do Supabase) e deduplicacao de alertas.
+  "kv_namespaces": [{ "binding": "CRM_CACHE", "id": "aef9a8fc2b76406da2b4cb20df9416d7" }],
+  // Protecao contra loop de requisicoes no CRM: 120 req/min por login + rota
+  // (src/lib/protecao-loop.ts).
+  "ratelimits": [
+    {
+      "name": "CRM_API_RATE_LIMIT",
+      "namespace_id": "1001",
+      "simple": { "limit": 120, "period": 60 },
+    },
+  ],
 }

@@ -56,6 +56,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SpeciePill } from "@/pages/RecompraPrevista";
 import { AIAssistantToggle } from "@/features/whatsapp-crm/components/AIAssistantToggle";
 import { FollowupScheduler } from "@/features/whatsapp-crm/components/FollowupScheduler";
+import { produtoFotoProxyUrl } from "@/lib/produto-foto-url";
 import { useMessageNotifications } from "@/features/whatsapp-crm/hooks/useMessageNotifications";
 import { toast } from "sonner";
 import {
@@ -4247,9 +4248,9 @@ function CrmPanel({
                                   selecionado ? "border-primary/40" : "border-border"
                                 }`}
                               >
-                                {produto.fotoUrl ? (
+                                {produto.fotoUrl || produto.fotoPath ? (
                                   <img
-                                    src={produto.fotoUrl}
+                                    src={produtoFotoProxyUrl(produto)}
                                     alt={produto.nome}
                                     className="size-full object-cover"
                                     loading="lazy"

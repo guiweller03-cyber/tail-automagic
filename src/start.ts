@@ -44,6 +44,13 @@ const authMiddleware = createMiddleware({ type: "request" }).server(
 
     const admin = await getCurrentAdmin(request);
     if (admin) {
+      // Corta loops de requisicao na API antes de chegarem ao Supabase (egress).
+      // Fotos ficam de fora: carregam em rajada e ja tem cache proprio.
+      if (pathname.startsWith("/api/crm/") && pathname !== "/api/crm/produtos/foto") {
+        const { bloquearLoopApi } = await import("./lib/protecao-loop");
+        const bloqueio = await bloquearLoopApi(admin.login, pathname);
+        if (bloqueio) return bloqueio;
+      }
       return next();
     }
 
