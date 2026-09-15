@@ -21,7 +21,7 @@ import {
   marcarConversaLida,
   salvarIaPromptConfig,
   salvarKanbanConfig,
-  listarConversas,
+  buscarConversasPorTelefones,
   listarConversasAtualizadasDesde,
   listarConversasResumo,
   resumoFinanceiroPorTelefone,
@@ -513,12 +513,15 @@ async function sincronizarWhatsapp({
 }) {
   const limiteChatsSeguro = Math.min(Math.max(chatsLimite, 1), 12);
   const limiteMensagensSeguro = Math.min(Math.max(mensagensLimite, 1), 40);
-  const [chats, conversasExistentes, clientesExistentes, telefonesBloqueados] = await Promise.all([
+  const [chats, clientesExistentes, telefonesBloqueados] = await Promise.all([
     listarChatsWhatsApp({ limit: limiteChatsSeguro, offset: 0 }),
-    listarConversas(),
     listarClientes(),
     listarTelefonesBloqueados(),
   ]);
+  // So as conversas dos chats sincronizados (antes baixava a tabela inteira).
+  const conversasExistentes = await buscarConversasPorTelefones(
+    chats.map((chat) => normalizarTelefone(chatIdFromChat(chat) ?? chat.phone ?? "")),
+  );
   const conversasPorTelefone = new Map(
     conversasExistentes.map((conversa) => [normalizarTelefone(conversa.telefone), conversa]),
   );
@@ -833,7 +836,12 @@ export const Route = createFileRoute("/api/crm/conversas")({
                 { status: 400 },
               );
             }
-            return json(await listarConversasAtualizadasDesde(timestamp.toISOString()));
+            return json(
+              await listarConversasAtualizadasDesde(
+                timestamp.toISOString(),
+                url.searchParams.get("ativa"),
+              ),
+            );
           }
 
           return json(await listarConversasComResumoCache());

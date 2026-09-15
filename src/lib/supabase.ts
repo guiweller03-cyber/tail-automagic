@@ -172,12 +172,13 @@ export async function upsertConversa(payload: ConversaUpsert): Promise<Conversa>
   return rows[0];
 }
 
-export async function upsertConversas(payloads: ConversaUpsert[]): Promise<Conversa[]> {
-  if (payloads.length === 0) return [];
+export async function upsertConversas(payloads: ConversaUpsert[]): Promise<void> {
+  if (payloads.length === 0) return;
 
+  // return=minimal: o retorno nao e usado e traria o historico inteiro de volta.
   const response = await fetch(supabaseUrl("/conversas?on_conflict=telefone"), {
     method: "POST",
-    headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
+    headers: supabaseHeaders("resolution=merge-duplicates,return=minimal"),
     body: JSON.stringify(payloads),
   });
 
@@ -185,8 +186,6 @@ export async function upsertConversas(payloads: ConversaUpsert[]): Promise<Conve
     const errorBody = await response.text();
     throw new Error(`Supabase bulk upsert failed (${response.status}): ${errorBody}`);
   }
-
-  return (await response.json()) as Conversa[];
 }
 
 export async function listarConversas(): Promise<Conversa[]> {
@@ -205,6 +204,130 @@ export async function listarConversas(): Promise<Conversa[]> {
   // conversa, scan de pagamentos). O filtro em JS tolera o banco sem a coluna
   // ainda (migration nao aplicada): nesse caso bloqueado vem undefined.
   return rows.filter((conversa) => conversa.bloqueado !== true);
+}
+
+/*
+ * O historico e ~90% do tamanho da tabela conversas. Baixar `select=*` da tabela
+ * inteira so para ler telefone/nome estourava o limite de egress do Supabase, entao
+ * as funcoes abaixo pedem ao banco apenas as linhas/colunas necessarias.
+ * O filtro de bloqueados usa listarTelefonesBloqueados, que tolera o banco sem a
+ * coluna `bloqueado` (migration nao aplicada).
+ */
+
+export type ConversaContato = Pick<
+  Conversa,
+  | "id"
+  | "telefone"
+  | "nome_cliente"
+  | "estagio"
+  | "aguardando_humano"
+  | "ia_ativa"
+  | "atualizado_em"
+>;
+
+function semBloqueados<T extends { telefone: string }>(rows: T[], bloqueados: Set<string>): T[] {
+  if (bloqueados.size === 0) return rows;
+  return rows.filter((row) => !bloqueados.has(row.telefone.replace(/\D/g, "")));
+}
+
+/** Contatos das conversas, sem historico. */
+export async function listarConversasContatos(): Promise<ConversaContato[]> {
+  const params = new URLSearchParams({
+    select: "id,telefone,nome_cliente,estagio,aguardando_humano,ia_ativa,atualizado_em",
+    order: "atualizado_em.desc",
+  });
+  const [response, bloqueados] = await Promise.all([
+    fetch(supabaseUrl(`/conversas?${params}`), { headers: supabaseHeaders() }),
+    listarTelefonesBloqueados(),
+  ]);
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase conversas contatos failed (${response.status}): ${errorBody}`);
+  }
+
+  return semBloqueados((await response.json()) as ConversaContato[], bloqueados);
+}
+
+/**
+ * Uma pagina de conversas com historico, para varreduras em lote. `lidas` e o
+ * tamanho da pagina antes de tirar os bloqueados (use para avancar o offset).
+ */
+export async function listarConversasComHistoricoPagina({
+  offset,
+  limite,
+}: {
+  offset: number;
+  limite: number;
+}): Promise<{ conversas: Conversa[]; lidas: number; total: number }> {
+  const params = new URLSearchParams({
+    select: "*",
+    historico: "neq.[]",
+    order: "atualizado_em.desc,id.asc",
+    offset: String(offset),
+    limit: String(limite),
+  });
+  const [response, bloqueados] = await Promise.all([
+    fetch(supabaseUrl(`/conversas?${params}`), { headers: supabaseHeaders("count=exact") }),
+    listarTelefonesBloqueados(),
+  ]);
+
+  if (response.status === 416) return { conversas: [], lidas: 0, total: offset };
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase conversas pagina failed (${response.status}): ${errorBody}`);
+  }
+
+  const rows = (await response.json()) as Conversa[];
+  const total = Number(response.headers.get("content-range")?.split("/")[1]);
+
+  return {
+    conversas: semBloqueados(rows, bloqueados),
+    lidas: rows.length,
+    total: Number.isFinite(total) ? total : offset + rows.length,
+  };
+}
+
+/** Conversas completas apenas dos telefones informados. */
+export async function buscarConversasPorTelefones(telefones: string[]): Promise<Conversa[]> {
+  const unicos = [...new Set(telefones.filter(Boolean))];
+  if (unicos.length === 0) return [];
+
+  const params = new URLSearchParams({
+    select: "*",
+    telefone: `in.(${unicos.map((telefone) => `"${telefone}"`).join(",")})`,
+  });
+  const response = await fetch(supabaseUrl(`/conversas?${params}`), {
+    headers: supabaseHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase conversas por telefones failed (${response.status}): ${errorBody}`);
+  }
+
+  return (await response.json()) as Conversa[];
+}
+
+/** Conversas completas com IA ativa atualizadas a partir de `desde`. */
+export async function listarConversasAtivasDesde(desde: string): Promise<Conversa[]> {
+  const params = new URLSearchParams({
+    select: "*",
+    atualizado_em: `gte.${desde}`,
+    ia_ativa: "not.is.false",
+    order: "atualizado_em.desc",
+  });
+  const [response, bloqueados] = await Promise.all([
+    fetch(supabaseUrl(`/conversas?${params}`), { headers: supabaseHeaders() }),
+    listarTelefonesBloqueados(),
+  ]);
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase conversas ativas failed (${response.status}): ${errorBody}`);
+  }
+
+  return semBloqueados((await response.json()) as Conversa[], bloqueados);
 }
 
 export async function listarConversasResumo(): Promise<
@@ -249,15 +372,28 @@ export async function buscarConversaPorId(id: string): Promise<Conversa | null> 
   return rows[0] ?? null;
 }
 
-export async function listarConversasAtualizadasDesde(desde: string): Promise<Conversa[]> {
+type CaudaHistorico = Partial<Record<"m1" | "m2" | "m3" | "m4" | "m5" | "m6", Mensagem | null>>;
+
+/**
+ * Polling incremental da tela de Conversas (roda a cada 10s por aba aberta).
+ * Devolve so as ultimas 6 mensagens de cada conversa alterada, marcada como
+ * historico_resumido; apenas a conversa aberta (`conversaAbertaId`) vem completa.
+ */
+export async function listarConversasAtualizadasDesde(
+  desde: string,
+  conversaAbertaId?: string | null,
+): Promise<Conversa[]> {
   const params = new URLSearchParams({
-    select: "*",
+    select:
+      "id,telefone,nome_cliente,aguardando_humano,ia_ativa,estagio,kanban_coluna,criado_em,atualizado_em,lido_ate," +
+      "m6:historico->-6,m5:historico->-5,m4:historico->-4,m3:historico->-3,m2:historico->-2,m1:historico->-1",
     atualizado_em: `gt.${desde}`,
     order: "atualizado_em.asc",
   });
-  const response = await fetch(supabaseUrl(`/conversas?${params}`), {
-    headers: supabaseHeaders(),
-  });
+  const [response, bloqueados] = await Promise.all([
+    fetch(supabaseUrl(`/conversas?${params}`), { headers: supabaseHeaders() }),
+    listarTelefonesBloqueados(),
+  ]);
 
   if (!response.ok) {
     const errorBody = await response.text();
@@ -266,8 +402,26 @@ export async function listarConversasAtualizadasDesde(desde: string): Promise<Co
     );
   }
 
-  const rows = (await response.json()) as Conversa[];
-  return rows.filter((conversa) => conversa.bloqueado !== true);
+  const rows = (await response.json()) as Array<Omit<Conversa, "historico"> & CaudaHistorico>;
+  const conversas: Conversa[] = semBloqueados(rows, bloqueados).map(
+    ({ m6, m5, m4, m3, m2, m1, ...conversa }) => ({
+      ...conversa,
+      historico: [m6, m5, m4, m3, m2, m1].filter((mensagem): mensagem is Mensagem =>
+        Boolean(mensagem),
+      ),
+      historico_resumido: true,
+    }),
+  );
+
+  const indiceAberta = conversaAbertaId
+    ? conversas.findIndex((conversa) => conversa.id === conversaAbertaId)
+    : -1;
+  if (conversaAbertaId && indiceAberta >= 0) {
+    const completa = await buscarConversaPorId(conversaAbertaId);
+    if (completa) conversas[indiceAberta] = completa;
+  }
+
+  return conversas;
 }
 
 /**
@@ -516,6 +670,65 @@ export async function adicionarMensagemConversa({
 
   const updatedRows = (await response.json()) as Conversa[];
   return updatedRows[0];
+}
+
+/**
+ * Igual a adicionarMensagemConversa, mas pede so o id de volta ao Supabase. Use
+ * quando a conversa atualizada nao e usada (resposta da IA, avisos), para nao
+ * trafegar o historico inteiro a cada mensagem.
+ */
+export async function anexarMensagemConversa({
+  id,
+  mensagem,
+}: {
+  id: string;
+  mensagem: Mensagem;
+}): Promise<void> {
+  const response = await fetch(supabaseUrl("/rpc/append_conversa_mensagem?select=id"), {
+    method: "POST",
+    headers: supabaseHeaders("return=minimal"),
+    body: JSON.stringify({ conversa_id: id, nova_mensagem: mensagem }),
+  });
+
+  if (response.ok) return;
+
+  const rpcError = await response.text().catch(() => "");
+  if (response.status !== 404 && !rpcError.includes("append_conversa_mensagem")) {
+    throw new Error(`Supabase conversa message append failed (${response.status}): ${rpcError}`);
+  }
+
+  // Sem a funcao RPC no banco (migration 20260530011632 nao aplicada): le so o
+  // historico e grava sem pedir a linha de volta.
+  const selectResponse = await fetch(
+    supabaseUrl(
+      `/conversas?${new URLSearchParams({ id: `eq.${id}`, select: "historico", limit: "1" })}`,
+    ),
+    { headers: supabaseHeaders() },
+  );
+  if (!selectResponse.ok) {
+    const errorBody = await selectResponse.text();
+    throw new Error(`Supabase conversa select failed (${selectResponse.status}): ${errorBody}`);
+  }
+
+  const rows = (await selectResponse.json()) as Array<Pick<Conversa, "historico">>;
+  if (!rows[0]) throw new Error("Conversa nao encontrada");
+
+  const historico = Array.isArray(rows[0].historico) ? rows[0].historico : [];
+  const patchResponse = await fetch(supabaseUrl(`/conversas?id=eq.${encodeURIComponent(id)}`), {
+    method: "PATCH",
+    headers: supabaseHeaders("return=minimal"),
+    body: JSON.stringify({
+      historico: [...historico, mensagem],
+      atualizado_em: new Date().toISOString(),
+    }),
+  });
+
+  if (!patchResponse.ok) {
+    const errorBody = await patchResponse.text();
+    throw new Error(
+      `Supabase conversa message update failed (${patchResponse.status}): ${errorBody}`,
+    );
+  }
 }
 
 export async function buscarIaStatus(): Promise<IaStatus> {

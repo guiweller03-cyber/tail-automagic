@@ -24,6 +24,7 @@ import {
 } from "@/lib/recompra-supabase";
 import {
   adicionarMensagemConversa,
+  anexarMensagemConversa,
   atualizarConversaAguardandoHumano,
   atualizarPedidoPixMercadoPago,
   buscarAprendizados,
@@ -1102,7 +1103,7 @@ async function tentarConfirmarPagamentoPorComprovante({
       "Vou seguir com a separacao do pedido.";
     await Promise.all([
       enviarMensagemLonga(`${telefone}@s.whatsapp.net`, resposta),
-      adicionarMensagemConversa({
+      anexarMensagemConversa({
         id: conversa.id,
         mensagem: { role: "assistant", content: resposta },
       }),
@@ -1527,7 +1528,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
 
     await Promise.all([
       enviarMensagemLonga(chatid, respostaCupom),
-      adicionarMensagemConversa({
+      anexarMensagemConversa({
         id: conversa.id,
         mensagem: { role: "assistant", content: respostaCupom },
       }),
@@ -1630,7 +1631,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
 
   await Promise.all([
     enviarMensagemLonga(chatidPreAtendimento, respostaPreAtendimento),
-    adicionarMensagemConversa({
+    anexarMensagemConversa({
       id: conversa.id,
       mensagem: { role: "assistant", content: respostaPreAtendimento },
     }),

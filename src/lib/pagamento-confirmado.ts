@@ -1,5 +1,5 @@
 import {
-  adicionarMensagemConversa,
+  anexarMensagemConversa,
   buscarConversaPorTelefone,
   buscarPedidoPixPorId,
   marcarPedidoPixPago,
@@ -20,7 +20,7 @@ async function registrarMensagemAgente(telefone: string, texto: string): Promise
   const conversa = await buscarConversaPorTelefone(telefone);
 
   if (conversa) {
-    await adicionarMensagemConversa({
+    await anexarMensagemConversa({
       id: conversa.id,
       mensagem: { role: "assistant", content: texto },
     });

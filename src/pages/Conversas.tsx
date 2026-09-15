@@ -1060,8 +1060,10 @@ export function Conversas({
     setRefreshing(true);
     try {
       const desde = lastConversationSyncRef.current;
+      // A conversa aberta volta completa; as demais so com as ultimas mensagens.
+      const ativa = activeIdRef.current ? `&ativa=${encodeURIComponent(activeIdRef.current)}` : "";
       const endpoint = desde
-        ? `/api/crm/conversas?desde=${encodeURIComponent(desde)}`
+        ? `/api/crm/conversas?desde=${encodeURIComponent(desde)}${ativa}`
         : "/api/crm/conversas";
       const response = await fetch(endpoint, { cache: "no-store" });
       const data = await response.json();

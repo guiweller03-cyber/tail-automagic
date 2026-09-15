@@ -27,7 +27,7 @@ import {
   definirIaGlobalDesativada,
   editarPedidoManual,
   excluirConversa,
-  listarConversas,
+  listarConversasContatos,
   listarPedidos,
   salvarIaPromptConfig,
   upsertConversa,
@@ -1057,7 +1057,7 @@ async function executarFerramenta(nome: string, rawArgs: string): Promise<ToolRe
     }
     case "listar_leads": {
       const limite = Math.min(50, Math.max(1, Number(args.limite ?? 20)));
-      const conversas = (await listarConversas()).slice(0, limite).map((c) => ({
+      const conversas = (await listarConversasContatos()).slice(0, limite).map((c) => ({
         id: c.id,
         telefone: c.telefone,
         nome: c.nome_cliente,
@@ -1100,7 +1100,7 @@ async function executarFerramenta(nome: string, rawArgs: string): Promise<ToolRe
 
       let alvoId = id;
       if (!alvoId && telefone) {
-        const conversas = await listarConversas();
+        const conversas = await listarConversasContatos();
         const encontrada = conversas.find((c) => c.telefone.replace(/\D/g, "").includes(telefone));
         if (!encontrada) throw new Error(`Nenhum lead encontrado com telefone ${telefone}.`);
         alvoId = encontrada.id;

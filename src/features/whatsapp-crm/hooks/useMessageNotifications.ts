@@ -36,8 +36,10 @@ function isIncoming(message: NotifiableMessage): boolean {
 
 /**
  * Assinatura das mensagens recebidas de uma conversa. Muda sempre que chega uma
- * nova mensagem do cliente (conta + ultima mensagem), permitindo detectar novidades
+ * nova mensagem do cliente (ultima mensagem recebida), permitindo detectar novidades
  * entre dois refreshes sem disparar para mensagens enviadas por nos ou pela IA.
+ * A contagem fica fora da assinatura porque o polling devolve so as ultimas
+ * mensagens das conversas fechadas, entao ela varia sem haver mensagem nova.
  */
 function incomingSignature(historico: NotifiableMessage[] | undefined): {
   sig: string;
@@ -56,7 +58,7 @@ function incomingSignature(historico: NotifiableMessage[] | undefined): {
   }
 
   if (!last) return { sig: "", count: 0, last: null };
-  return { sig: `${count}|${last.at ?? ""}|${last.content ?? ""}`, count, last };
+  return { sig: `${last.at ?? ""}|${last.content ?? ""}`, count, last };
 }
 
 /** Beep curto gerado via Web Audio API (sem precisar de arquivo de audio). */

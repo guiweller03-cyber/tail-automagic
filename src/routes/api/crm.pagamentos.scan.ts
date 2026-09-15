@@ -7,7 +7,11 @@ import {
 } from "@/lib/comprovantes";
 import { trackearConversaCompleta, type ResultadoTrackingConversa } from "@/lib/conversa-tracking";
 import { invalidarDashboardCache } from "@/lib/crm-supabase";
-import { buscarConversaPorTelefone, listarConversas, type Conversa } from "@/lib/supabase";
+import {
+  buscarConversaPorTelefone,
+  listarConversasComHistoricoPagina,
+  type Conversa,
+} from "@/lib/supabase";
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
@@ -59,15 +63,19 @@ async function varrerPagamentos({
 
   let conversas: Conversa[];
   let total: number;
+  let lidas: number;
 
   if (telefone?.trim()) {
     const conversa = await buscarConversaPorTelefone(normalizarTelefone(telefone));
     conversas = conversa ? [conversa] : [];
     total = conversas.length;
+    lidas = conversas.length;
   } else {
-    const todas = (await listarConversas()).filter((conversa) => conversa.historico.length > 0);
-    total = todas.length;
-    conversas = todas.slice(offset, offset + limiteSeguro);
+    // Busca so a pagina do lote; baixar a tabela inteira a cada lote estourava o egress.
+    const pagina = await listarConversasComHistoricoPagina({ offset, limite: limiteSeguro });
+    conversas = pagina.conversas;
+    total = pagina.total;
+    lidas = pagina.lidas;
   }
 
   const resultados: ResultadoConversa[] = [];
@@ -119,7 +127,7 @@ async function varrerPagamentos({
     }
   }
 
-  const proximoOffset = offset + conversas.length;
+  const proximoOffset = offset + lidas;
   if (resultados.length > 0) invalidarDashboardCache();
 
   return {
@@ -128,7 +136,7 @@ async function varrerPagamentos({
     conversas_total: total,
     conversas_analisadas: conversas.length,
     offset,
-    proximo_offset: proximoOffset < total && !telefone ? proximoOffset : null,
+    proximo_offset: lidas > 0 && proximoOffset < total && !telefone ? proximoOffset : null,
     comprovantes_analisados: resultados.reduce((sum, item) => sum + item.analisados, 0),
     pagamentos_confirmados: resultados.reduce((sum, item) => sum + item.confirmados, 0),
     comprovantes_ja_lancados: resultados.reduce((sum, item) => sum + item.duplicados, 0),

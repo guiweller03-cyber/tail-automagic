@@ -9,7 +9,11 @@ import {
   type ClienteCrmInput,
 } from "@/lib/crm-supabase";
 import type { Cliente, PetDetalhe } from "@/lib/crm-types";
-import { listarConversas, salvarCadastrosClientesBasicos } from "@/lib/supabase";
+import {
+  listarConversasAtivasDesde,
+  listarConversasContatos,
+  salvarCadastrosClientesBasicos,
+} from "@/lib/supabase";
 import { normalizarNomeContatoWhatsapp } from "@/lib/whatsapp-nomes";
 
 function json(data: unknown, init?: ResponseInit): Response {
@@ -216,7 +220,7 @@ export const Route = createFileRoute("/api/crm/clientes")({
           const historico = url.searchParams.get("historico") === "1";
           const clientes = historico
             ? await listarClientesHistorico(
-                (await listarConversas()).map((conversa) => ({
+                (await listarConversasContatos()).map((conversa) => ({
                   telefone: conversa.telefone,
                   nome: conversa.nome_cliente ?? undefined,
                   origem: "WhatsApp IA",
@@ -236,8 +240,13 @@ export const Route = createFileRoute("/api/crm/clientes")({
           const body = (await request.json()) as Record<string, unknown>;
 
           if (body.tipo === "sync_whatsapp" || body.sync === "whatsapp") {
-            const conversas = await listarConversas();
-            const clientes = await listarClientes();
+            // Só conversas dos últimos 7 dias com IA ativa podem ser importadas
+            // (conversaAtivaParaImportacao); filtrar no banco evita baixar todo o historico.
+            const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+            const [conversas, clientes] = await Promise.all([
+              listarConversasAtivasDesde(seteDiasAtras),
+              listarClientes(),
+            ]);
             const telefonesValidos = new Set<string>();
             let ignorados = 0;
             const clientesParaImportar: Array<{ telefone: string; nome: string; origem: string }> =
