@@ -539,11 +539,17 @@ export function PDV({
   );
   const qtdPetsVenda = petNomes(petVenda).length;
   const produtosFiltrados = useMemo(() => {
-    const q = normalizarBusca(produtoBusca);
-    if (!q) return [];
+    // Cada palavra precisa aparecer, em qualquer ordem ("racao golden 15" acha "Golden ... 15kg | Racao").
+    const termos = normalizarBusca(produtoBusca).split(/\s+/).filter(Boolean);
+    if (termos.length === 0) return [];
     return produtos
-      .filter((p) => p.estoque > 0)
-      .filter((p) => normalizarBusca(`${p.nome} ${p.sku} ${p.categoria}`).includes(q))
+      .filter((p) => {
+        const texto = normalizarBusca(
+          `${p.nome} ${p.sku} ${p.categoria} ${p.fornecedor ?? ""}`,
+        ).replace(/(\d)\s+(kg|g|ml|l)\b/g, "$1$2");
+        return termos.every((termo) => texto.includes(termo));
+      })
+      .sort((a, b) => Number(b.estoque > 0) - Number(a.estoque > 0))
       .slice(0, 12);
   }, [produtoBusca, produtos]);
   const produtosDisponiveis = useMemo(
@@ -1183,16 +1189,18 @@ export function PDV({
             {produtoBusca && (
               <div className="grid sm:grid-cols-2 gap-2">
                 {produtosFiltrados.length > 0 ? (
-                  produtosFiltrados.slice(0, 6).map((p) => (
+                  produtosFiltrados.map((p) => (
                     <button
                       key={p.sku}
                       type="button"
                       onClick={() => add(p)}
-                      className="text-left rounded-xl border border-border p-3 hover:bg-secondary"
+                      disabled={p.estoque <= 0}
+                      className="text-left rounded-xl border border-border p-3 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                     >
                       <div className="font-semibold text-sm truncate">{p.nome}</div>
                       <div className="text-xs text-muted-foreground">
-                        {brl(p.preco)} · estoque {p.estoque}
+                        {brl(p.preco)} ·{" "}
+                        {p.estoque > 0 ? `estoque ${p.estoque}` : "sem estoque"}
                       </div>
                     </button>
                   ))
