@@ -50,15 +50,20 @@ import {
   BellOff,
   Banknote,
   Ban,
+  Store,
+  Maximize2,
 } from "lucide-react";
 import { useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { chaveDiaConversa, formatarDiaConversa, formatarQuandoConversa } from "@/lib/formato-data";
 import { SpeciePill } from "@/pages/RecompraPrevista";
 import { AIAssistantToggle } from "@/features/whatsapp-crm/components/AIAssistantToggle";
 import { FollowupScheduler } from "@/features/whatsapp-crm/components/FollowupScheduler";
 import { produtoFotoProxyUrl } from "@/lib/produto-foto-url";
 import { useMessageNotifications } from "@/features/whatsapp-crm/hooks/useMessageNotifications";
 import { toast } from "sonner";
+
+const PDV = lazy(() => import("@/pages/PDV").then((m) => ({ default: m.PDV })));
 import {
   DEFAULT_KANBAN_COLUMNS,
   defaultKanbanColumnId,
@@ -632,9 +637,7 @@ function mapApiConversa(row: Record<string, unknown>): ConversaView {
     cliente: String(row.nome_cliente ?? row.telefone ?? "Cliente"),
     telefone: String(row.telefone ?? ""),
     ultima: String(ultimaMsg?.content ?? ""),
-    hora: atualizadoEm
-      ? new Date(atualizadoEm).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-      : "",
+    hora: formatarQuandoConversa(atualizadoEm),
     naoLidas: row.aguardando_humano ? 1 : 0,
     tag: statusConversaIa(aguardandoHumano, iaAtiva),
     estagio: mapStageFromApi(row.estagio),
@@ -1953,10 +1956,7 @@ function ChatView({
       ...conversa,
       ultima: String(ultimaMsg?.content ?? active.ultima ?? ""),
       hora: conversa.atualizado_em
-        ? new Date(String(conversa.atualizado_em)).toLocaleTimeString("pt-BR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
+        ? formatarQuandoConversa(String(conversa.atualizado_em))
         : active.hora,
       historico: Array.isArray(conversa.historico) ? conversa.historico : active.historico,
     };
@@ -2345,19 +2345,26 @@ function ChatView({
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-thin bg-secondary/20 p-2.5 space-y-2.5 sm:p-4 sm:space-y-3">
-          <DateChip>Hoje</DateChip>
           {mensagens.length > 0 ? (
-            mensagens.map((mensagem: ConversaMensagem, index: number) => (
-              <Bubble
-                key={`${mensagem.role}-${index}`}
-                side={mensagem.role === "assistant" || mensagem.role === "ai" ? "me" : "them"}
-                ai={mensagem.role === "assistant" || mensagem.role === "ai"}
-                hora={horaMensagem(mensagem)}
-                message={mensagem}
-              >
-                {mensagem.content}
-              </Bubble>
-            ))
+            mensagens.map((mensagem: ConversaMensagem, index: number) => {
+              const dia = chaveDiaConversa(mensagem.at);
+              const diaAnterior = index > 0 ? chaveDiaConversa(mensagens[index - 1]?.at) : null;
+              return (
+                <Fragment key={`${mensagem.role}-${index}`}>
+                  {dia && dia !== diaAnterior && (
+                    <DateChip>{formatarDiaConversa(mensagem.at)}</DateChip>
+                  )}
+                  <Bubble
+                    side={mensagem.role === "assistant" || mensagem.role === "ai" ? "me" : "them"}
+                    ai={mensagem.role === "assistant" || mensagem.role === "ai"}
+                    hora={horaMensagem(mensagem)}
+                    message={mensagem}
+                  >
+                    {mensagem.content}
+                  </Bubble>
+                </Fragment>
+              );
+            })
           ) : (
             <div className="h-full grid place-items-center text-sm text-muted-foreground">
               Nenhuma mensagem nesta conversa.
@@ -4835,7 +4842,192 @@ const KANBAN_COLOR_CLASSES: Record<
   },
 };
 
-function KanbanView<T extends Conversa & { telefone?: string }>({
+/**
+ * Janela flutuante com a DM do cliente, aberta de dentro do Kanban.
+ * Carrega o historico completo e envia mensagem sem sair da tela do pipeline.
+ */
+function ConversaChatPopup({
+  conversation,
+  onClose,
+  onExpand,
+  embedded = false,
+}: {
+  conversation: Conversa & { telefone?: string; historico?: ConversaMensagem[] };
+  onClose: () => void;
+  onExpand?: () => void;
+  embedded?: boolean;
+}) {
+  const [mensagens, setMensagens] = useState<ConversaMensagem[]>(
+    () => conversation.historico ?? [],
+  );
+  const [texto, setTexto] = useState("");
+  const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    void fetch(`/api/crm/conversas?detalhe=${encodeURIComponent(conversation.id)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.erro || "Falha ao carregar a conversa");
+        return data as Record<string, unknown>;
+      })
+      .then((data) => {
+        if (Array.isArray(data.historico)) setMensagens(data.historico as ConversaMensagem[]);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error(error);
+      })
+      .finally(() => setLoading(false));
+
+    return () => controller.abort();
+  }, [conversation.id]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [mensagens.length]);
+
+  async function enviar() {
+    const valor = texto.trim();
+    if (!valor || sending) return;
+
+    setSending(true);
+    try {
+      const response = await fetch("/api/crm/conversas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo: "mensagem",
+          id: conversation.id,
+          telefone: conversation.telefone ?? "",
+          texto: valor,
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok) throw new Error(String(data.erro ?? "Falha ao enviar mensagem"));
+
+      if (Array.isArray(data.historico)) setMensagens(data.historico as ConversaMensagem[]);
+      else
+        setMensagens((current) => [
+          ...current,
+          { role: "assistant", content: valor, at: new Date().toISOString(), fromMe: true },
+        ]);
+      setTexto("");
+      toast.success("Mensagem enviada");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel enviar");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div
+      className={
+        embedded
+          ? "flex h-full min-h-0 flex-col overflow-hidden border-t border-border bg-card lg:border-l lg:border-t-0"
+          : "fixed bottom-3 right-3 left-3 z-50 flex max-h-[75dvh] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:left-auto sm:w-[370px]"
+      }
+    >
+      <div className="flex items-center gap-2 border-b border-border bg-secondary/50 px-3 py-2.5">
+        <div className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 text-[11px] font-black text-primary">
+          {conversation.cliente
+            .split(" ")
+            .map((name) => name[0])
+            .slice(0, 2)
+            .join("")}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-bold">{conversation.cliente}</div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {conversation.telefone || "Sem telefone"}
+          </div>
+        </div>
+        {onExpand && (
+          <button
+            type="button"
+            onClick={onExpand}
+            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+            title="Abrir no WhatsApp IA"
+            aria-label="Abrir no WhatsApp IA"
+          >
+            <Maximize2 className="size-4" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+          title="Fechar"
+          aria-label="Fechar conversa"
+        >
+          <XIcon className="size-4" />
+        </button>
+      </div>
+
+      <div className="scrollbar-thin min-h-[180px] flex-1 space-y-2.5 overflow-y-auto bg-secondary/20 p-3">
+        {mensagens.length > 0 ? (
+          mensagens.map((mensagem, index) => {
+            const dia = chaveDiaConversa(mensagem.at);
+            const diaAnterior = index > 0 ? chaveDiaConversa(mensagens[index - 1]?.at) : null;
+            return (
+              <Fragment key={`${mensagem.role}-${index}`}>
+                {dia && dia !== diaAnterior && (
+                  <DateChip>{formatarDiaConversa(mensagem.at)}</DateChip>
+                )}
+                <Bubble
+                  side={mensagem.role === "assistant" || mensagem.role === "ai" ? "me" : "them"}
+                  ai={mensagem.role === "assistant" || mensagem.role === "ai"}
+                  hora={horaMensagem(mensagem)}
+                  message={mensagem}
+                >
+                  {mensagem.content}
+                </Bubble>
+              </Fragment>
+            );
+          })
+        ) : (
+          <div className="grid h-full place-items-center text-xs text-muted-foreground">
+            {loading ? "Carregando conversa..." : "Nenhuma mensagem nesta conversa."}
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-border p-2.5">
+        <input
+          value={texto}
+          onChange={(event) => setTexto(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void enviar();
+            }
+          }}
+          placeholder="Escreva uma mensagem"
+          className="h-10 min-w-0 flex-1 rounded-xl bg-secondary px-3 text-sm outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => void enviar()}
+          disabled={sending || !texto.trim()}
+          className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition hover:opacity-90 disabled:opacity-40"
+          aria-label="Enviar mensagem"
+        >
+          <Send className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function KanbanView<T extends Conversa & { telefone?: string; historico?: ConversaMensagem[] }>({
   items,
   columns,
   onMoveColumn,
@@ -4850,6 +5042,8 @@ function KanbanView<T extends Conversa & { telefone?: string }>({
 }) {
   const [drag, setDrag] = useState<string | null>(null);
   const [selected, setSelected] = useState<T | null>(null);
+  const [chatPopup, setChatPopup] = useState<T | null>(null);
+  const [pdvConversation, setPdvConversation] = useState<T | null>(null);
   const [editing, setEditing] = useState(false);
   const [mobileColumnId, setMobileColumnId] = useState(columns[0]?.id ?? "");
   const boardRef = useRef<HTMLDivElement>(null);
@@ -5062,11 +5256,22 @@ function KanbanView<T extends Conversa & { telefone?: string }>({
           columns={columns}
           onClose={() => setSelected(null)}
           onOpen={() => onOpenConversation(selected)}
+          onOpenPopup={() => {
+            setChatPopup(selected);
+            setSelected(null);
+          }}
+          onOpenPdv={() => {
+            setPdvConversation(selected);
+            setSelected(null);
+          }}
           onMove={async (column) => {
             await onMoveColumn(selected, column);
             setMobileColumnId(column.id);
           }}
         />
+      )}
+      {pdvConversation && (
+        <KanbanPdvModal conversation={pdvConversation} onClose={() => setPdvConversation(null)} />
       )}
       {editing && (
         <KanbanColumnsModal
@@ -5076,6 +5281,17 @@ function KanbanView<T extends Conversa & { telefone?: string }>({
           onSave={async (next) => {
             await onSaveColumns(next);
             setEditing(false);
+          }}
+        />
+      )}
+      {chatPopup && (
+        <ConversaChatPopup
+          key={chatPopup.id}
+          conversation={chatPopup}
+          onClose={() => setChatPopup(null)}
+          onExpand={() => {
+            onOpenConversation(chatPopup);
+            setChatPopup(null);
           }}
         />
       )}
@@ -5089,6 +5305,8 @@ function KanbanContactModal<T extends Conversa & { telefone?: string }>({
   columns,
   onClose,
   onOpen,
+  onOpenPopup,
+  onOpenPdv,
   onMove,
 }: {
   conversation: T;
@@ -5096,6 +5314,8 @@ function KanbanContactModal<T extends Conversa & { telefone?: string }>({
   columns: KanbanColumn[];
   onClose: () => void;
   onOpen: () => void;
+  onOpenPopup: () => void;
+  onOpenPdv: () => void;
   onMove: (column: KanbanColumn) => Promise<void> | void;
 }) {
   const [targetColumnId, setTargetColumnId] = useState(column?.id ?? "");
@@ -5194,13 +5414,105 @@ function KanbanContactModal<T extends Conversa & { telefone?: string }>({
             </button>
           </div>
         </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={onOpenPdv}
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-border bg-secondary text-sm font-bold hover:border-primary/40 hover:text-primary"
+          >
+            <Store className="size-4" /> Abrir PDV
+          </button>
+          <button
+            type="button"
+            onClick={onOpenPopup}
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-primary-foreground hover:opacity-90"
+          >
+            <MessageSquare className="size-4" /> Abrir conversa
+          </button>
+        </div>
         <button
           type="button"
           onClick={onOpen}
-          className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-primary-foreground hover:opacity-90"
+          className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-border text-xs font-semibold text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
         >
-          <MessageSquare className="size-4" /> Abrir conversa completa
+          <Maximize2 className="size-3.5" /> Abrir no WhatsApp IA
         </button>
+      </div>
+    </div>
+  );
+}
+
+function KanbanPdvModal<T extends Conversa & { telefone?: string }>({
+  conversation,
+  onClose,
+}: {
+  conversation: T;
+  onClose: () => void;
+}) {
+  const [conversaAberta, setConversaAberta] = useState(true);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && conversaAberta) setConversaAberta(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [conversaAberta]);
+
+  // Nao fecha ao clicar fora para nao perder uma venda sendo montada.
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/50 p-2 sm:p-4">
+      <div className="flex h-[94dvh] w-full max-w-[1480px] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl">
+        <div className="flex items-center justify-between gap-3 border-b border-border p-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-bold">
+              <Store className="size-4 text-primary" /> PDV
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground">
+              Venda para {conversation.cliente}
+              {conversation.telefone ? ` · ${conversation.telefone}` : ""}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label="Fechar PDV"
+          >
+            <XIcon />
+          </button>
+        </div>
+        <div
+          className={`grid min-h-0 flex-1 bg-background ${
+            conversaAberta
+              ? "grid-rows-[minmax(0,1fr)_minmax(280px,45%)] lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-1"
+              : "grid-cols-1"
+          }`}
+        >
+          <div className="scrollbar-thin min-h-0 min-w-0 overflow-y-auto p-3 sm:p-4">
+            <Suspense
+              fallback={
+                <div className="rounded-lg bg-secondary/50 p-3 text-sm text-muted-foreground">
+                  Carregando PDV...
+                </div>
+              }
+            >
+              <PDV
+                initialCliente={conversation.cliente}
+                initialTelefone={(conversation.telefone ?? "").replace(/\D/g, "")}
+                conversaAberta={conversaAberta}
+                onAlternarConversa={() => setConversaAberta((aberta) => !aberta)}
+              />
+            </Suspense>
+          </div>
+          <div className={conversaAberta ? "min-h-0" : "hidden"}>
+            <ConversaChatPopup
+              conversation={conversation}
+              onClose={() => setConversaAberta(false)}
+              embedded
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -275,6 +275,8 @@ type PDVProps = {
   initialSku?: string;
   initialPet?: string;
   initialQuantidade?: string;
+  conversaAberta?: boolean;
+  onAlternarConversa?: () => void;
 };
 
 type PedidoPdvApi = {
@@ -383,6 +385,8 @@ export function PDV({
   initialSku = "",
   initialPet = "",
   initialQuantidade = "",
+  conversaAberta = false,
+  onAlternarConversa,
 }: PDVProps) {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -1429,13 +1433,27 @@ export function PDV({
               Finalizar · {brl(total)}
             </button>
             <button
-              onClick={() => (total > 0 ? finalizar(true) : enviarWhats())}
+              onClick={() =>
+                onAlternarConversa
+                  ? onAlternarConversa()
+                  : total > 0
+                    ? finalizar(true)
+                    : enviarWhats()
+              }
               disabled={finalizandoVenda}
-              title="Enviar resumo no WhatsApp"
+              title={
+                onAlternarConversa ? "Abrir ou fechar a conversa" : "Enviar resumo no WhatsApp"
+              }
               className="h-14 px-5 rounded-xl bg-[#25D366] text-white font-semibold shadow hover:opacity-90 disabled:opacity-40 transition inline-flex items-center gap-2"
             >
               <MessageCircle className="size-5" />
-              <span className="hidden sm:inline">Enviar no WhatsApp</span>
+              <span className="hidden sm:inline">
+                {onAlternarConversa
+                  ? conversaAberta
+                    ? "Fechar conversa"
+                    : "Abrir conversa"
+                  : "Enviar no WhatsApp"}
+              </span>
             </button>
           </div>
         </div>

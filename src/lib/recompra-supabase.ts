@@ -1079,6 +1079,12 @@ function mapPrevisao(row: PrevisaoRow): RecompraPrevista {
   const pet = row.pets?.[0];
   const quantidade = Math.max(1, Number(row.quantidade ?? 1));
   const especie = pet?.especie ?? especiePadrao(produto, cliente);
+  const cicloRacao = calcularDiasRecompraRacao(
+    Number(row.peso_kg ?? 0),
+    Number(row.consumo_diario_g ?? 0),
+  );
+  const intervaloPedidos =
+    row.media_dias_real == null ? null : Math.max(1, Math.round(row.media_dias_real));
   const mediaRecompra = Math.round(row.media_dias_real ?? row.dias_estimados);
   const previsaoBase = Math.max(1, Math.round(row.dias_estimados));
   const linhaCalculo = classificarLinhaRacao(produto);
@@ -1110,6 +1116,9 @@ function mapPrevisao(row: PrevisaoRow): RecompraPrevista {
     consumoDiaKg: Number(row.consumo_diario_g ?? 0) / 1000,
     ultimaCompra: formatDateBr(row.ultima_compra_em),
     ultimaCompraIso: row.ultima_compra_em,
+    diasDesdeCompra: Math.max(0, -signedDiffDaysFromToday(row.ultima_compra_em)),
+    cicloRacao,
+    intervaloPedidos,
     diasRestantes: dias,
     dataPrevista: formatDateBr(row.proxima_compra_em),
     dataPrevistaIso: row.proxima_compra_em,

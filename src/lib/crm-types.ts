@@ -203,6 +203,12 @@ export type RecompraPrevista = {
   consumoDiaKg: number;
   ultimaCompra: string;
   ultimaCompraIso?: string;
+  /** Dias corridos desde a data real da venda; nao e a duracao estimada da racao. */
+  diasDesdeCompra?: number;
+  /** Duracao teorica da racao pelo peso comprado e consumo diario dos pets. */
+  cicloRacao?: number;
+  /** Media observada entre pedidos anteriores do mesmo cliente, produto e pet. */
+  intervaloPedidos?: number | null;
   diasRestantes: number;
   dataPrevista: string;
   dataPrevistaIso?: string;

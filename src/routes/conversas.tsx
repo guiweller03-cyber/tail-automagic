@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Conversas } from "@/pages/Conversas";
 import type { ConversaMensagem, ConversaView } from "@/pages/Conversas";
 import type { Cliente, KanbanStage, ResumoFinanceiroConversa } from "@/lib/crm-types";
+import { formatarQuandoConversa } from "@/lib/formato-data";
 import {
   DEFAULT_KANBAN_COLUMNS,
   defaultKanbanColumnId,
@@ -72,12 +73,9 @@ function mapConversa(row: Record<string, unknown>): ConversaView {
     cliente: String(row.nome_cliente ?? row.telefone ?? "Cliente"),
     telefone: String(row.telefone ?? ""),
     ultima: String(ultimaMsg?.content ?? ""),
-    hora: row.atualizado_em
-      ? new Date(String(row.atualizado_em)).toLocaleTimeString("pt-BR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "",
+    hora: formatarQuandoConversa(
+      typeof row.atualizado_em === "string" ? row.atualizado_em : undefined,
+    ),
     naoLidas: row.aguardando_humano ? 1 : 0,
     tag: row.aguardando_humano ? "Aguardando" : "IA",
     estagio,

@@ -1384,7 +1384,7 @@ export function RecompraPrevista() {
         {/* Tabela */}
         <div className="card-soft overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="min-w-[1460px] w-full text-sm">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-muted-foreground bg-secondary/40">
                   <th className="text-left font-semibold px-3 py-2.5">Cliente</th>
@@ -1392,9 +1392,15 @@ export function RecompraPrevista() {
                   <th className="text-left font-semibold px-3 py-2.5">Ração atual</th>
                   <th
                     className="text-center font-semibold px-3 py-2.5"
-                    title="Média real do cliente"
+                    title="Duracao teorica da racao pelo peso comprado e consumo diario dos pets"
                   >
-                    Média IA
+                    Cálculo da ração
+                  </th>
+                  <th
+                    className="text-center font-semibold px-3 py-2.5"
+                    title="Media real de dias entre os pedidos anteriores deste cliente"
+                  >
+                    Intervalo dos pedidos
                   </th>
                   <th className="text-left font-semibold px-3 py-2.5">Comportamento</th>
                   <th className="text-center font-semibold px-3 py-2.5">Precisão</th>
@@ -1435,14 +1441,39 @@ export function RecompraPrevista() {
                           {r.quantidade} un
                         </div>
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          última {r.ultimaCompra} · {(r.consumoDiaKg * 1000).toFixed(0)}g/dia
+                          comprou {r.ultimaCompra} · há {r.diasDesdeCompra ?? 0}d
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          consumo {(r.consumoDiaKg * 1000).toFixed(0)}g/dia
                         </div>
                       </td>
                       <td className="px-3 py-3 text-center">
-                        <div className="font-bold text-sm tabular-nums">{r.mediaRecompra}d</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          base {r.previsaoBase}d
+                        <div className="font-bold text-sm tabular-nums">
+                          {r.cicloRacao ?? r.previsaoBase}d
                         </div>
+                        <div className="text-[10px] text-muted-foreground">peso ÷ consumo</div>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {r.intervaloPedidos ? (
+                          <>
+                            <div className="font-bold text-sm tabular-nums">
+                              {r.intervaloPedidos}d
+                            </div>
+                            <div
+                              className={`text-[10px] font-semibold ${
+                                r.origemCiclo === "historico"
+                                  ? "text-primary"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {r.origemCiclo === "historico" ? "usado na previsão" : "histórico"}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-[10px] font-semibold text-muted-foreground">
+                            Sem histórico
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-3">
                         <ComportamentoPill c={r.comportamento} />
@@ -1555,7 +1586,7 @@ export function RecompraPrevista() {
                 {filtrados.length === 0 && (
                   <tr>
                     <td
-                      colSpan={12}
+                      colSpan={13}
                       className="px-4 py-10 text-center text-xs text-muted-foreground"
                     >
                       Nenhum cliente neste filtro.
@@ -2255,6 +2286,8 @@ function ClienteDrawer({
   onFollowUp: (item: RecompraPrevista) => void;
 }) {
   const hist = item.historicoDias;
+  const cicloRacao = item.cicloRacao ?? item.previsaoBase;
+  const desvioPedidos = item.intervaloPedidos == null ? null : item.intervaloPedidos - cicloRacao;
   const max = Math.max(...hist);
   const min = Math.min(...hist);
   const delta = hist.length > 1 ? hist[hist.length - 1] - hist[0] : 0;
@@ -2287,8 +2320,18 @@ function ClienteDrawer({
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <Mini label="Média real" value={`${item.mediaRecompra}d`} accent="success" />
-          <Mini label="Previsão base" value={`${item.previsaoBase}d`} />
+          <Mini label="Cálculo da ração" value={`${cicloRacao}d`} />
+          <Mini
+            label="Intervalo dos pedidos"
+            value={item.intervaloPedidos ? `${item.intervaloPedidos}d` : "Sem histórico"}
+            accent={item.origemCiclo === "historico" ? "success" : undefined}
+          />
+          <Mini label="Ciclo usado na previsão" value={`${item.previsaoBase}d`} />
+          <Mini
+            label="Diferença pedido × ração"
+            value={desvioPedidos == null ? "—" : `${desvioPedidos > 0 ? "+" : ""}${desvioPedidos}d`}
+            accent={desvioPedidos != null && Math.abs(desvioPedidos) >= 7 ? "danger" : undefined}
+          />
           <Mini
             label="Precisão IA"
             value={`${item.precisaoIA}%`}
