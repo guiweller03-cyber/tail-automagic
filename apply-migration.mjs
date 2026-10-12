@@ -7,11 +7,14 @@ if (!direct) {
   process.exit(1);
 }
 
-const MIGRATIONS = [
+// Passe os arquivos como argumento para aplicar outras migrations:
+// npx tsx --env-file-if-exists=.env apply-migration.mjs supabase/migrations/x.sql
+const MIGRATIONS_PADRAO = [
   "supabase/migrations/20260616000000_financeiro_lancamentos_manuais.sql",
   "supabase/migrations/20260616120000_crm_followups.sql",
   "supabase/migrations/20260914152909_aprovacao_mensagens_recompra.sql",
 ];
+const MIGRATIONS = process.argv.length > 2 ? process.argv.slice(2) : MIGRATIONS_PADRAO;
 
 const TABELAS = [
   "financeiro_despesas",

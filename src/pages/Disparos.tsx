@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Columns3,
   ListChecks,
   Loader2,
   Paperclip,
@@ -20,9 +21,24 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { KanbanColumn } from "@/features/whatsapp-crm/kanban-config";
 import type { Cliente } from "@/lib/crm-types";
+import {
+  COOLDOWNS,
+  cooldownAleatorio,
+  executarFilaDisparo,
+  formatarDuracao,
+  tempoEstimadoMs as calcularTempoEstimadoMs,
+  type CooldownNivel,
+} from "@/lib/disparos-fila";
 
-type DisparoModo = "automatico" | "semi";
+type DisparoModo = "automatico" | "semi" | "kanban";
+
+type KanbanContato = {
+  telefone: string;
+  nome: string;
+  kanbanColuna: string;
+};
 type DisparoMidiaTipo = "image" | "audio" | "video" | "document";
 type FollowupModo = "manual" | "ia";
 type FollowupDisparo = "automatico" | "confirmar";
@@ -61,6 +77,67 @@ const CLIENTES_ENDPOINT = "/api/crm/clientes";
 const NOME_UTIL_RE = /[\p{L}\p{N}]/u;
 const LEADS_VISIVEIS_MAX = 80;
 
+// Disparo em andamento fica no modulo, fora do componente: sair da pagina e voltar
+// nao perde o progresso nem permite iniciar um segundo disparo em paralelo.
+type DisparoAtivo = {
+  emAndamento: boolean;
+  feitos: number;
+  total: number;
+  proximoEnvioEm: number | null;
+  resultado: ResultadoDisparo;
+};
+
+let disparoAtivo: DisparoAtivo | null = null;
+let pararDisparoAtivo = false;
+let acordarCooldown: (() => void) | null = null;
+const ouvintesDisparo = new Set<() => void>();
+
+function atualizarDisparoAtivo(next: DisparoAtivo | null) {
+  disparoAtivo = next;
+  ouvintesDisparo.forEach((ouvinte) => ouvinte());
+}
+
+function assinarDisparoAtivo(ouvinte: () => void): () => void {
+  ouvintesDisparo.add(ouvinte);
+  return () => ouvintesDisparo.delete(ouvinte);
+}
+
+// Espera o cooldown, mas acorda na hora se o usuario clicar em parar.
+function aguardarCooldown(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      acordarCooldown = null;
+      resolve();
+    }, ms);
+    acordarCooldown = () => {
+      window.clearTimeout(timer);
+      acordarCooldown = null;
+      resolve();
+    };
+  });
+}
+
+function pararDisparo() {
+  pararDisparoAtivo = true;
+  acordarCooldown?.();
+}
+
+// Fechar/recarregar a aba mata o disparo; o navegador pede confirmacao antes.
+function avisarSaidaDuranteDisparo(event: BeforeUnloadEvent) {
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+// Impede a tela/PC de dormir durante disparos longos (so vale com a aba visivel).
+async function manterTelaAcordada(): Promise<(() => void) | null> {
+  try {
+    const lock = await navigator.wakeLock?.request("screen");
+    return lock ? () => void lock.release().catch(() => {}) : null;
+  } catch {
+    return null;
+  }
+}
+
 const mensagemPadrao =
   "Oi {nome}, tudo bem? Passando da Mundo Pet para saber se posso ajudar com algo para {pet} hoje.";
 
@@ -75,6 +152,40 @@ function onlyDigits(value: string): string {
 
 function telefoneValido(value: string): boolean {
   return onlyDigits(value).length >= 10;
+}
+
+// DDD + ultimos 8 digitos: casa telefones com/sem 55 e com/sem o nono digito.
+function chaveTelefone(value: string): string {
+  let digits = onlyDigits(value);
+  if (digits.length >= 12 && digits.startsWith("55")) digits = digits.slice(2);
+  return digits.length >= 10 ? `${digits.slice(0, 2)}${digits.slice(-8)}` : digits;
+}
+
+function clienteDoContato(contato: KanbanContato): Cliente {
+  return {
+    id: `kanban-${contato.telefone}`,
+    nome: contato.nome,
+    telefone: contato.telefone,
+    endereco: "",
+    bairro: "",
+    pets: [],
+    ticket: 0,
+    frequencia: "",
+    ultima: "",
+    perfil: "Novo",
+    origem: "WhatsApp IA",
+    cac: 0,
+    totalGasto: 0,
+    totalDescontos: 0,
+    lucroLiquido: 0,
+    pedidos: 0,
+    proxRecompra: "",
+    observacoes: "",
+  };
+}
+
+function nuncaComprou(cliente: Cliente): boolean {
+  return cliente.pedidos <= 0 && cliente.totalGasto <= 0;
 }
 
 function brl(value: number): string {
@@ -204,8 +315,28 @@ export function Disparos() {
   const [midiaNome, setMidiaNome] = useState("");
   const [limiteAuto, setLimiteAuto] = useState(10);
   const [selecionados, setSelecionados] = useState<Set<string>>(() => new Set());
-  const [enviando, setEnviando] = useState(false);
-  const [resultado, setResultado] = useState<ResultadoDisparo | null>(null);
+  const [kanbanColunas, setKanbanColunas] = useState<KanbanColumn[]>([]);
+  const [kanbanContatos, setKanbanContatos] = useState<KanbanContato[]>([]);
+  const [colunasSelecionadas, setColunasSelecionadas] = useState<Set<string>>(() => new Set());
+  const [somenteSemCompra, setSomenteSemCompra] = useState(true);
+  const [cooldown, setCooldown] = useState<CooldownNivel>("seguro");
+  const [agora, setAgora] = useState(() => Date.now());
+  const disparo = useSyncExternalStore(
+    assinarDisparoAtivo,
+    () => disparoAtivo,
+    () => null,
+  );
+  const enviando = disparo?.emAndamento ?? false;
+  const resultado = disparo?.resultado ?? null;
+  const proximoEnvioEm = disparo?.proximoEnvioEm ?? null;
+
+  // Relogio da contagem regressiva do proximo envio.
+  useEffect(() => {
+    if (proximoEnvioEm === null) return;
+    setAgora(Date.now());
+    const timer = window.setInterval(() => setAgora(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [proximoEnvioEm]);
 
   const [followupAudience, setFollowupAudience] = useState<DisparoModo>("automatico");
   const [followupQuando, setFollowupQuando] = useState(defaultDateTimeLocal);
@@ -221,11 +352,12 @@ export function Disparos() {
     async function load() {
       setLoading(true);
       try {
-        const [clientesRes, followupsRes] = await Promise.all([
+        const [clientesRes, followupsRes, kanbanRes] = await Promise.all([
           fetch(CLIENTES_ENDPOINT, { cache: "no-store" }),
           fetch(`${FOLLOWUPS_ENDPOINT}?status=pendente,aguardando_confirmacao,erro&origem=geral`, {
             cache: "no-store",
           }),
+          fetch(DISPAROS_ENDPOINT, { cache: "no-store" }).catch(() => null),
         ]);
         const clientesData = (await clientesRes.json()) as Cliente[] | { erro?: string };
         const followupsData = (await followupsRes.json()) as Followup[] | { erro?: string };
@@ -244,6 +376,16 @@ export function Disparos() {
         if (alive) {
           setClientes(clientesData);
           setFollowups(followupsData);
+        }
+
+        const kanbanData = kanbanRes?.ok
+          ? ((await kanbanRes.json()) as { colunas?: KanbanColumn[]; contatos?: KanbanContato[] })
+          : null;
+        if (alive && kanbanData) {
+          setKanbanColunas(kanbanData.colunas ?? []);
+          setKanbanContatos(kanbanData.contatos ?? []);
+        } else if (alive) {
+          toast.error("Nao foi possivel carregar as colunas do kanban");
         }
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Erro ao carregar disparos");
@@ -303,9 +445,82 @@ export function Disparos() {
     [leadsValidos, selecionados],
   );
 
-  const previewLeads = modo === "automatico" ? autoLeads.slice(0, limiteAuto) : selecionadosLista;
-  const followupLeads =
-    followupAudience === "automatico" ? autoLeads.slice(0, limiteAuto) : selecionadosLista;
+  const contatosPorColuna = useMemo(() => {
+    const contagem = new Map<string, number>();
+    kanbanContatos.forEach((contato) =>
+      contagem.set(contato.kanbanColuna, (contagem.get(contato.kanbanColuna) ?? 0) + 1),
+    );
+    return contagem;
+  }, [kanbanContatos]);
+
+  // Contatos das colunas escolhidas, cruzados com o cadastro de clientes pelo telefone.
+  // Quem nao tem cadastro nunca teve venda registrada, entao conta como "nunca comprou".
+  const kanbanLeads = useMemo(() => {
+    if (colunasSelecionadas.size === 0) return [];
+    const clientesPorTelefone = new Map(
+      clientes.map((cliente) => [chaveTelefone(cliente.telefone), cliente] as const),
+    );
+    const vistos = new Set<string>();
+
+    return kanbanContatos.flatMap((contato): Cliente[] => {
+      if (!colunasSelecionadas.has(contato.kanbanColuna)) return [];
+      const chave = chaveTelefone(contato.telefone);
+      if (vistos.has(chave)) return [];
+      vistos.add(chave);
+      const cadastro = clientesPorTelefone.get(chave);
+      const lead = cadastro
+        ? { ...cadastro, telefone: contato.telefone, nome: cadastro.nome || contato.nome }
+        : clienteDoContato(contato);
+      if (somenteSemCompra && !nuncaComprou(lead)) return [];
+      return [lead];
+    });
+  }, [clientes, colunasSelecionadas, kanbanContatos, somenteSemCompra]);
+
+  const kanbanColunaPorTelefone = useMemo(
+    () =>
+      new Map(
+        kanbanContatos.map((contato) => [chaveTelefone(contato.telefone), contato.kanbanColuna]),
+      ),
+    [kanbanContatos],
+  );
+  const kanbanColunaNomePorId = useMemo(
+    () => new Map(kanbanColunas.map((coluna) => [coluna.id, coluna.nome])),
+    [kanbanColunas],
+  );
+  const kanbanLeadsFiltrados = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return kanbanLeads;
+
+    return kanbanLeads.filter((cliente) => {
+      const colunaId = kanbanColunaPorTelefone.get(chaveTelefone(cliente.telefone));
+      const haystack = [
+        cliente.nome,
+        cliente.telefone,
+        cliente.perfil,
+        cliente.origem,
+        cliente.bairro,
+        cliente.pets?.join(" "),
+        colunaId ? kanbanColunaNomePorId.get(colunaId) : "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [kanbanColunaNomePorId, kanbanColunaPorTelefone, kanbanLeads, query]);
+  const kanbanLeadsVisiveis = useMemo(
+    () => kanbanLeadsFiltrados.slice(0, LEADS_VISIVEIS_MAX),
+    [kanbanLeadsFiltrados],
+  );
+
+  function publicoDoModo(value: DisparoModo): Cliente[] {
+    if (value === "automatico") return autoLeads.slice(0, limiteAuto);
+    if (value === "kanban") return kanbanLeads;
+    return selecionadosLista;
+  }
+
+  const previewLeads = publicoDoModo(modo);
+  const tempoEstimadoMs = calcularTempoEstimadoMs(previewLeads.length, cooldown);
+  const followupLeads = publicoDoModo(followupAudience);
 
   const resumo = useMemo(
     () => ({
@@ -319,6 +534,15 @@ export function Disparos() {
 
   function toggleLead(id: string) {
     setSelecionados((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleColuna(id: string) {
+    setColunasSelecionadas((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -367,33 +591,113 @@ export function Disparos() {
       toast.error("Selecione pelo menos um lead");
       return;
     }
+    if (modo === "kanban" && kanbanLeads.length === 0) {
+      toast.error("Nenhum contato nas colunas escolhidas");
+      return;
+    }
+    if (disparoAtivo?.emAndamento) {
+      toast.error("Ja existe um disparo em andamento");
+      return;
+    }
+    const publico = previewLeads;
+    if (publico.length === 0) {
+      toast.error("Nenhum lead para disparar");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Disparar para ${publico.length} contato(s) no modo ${COOLDOWNS[cooldown].label}?` +
+          ` Tempo estimado: ~${formatarDuracao(tempoEstimadoMs)}.`,
+      )
+    ) {
+      return;
+    }
 
-    setEnviando(true);
-    setResultado(null);
-    try {
+    const payloadBase = {
+      mensagem: texto,
+      midiaUrl: midiaArquivo ? undefined : midia || undefined,
+      midiaBase64: midiaArquivo?.base64,
+      midiaTipo: midia || midiaArquivo ? midiaTipo : undefined,
+      midiaNome: midiaNome.trim() || midiaArquivo?.nome || undefined,
+      midiaMimeType: midiaArquivo?.tipo,
+    };
+
+    async function postDisparo(body: Record<string, unknown>): Promise<ResultadoDisparo> {
       const response = await fetch(DISPAROS_ENDPOINT, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          modo,
-          mensagem: texto,
-          midiaUrl: midiaArquivo ? undefined : midia || undefined,
-          midiaBase64: midiaArquivo?.base64,
-          midiaTipo: midia || midiaArquivo ? midiaTipo : undefined,
-          midiaNome: midiaNome.trim() || midiaArquivo?.nome || undefined,
-          midiaMimeType: midiaArquivo?.tipo,
-          limite: limiteAuto,
-          clienteIds: modo === "semi" ? selecionadosLista.map((cliente) => cliente.id) : undefined,
-        }),
+        body: JSON.stringify({ ...payloadBase, ...body }),
       });
       const data = (await response.json()) as ResultadoDisparo & { erro?: string };
       if (!response.ok) throw new Error(data.erro || "Falha ao disparar mensagens");
-      setResultado(data);
-      toast.success(`${data.enviados} mensagem(ns) enviada(s)`);
+      return data;
+    }
+
+    // Um contato por requisicao; o cooldown entre eles roda aqui no navegador.
+    const acumulado: ResultadoDisparo = { total: 0, enviados: 0, erros: 0, resultados: [] };
+    const nivel = cooldown;
+    let feitos = 0;
+    const publicar = (proximoEnvioEm: number | null, emAndamento = true) =>
+      atualizarDisparoAtivo({
+        emAndamento,
+        feitos,
+        total: publico.length,
+        proximoEnvioEm,
+        resultado: { ...acumulado, resultados: [...acumulado.resultados] },
+      });
+
+    pararDisparoAtivo = false;
+    publicar(null);
+    window.addEventListener("beforeunload", avisarSaidaDuranteDisparo);
+    const liberarTela = await manterTelaAcordada();
+    try {
+      const { interrompido } = await executarFilaDisparo({
+        itens: publico,
+        intervaloMs: () => cooldownAleatorio(nivel),
+        aguardar: async (ms) => {
+          await aguardarCooldown(ms);
+          publicar(null);
+        },
+        deveParar: () => pararDisparoAtivo,
+        onEsperando: (ms) => publicar(Date.now() + ms),
+        enviar: async (cliente) => {
+          const telefone = onlyDigits(cliente.telefone);
+          try {
+            const data = await postDisparo({
+              modo: "lista",
+              destinatarios: [{ telefone, nome: cliente.nome, pets: cliente.pets }],
+            });
+            acumulado.total += data.total;
+            acumulado.enviados += data.enviados;
+            acumulado.erros += data.erros;
+            acumulado.resultados.push(...data.resultados);
+          } catch (error) {
+            acumulado.total += 1;
+            acumulado.erros += 1;
+            acumulado.resultados.push({
+              id: cliente.id,
+              nome: cliente.nome,
+              telefone,
+              ok: false,
+              erro: error instanceof Error ? error.message : "Falha ao enviar",
+            });
+          }
+          feitos += 1;
+          publicar(null);
+        },
+      });
+
+      const resumoEnvio = `${acumulado.enviados} mensagem(ns) enviada(s)`;
+      if (interrompido) toast.success(`Disparo interrompido: ${resumoEnvio}`);
+      else if (acumulado.enviados === 0)
+        toast.error("Nenhuma mensagem enviada. Veja os erros abaixo.");
+      else toast.success(resumoEnvio);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao disparar mensagens");
     } finally {
-      setEnviando(false);
+      window.removeEventListener("beforeunload", avisarSaidaDuranteDisparo);
+      liberarTela?.();
+      publicar(null, false);
     }
   }
 
@@ -417,7 +721,8 @@ export function Disparos() {
       const criados: Followup[] = [];
       const erros: string[] = [];
 
-      for (const cliente of followupLeads.slice(0, 50)) {
+      const limiteFollowups = followupAudience === "kanban" ? followupLeads.length : 50;
+      for (const cliente of followupLeads.slice(0, limiteFollowups)) {
         const response = await fetch(FOLLOWUPS_ENDPOINT, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -495,13 +800,60 @@ export function Disparos() {
         <section className="card-soft p-4 space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <SectionTitle icon={<Send className="size-4" />} title="Disparo de mensagens" />
-            <div className="grid grid-cols-2 gap-1 rounded-xl bg-secondary p-1">
+            <div className="grid grid-cols-3 gap-1 rounded-xl bg-secondary p-1">
               <SegmentButton active={modo === "automatico"} onClick={() => setModo("automatico")}>
                 <Zap className="size-3.5" /> Automatico
               </SegmentButton>
               <SegmentButton active={modo === "semi"} onClick={() => setModo("semi")}>
                 <ListChecks className="size-3.5" /> Semi
               </SegmentButton>
+              <SegmentButton active={modo === "kanban"} onClick={() => setModo("kanban")}>
+                <Columns3 className="size-3.5" /> Kanban
+              </SegmentButton>
+            </div>
+          </div>
+
+          {modo === "kanban" && (
+            <KanbanFiltro
+              colunas={kanbanColunas}
+              contagem={contatosPorColuna}
+              selecionadas={colunasSelecionadas}
+              onToggle={toggleColuna}
+              somenteSemCompra={somenteSemCompra}
+              onSomenteSemCompra={setSomenteSemCompra}
+              total={kanbanLeads.length}
+            />
+          )}
+
+          <div className="rounded-xl border border-border bg-card p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-xs font-bold">
+                <Clock className="size-4 text-primary" />
+                Intervalo entre mensagens
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                {previewLeads.length} contato(s) · ~{formatarDuracao(tempoEstimadoMs)}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1 rounded-xl bg-secondary p-1">
+              {(Object.keys(COOLDOWNS) as CooldownNivel[]).map((nivel) => (
+                <SegmentButton
+                  key={nivel}
+                  active={cooldown === nivel}
+                  onClick={() => setCooldown(nivel)}
+                  disabled={enviando}
+                >
+                  {nivel === "perigoso" && <AlertTriangle className="size-3.5" />}
+                  {nivel === "medio" && <Clock className="size-3.5" />}
+                  {nivel === "seguro" && <CheckCircle2 className="size-3.5" />}
+                  {COOLDOWNS[nivel].label}
+                </SegmentButton>
+              ))}
+            </div>
+            <div
+              className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium ${COOLDOWNS[cooldown].className}`}
+            >
+              {COOLDOWNS[cooldown].descricao}
             </div>
           </div>
 
@@ -543,8 +895,29 @@ export function Disparos() {
                 ) : (
                   <Send className="size-4" />
                 )}
-                {modo === "automatico" ? "Disparar auto" : "Disparar selecionados"}
+                {modo === "automatico"
+                  ? "Disparar auto"
+                  : modo === "kanban"
+                    ? `Disparar para ${kanbanLeads.length}`
+                    : "Disparar selecionados"}
               </button>
+              {enviando && disparo && (
+                <div className="space-y-1.5 text-[11px] text-muted-foreground">
+                  <div>
+                    Enviados {disparo.feitos}/{disparo.total}
+                    {proximoEnvioEm !== null
+                      ? ` · proxima em ${formatarDuracao(proximoEnvioEm - agora)}`
+                      : "..."}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={pararDisparo}
+                    className="h-8 w-full rounded-lg bg-secondary text-xs font-bold text-foreground hover:bg-secondary/70"
+                  >
+                    Parar disparo
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -648,7 +1021,9 @@ export function Disparos() {
               <div className="text-xs font-bold">
                 {modo === "automatico"
                   ? `${previewLeads.length} lead(s) escolhidos pelo CRM`
-                  : `${previewLeads.length} lead(s) selecionados`}
+                  : modo === "kanban"
+                    ? `${previewLeads.length} contato(s) das colunas do kanban`
+                    : `${previewLeads.length} lead(s) selecionados`}
               </div>
               <div className="text-[11px] text-muted-foreground">
                 Preview com variaveis aplicadas
@@ -662,7 +1037,9 @@ export function Disparos() {
                 <div className="rounded-lg bg-card p-3 text-sm text-muted-foreground">
                   {modo === "automatico"
                     ? "Nenhum lead valido para disparo automatico."
-                    : "Selecione leads na lista ao lado."}
+                    : modo === "kanban"
+                      ? "Escolha uma ou mais colunas do kanban."
+                      : "Selecione leads na lista ao lado."}
                 </div>
               )}
             </div>
@@ -696,31 +1073,81 @@ export function Disparos() {
 
         <section className="card-soft flex min-h-[520px] flex-col overflow-hidden">
           <div className="border-b border-border p-4">
-            <SectionTitle icon={<Users className="size-4" />} title="Selecao semi-automatica" />
+            <SectionTitle
+              icon={
+                modo === "kanban" ? (
+                  <Columns3 className="size-4" />
+                ) : (
+                  <Users className="size-4" />
+                )
+              }
+              title={modo === "kanban" ? "Contatos do WhatsApp / Kanban" : "Selecao semi-automatica"}
+            />
             <div className="mt-3 flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Buscar lead, telefone, perfil ou pet"
+                  placeholder={
+                    modo === "kanban"
+                      ? "Buscar contato, telefone ou coluna"
+                      : "Buscar lead, telefone, perfil ou pet"
+                  }
                   className="input h-10 pl-9"
                 />
               </div>
-              <button
-                type="button"
-                onClick={selectVisible}
-                className="h-10 rounded-lg bg-secondary px-3 text-xs font-bold hover:bg-secondary/70"
-              >
-                Selecionar
-              </button>
+              {modo !== "kanban" && (
+                <button
+                  type="button"
+                  onClick={selectVisible}
+                  className="h-10 rounded-lg bg-secondary px-3 text-xs font-bold hover:bg-secondary/70"
+                >
+                  Selecionar
+                </button>
+              )}
             </div>
+            {modo === "kanban" && (
+              <div className="mt-2 text-[11px] text-muted-foreground">
+                A lista abaixo vem diretamente das conversas do WhatsApp e acompanha a coluna atual
+                de cada contato.
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 scrollbar-thin">
             {loading ? (
               <div className="grid h-48 place-items-center text-sm text-muted-foreground">
-                Carregando leads...
+                {modo === "kanban" ? "Carregando contatos do WhatsApp..." : "Carregando leads..."}
+              </div>
+            ) : modo === "kanban" ? (
+              <div className="space-y-1.5">
+                {kanbanLeadsVisiveis.map((cliente) => {
+                  const colunaId = kanbanColunaPorTelefone.get(chaveTelefone(cliente.telefone));
+                  return (
+                    <KanbanLeadRow
+                      key={cliente.id}
+                      cliente={cliente}
+                      coluna={colunaId ? kanbanColunaNomePorId.get(colunaId) : undefined}
+                    />
+                  );
+                })}
+                {kanbanLeadsFiltrados.length > kanbanLeadsVisiveis.length && (
+                  <div className="rounded-lg bg-secondary/50 p-3 text-center text-xs text-muted-foreground">
+                    Mostrando {kanbanLeadsVisiveis.length} de {kanbanLeadsFiltrados.length}. Use a
+                    busca para refinar a lista.
+                  </div>
+                )}
+                {colunasSelecionadas.size === 0 && (
+                  <div className="p-6 text-center text-sm text-muted-foreground">
+                    Escolha uma ou mais colunas do Kanban para ver os contatos aqui.
+                  </div>
+                )}
+                {colunasSelecionadas.size > 0 && kanbanLeadsFiltrados.length === 0 && (
+                  <div className="p-6 text-center text-sm text-muted-foreground">
+                    Nenhum contato encontrado com os filtros atuais.
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -756,7 +1183,7 @@ export function Disparos() {
               icon={<CalendarClock className="size-4" />}
               title="Disparo de follow-ups"
             />
-            <div className="grid grid-cols-2 gap-1 rounded-xl bg-secondary p-1">
+            <div className="grid grid-cols-3 gap-1 rounded-xl bg-secondary p-1">
               <SegmentButton
                 active={followupAudience === "automatico"}
                 onClick={() => setFollowupAudience("automatico")}
@@ -769,8 +1196,26 @@ export function Disparos() {
               >
                 <ListChecks className="size-3.5" /> Selecionados
               </SegmentButton>
+              <SegmentButton
+                active={followupAudience === "kanban"}
+                onClick={() => setFollowupAudience("kanban")}
+              >
+                <Columns3 className="size-3.5" /> Kanban
+              </SegmentButton>
             </div>
           </div>
+
+          {followupAudience === "kanban" && (
+            <KanbanFiltro
+              colunas={kanbanColunas}
+              contagem={contatosPorColuna}
+              selecionadas={colunasSelecionadas}
+              onToggle={toggleColuna}
+              somenteSemCompra={somenteSemCompra}
+              onSomenteSemCompra={setSomenteSemCompra}
+              total={kanbanLeads.length}
+            />
+          )}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5">
@@ -883,6 +1328,72 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function KanbanFiltro({
+  colunas,
+  contagem,
+  selecionadas,
+  onToggle,
+  somenteSemCompra,
+  onSomenteSemCompra,
+  total,
+}: {
+  colunas: KanbanColumn[];
+  contagem: Map<string, number>;
+  selecionadas: Set<string>;
+  onToggle: (id: string) => void;
+  somenteSemCompra: boolean;
+  onSomenteSemCompra: (value: boolean) => void;
+  total: number;
+}) {
+  return (
+    <div className="space-y-3 rounded-xl border border-border bg-card p-3">
+      <div className="flex items-center gap-2 text-xs font-bold">
+        <Columns3 className="size-4 text-primary" />
+        Colunas do kanban
+      </div>
+      {colunas.length === 0 ? (
+        <div className="text-xs text-muted-foreground">Nenhuma coluna carregada.</div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {colunas.map((coluna) => {
+            const ativa = selecionadas.has(coluna.id);
+            return (
+              <button
+                key={coluna.id}
+                type="button"
+                onClick={() => onToggle(coluna.id)}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition ${
+                  ativa
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {ativa && <Check className="size-3.5" />}
+                {coluna.nome}
+                <span className="rounded bg-background/60 px-1 text-[10px]">
+                  {contagem.get(coluna.id) ?? 0}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <label className="flex cursor-pointer items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          checked={somenteSemCompra}
+          onChange={(event) => onSomenteSemCompra(event.target.checked)}
+          className="size-4 accent-primary"
+        />
+        Somente quem nunca comprou
+      </label>
+      <div className="text-[11px] text-muted-foreground">
+        {total} contato(s) vao receber. Envia para todos, respeitando o intervalo escolhido.
+      </div>
+    </div>
+  );
+}
+
 function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
   return (
     <div className="inline-flex items-center gap-2 text-sm font-bold">
@@ -898,16 +1409,19 @@ function SegmentButton({
   active,
   children,
   onClick,
+  disabled,
 }: {
   active: boolean;
   children: ReactNode;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold transition ${
+      disabled={disabled}
+      className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold transition disabled:opacity-50 ${
         active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
       }`}
     >
@@ -982,6 +1496,56 @@ function LeadRow({
         </div>
       </div>
     </button>
+  );
+}
+
+function KanbanLeadRow({
+  cliente,
+  coluna,
+}: {
+  cliente: Cliente;
+  coluna?: string;
+}) {
+  const semCompra = nuncaComprou(cliente);
+
+  return (
+    <div className="w-full rounded-xl border border-transparent p-3 text-left hover:bg-secondary/60">
+      <div className="flex items-start gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/15 text-xs font-bold text-primary">
+          {(cliente.nome.trim() || cliente.telefone).slice(0, 2).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-bold">
+                {cliente.nome.trim() || "Contato sem nome"}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                {onlyDigits(cliente.telefone)}
+                {cliente.pets?.length ? ` - ${cliente.pets.join(", ")}` : ""}
+              </div>
+            </div>
+            <span className="shrink-0 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-bold text-primary">
+              {coluna || "Kanban"}
+            </span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+            <span
+              className={`rounded px-1.5 py-0.5 font-semibold ${
+                semCompra ? "bg-accent/15 text-accent" : "bg-success/15 text-success"
+              }`}
+            >
+              {semCompra ? "Nunca comprou" : `${cliente.pedidos} compra(s)`}
+            </span>
+            {!semCompra && (
+              <span className="rounded bg-secondary px-1.5 py-0.5">
+                {brl(cliente.totalGasto)} no CRM
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

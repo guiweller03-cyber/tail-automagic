@@ -88,7 +88,16 @@ const dataHoraVendaEditada = (dataISO: string, venda: Pick<Venda, "hora" | "cria
   return base;
 };
 
-const isVendaHoje = (venda: Pick<Venda, "data">, hoje: string) => venda.data === hoje;
+const dataDiasAtras = (dias: number) => {
+  const data = new Date();
+  data.setDate(data.getDate() - dias);
+  return dataLocalISO(data);
+};
+
+const vendaNoPeriodo = (venda: Pick<Venda, "data" | "criadoEm">, inicio: string, fim: string) => {
+  const data = dataVendaInput(venda);
+  return (!inicio || data >= inicio) && (!fim || data <= fim);
+};
 
 const normalizarBusca = (valor: string) =>
   valor
@@ -267,6 +276,7 @@ type VendaEditForm = {
   pay: Pay;
   statusPag: StatusPag;
   obs: string;
+  itens: Item[];
 };
 
 type PDVProps = {
@@ -293,6 +303,14 @@ type PedidoPdvApi = {
   status: string;
   observacao: string;
   taxaMaquina?: number;
+  itens?: Array<{
+    sku: string;
+    nome: string;
+    quantidade: number;
+    preco: number;
+    precoCompra: number;
+    petNome?: string | null;
+  }>;
 };
 
 function pagamentoPedidoParaPdv(value: string): Pay {
@@ -331,6 +349,17 @@ function pedidoParaVendaPdv(pedido: PedidoPdvApi): Venda {
       ? criadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
       : "");
   const itemNome = pedido.observacao?.trim() || pedido.pet?.trim() || "Venda registrada";
+  const itens =
+    pedido.itens && pedido.itens.length > 0
+      ? pedido.itens.map((item) => ({
+          sku: item.sku,
+          nome: item.nome,
+          preco: item.preco,
+          precoCompra: item.precoCompra,
+          qtd: item.quantidade,
+          petNome: item.petNome,
+        }))
+      : [{ sku: "registrado", nome: itemNome, preco: pedido.total, precoCompra: 0, qtd: 1 }];
 
   return {
     id: pedido.id,
@@ -339,7 +368,7 @@ function pedidoParaVendaPdv(pedido: PedidoPdvApi): Venda {
     cliente: pedido.cliente,
     telefone: pedido.telefone,
     criadoEm: pedido.criadoEm,
-    itens: [{ sku: "registrado", nome: itemNome, preco: pedido.total, precoCompra: 0, qtd: 1 }],
+    itens,
     total: pedido.total,
     taxaMaquininha: Number(pedido.taxaMaquina ?? 0),
     pay: pagamentoPedidoParaPdv(pedido.pagamento),
@@ -401,7 +430,10 @@ export function PDV({
   const [obs, setObs] = useState("");
   const [produtoBusca, setProdutoBusca] = useState("");
   const [dataVenda, setDataVenda] = useState(() => dataLocalISO(new Date()));
-  const [hojePdv, setHojePdv] = useState(() => new Date().toLocaleDateString("pt-BR"));
+  const [periodoVendasInicio, setPeriodoVendasInicio] = useState(() => dataLocalISO(new Date()));
+  const [periodoVendasFim, setPeriodoVendasFim] = useState(() => dataLocalISO(new Date()));
+  const [buscaVendas, setBuscaVendas] = useState("");
+  const [carregandoVendas, setCarregandoVendas] = useState(false);
 
   const [carrinho, setCarrinho] = useState<Item[]>([]);
   const [desconto, setDesconto] = useState(0);
@@ -418,6 +450,7 @@ export function PDV({
   const [excluindoVendaId, setExcluindoVendaId] = useState<string | null>(null);
   const [editandoVenda, setEditandoVenda] = useState<Venda | null>(null);
   const [editForm, setEditForm] = useState<VendaEditForm | null>(null);
+  const [editProdutoBusca, setEditProdutoBusca] = useState("");
   const [salvandoEdicaoVenda, setSalvandoEdicaoVenda] = useState(false);
   const [finalizandoVenda, setFinalizandoVenda] = useState(false);
   const [modoAvulso, setModoAvulso] = useState(false);
@@ -446,25 +479,28 @@ export function PDV({
   }, []);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      setHojePdv(new Date().toLocaleDateString("pt-BR"));
-    }, 60 * 1000);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     let alive = true;
 
     async function carregarVendasRecentes() {
+      if (periodoVendasInicio > periodoVendasFim) {
+        setCarregandoVendas(false);
+        return;
+      }
+      setCarregandoVendas(true);
       try {
-        const response = await fetch("/api/crm/pedidos?today=1", { cache: "no-store" });
+        const params = new URLSearchParams({
+          inicio: periodoVendasInicio,
+          fim: periodoVendasFim,
+        });
+        const response = await fetch(`/api/crm/pedidos?${params}`, { cache: "no-store" });
         const data = (await response.json().catch(() => null)) as PedidoPdvApi[] | null;
         if (!alive || !response.ok || !Array.isArray(data)) return;
 
         setVendasRecentes(data.map(pedidoParaVendaPdv));
       } catch {
         if (alive) toast.error("Nao foi possivel carregar as vendas recentes");
+      } finally {
+        if (alive) setCarregandoVendas(false);
       }
     }
 
@@ -473,7 +509,7 @@ export function PDV({
     return () => {
       alive = false;
     };
-  }, [setVendasRecentes]);
+  }, [periodoVendasFim, periodoVendasInicio, setVendasRecentes]);
 
   const subtotalFull = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
   const custoFull = carrinho.reduce((s, i) => s + i.precoCompra * i.qtd, 0);
@@ -514,10 +550,29 @@ export function PDV({
   const lucroLiquido = lucro - taxaMaquininhaValor;
   const valorLiquidoRecebido = Math.max(0, total - taxaMaquininhaValor);
   const margem = totalFull > 0 ? (lucroLiquido / totalFull) * 100 : 0;
-  const vendasRecentes = useMemo(
-    () => vendas.filter((venda) => isVendaHoje(venda, hojePdv)),
-    [hojePdv, vendas],
-  );
+  const vendasPeriodo = useMemo(() => {
+    const busca = normalizarBusca(buscaVendas);
+    return vendas
+      .filter((venda) => vendaNoPeriodo(venda, periodoVendasInicio, periodoVendasFim))
+      .filter((venda) => {
+        if (!busca) return true;
+        return normalizarBusca(
+          [
+            venda.id,
+            venda.cliente,
+            venda.telefone,
+            venda.obs,
+            ...venda.itens.flatMap((item) => [item.nome, item.sku]),
+          ].join(" "),
+        ).includes(busca);
+      })
+      .sort((a, b) => (b.criadoEm ?? "").localeCompare(a.criadoEm ?? ""));
+  }, [buscaVendas, periodoVendasFim, periodoVendasInicio, vendas]);
+
+  const aplicarPeriodoVendas = (dias: number) => {
+    setPeriodoVendasInicio(dataDiasAtras(Math.max(0, dias - 1)));
+    setPeriodoVendasFim(dataLocalISO(new Date()));
+  };
 
   const clienteSel = useMemo(() => {
     return (
@@ -822,13 +877,64 @@ export function PDV({
       pay: venda.pay,
       statusPag: venda.statusPag,
       obs: venda.obs ?? "",
+      itens: venda.itens.filter((item) => item.sku !== "registrado"),
     });
+    setEditProdutoBusca("");
   };
 
   const fecharEdicaoVenda = () => {
     if (salvandoEdicaoVenda) return;
     setEditandoVenda(null);
     setEditForm(null);
+  };
+
+  const atualizarItemEdicao = (index: number, patch: Partial<Item>) => {
+    setEditForm((form) =>
+      form
+        ? {
+            ...form,
+            itens: form.itens.map((item, itemIndex) =>
+              itemIndex === index ? { ...item, ...patch } : item,
+            ),
+          }
+        : form,
+    );
+  };
+
+  const removerItemEdicao = (index: number) => {
+    setEditForm((form) =>
+      form ? { ...form, itens: form.itens.filter((_, itemIndex) => itemIndex !== index) } : form,
+    );
+  };
+
+  const adicionarProdutoEdicao = (produto: Produto) => {
+    setEditForm((form) => {
+      if (!form) return form;
+      const index = form.itens.findIndex((item) => item.sku === produto.sku);
+      if (index >= 0) {
+        return {
+          ...form,
+          itens: form.itens.map((item, itemIndex) =>
+            itemIndex === index ? { ...item, qtd: item.qtd + 1 } : item,
+          ),
+        };
+      }
+      return {
+        ...form,
+        itens: [
+          ...form.itens,
+          {
+            sku: produto.sku,
+            nome: produto.nome,
+            preco: produto.preco,
+            precoCompra: produto.precoCompra,
+            qtd: 1,
+            petNome: null,
+          },
+        ],
+      };
+    });
+    setEditProdutoBusca("");
   };
 
   const salvarEdicaoVenda = async () => {
@@ -856,6 +962,14 @@ export function PDV({
           observacao: editForm.obs,
           pago: editForm.statusPag === "Pago",
           dataVenda: momentoEditado.toISOString(),
+          itens: editForm.itens.map((item) => ({
+            sku: item.sku,
+            nome: item.nome,
+            quantidade: item.qtd,
+            preco: item.preco,
+            precoCompra: item.precoCompra,
+            petNome: item.petNome ?? null,
+          })),
         }),
       });
       const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -875,8 +989,9 @@ export function PDV({
         pay: editForm.pay,
         statusPag: editForm.statusPag,
         obs: editForm.obs,
+        itens: editForm.itens,
       });
-      toast.success("Venda atualizada");
+      toast.success("Venda atualizada e recompra revisada");
       setEditandoVenda(null);
       setEditForm(null);
     } catch (error) {
@@ -1203,8 +1318,7 @@ export function PDV({
                     >
                       <div className="font-semibold text-sm truncate">{p.nome}</div>
                       <div className="text-xs text-muted-foreground">
-                        {brl(p.preco)} ·{" "}
-                        {p.estoque > 0 ? `estoque ${p.estoque}` : "sem estoque"}
+                        {brl(p.preco)} · {p.estoque > 0 ? `estoque ${p.estoque}` : "sem estoque"}
                       </div>
                     </button>
                   ))
@@ -1726,20 +1840,80 @@ export function PDV({
         </div>
       )}
 
-      {/* Vendas recentes + cancelamento */}
+      {/* Central de vendas + cancelamento */}
       <section className="card-soft overflow-hidden">
-        <div className="px-5 pt-4 pb-3 flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold inline-flex items-center gap-2">
-              <History className="size-4 text-primary" /> Vendas recentes
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Cancele, reenvie no WhatsApp ou consulte status
-            </p>
+        <div className="px-5 pt-4 pb-3 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold inline-flex items-center gap-2">
+                <History className="size-4 text-primary" /> Central de vendas
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Consulte por dia ou periodo e corrija a data real da compra
+              </p>
+            </div>
+            <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground bg-secondary px-2 py-1 rounded-md whitespace-nowrap">
+              {carregandoVendas ? "carregando..." : `${vendasPeriodo.length} vendas`}
+            </span>
           </div>
-          <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground bg-secondary px-2 py-1 rounded-md">
-            {vendasRecentes.length} vendas
-          </span>
+
+          <div className="grid gap-2 lg:grid-cols-[auto_auto_auto_1fr_auto_auto] lg:items-end">
+            <button
+              type="button"
+              onClick={() => aplicarPeriodoVendas(1)}
+              className="h-9 rounded-lg bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary/15"
+            >
+              Hoje
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarPeriodoVendas(7)}
+              className="h-9 rounded-lg bg-secondary px-3 text-xs font-semibold hover:bg-secondary/70"
+            >
+              7 dias
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarPeriodoVendas(30)}
+              className="h-9 rounded-lg bg-secondary px-3 text-xs font-semibold hover:bg-secondary/70"
+            >
+              30 dias
+            </button>
+            <label className="relative min-w-0">
+              <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={buscaVendas}
+                onChange={(event) => setBuscaVendas(event.target.value)}
+                placeholder="Cliente, telefone, produto ou pedido"
+                className="h-9 w-full rounded-lg bg-secondary pl-9 pr-3 text-xs outline-none focus:ring-2 ring-primary/30"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="block text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
+                De
+              </span>
+              <input
+                type="date"
+                value={periodoVendasInicio}
+                max={periodoVendasFim}
+                onChange={(event) => setPeriodoVendasInicio(event.target.value)}
+                className="h-9 rounded-lg bg-secondary px-2 text-xs outline-none focus:ring-2 ring-primary/30"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="block text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
+                Ate
+              </span>
+              <input
+                type="date"
+                value={periodoVendasFim}
+                min={periodoVendasInicio}
+                max={dataLocalISO(new Date())}
+                onChange={(event) => setPeriodoVendasFim(event.target.value)}
+                className="h-9 rounded-lg bg-secondary px-2 text-xs outline-none focus:ring-2 ring-primary/30"
+              />
+            </label>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -1756,7 +1930,7 @@ export function PDV({
               </tr>
             </thead>
             <tbody>
-              {vendasRecentes.map((v) => (
+              {vendasPeriodo.map((v) => (
                 <tr
                   key={v.id}
                   className={`border-t border-border hover:bg-secondary/30 ${v.status === "Cancelada" ? "opacity-60" : ""}`}
@@ -1846,6 +2020,13 @@ export function PDV({
                   </td>
                 </tr>
               ))}
+              {!carregandoVendas && vendasPeriodo.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                    Nenhuma venda encontrada nesse periodo.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1898,7 +2079,7 @@ export function PDV({
           onClick={fecharEdicaoVenda}
         >
           <div
-            className="card-soft p-5 w-full max-w-md space-y-4"
+            className="card-soft p-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">
@@ -1944,6 +2125,110 @@ export function PDV({
                   className="w-full h-10 rounded-xl bg-secondary px-3 text-sm outline-none focus:ring-2 ring-primary/30"
                 />
               </label>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
+                    Produtos da venda
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {editForm.itens.length} item(ns)
+                  </span>
+                </div>
+                {editForm.itens.map((item, index) => (
+                  <div
+                    key={`${item.sku}-${index}`}
+                    className="grid grid-cols-[minmax(0,1fr)_72px_100px_36px] gap-2 items-end rounded-xl bg-secondary/60 p-2"
+                  >
+                    <label className="min-w-0 space-y-1">
+                      <span className="block truncate text-xs font-semibold" title={item.nome}>
+                        {item.nome}
+                      </span>
+                      <input
+                        value={item.petNome ?? ""}
+                        onChange={(event) =>
+                          atualizarItemEdicao(index, { petNome: event.target.value || null })
+                        }
+                        placeholder="Pet"
+                        aria-label={`Pet de ${item.nome}`}
+                        className="h-8 w-full rounded-lg bg-card px-2 text-xs outline-none focus:ring-2 ring-primary/30"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[9px] uppercase text-muted-foreground">Qtd.</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={item.qtd}
+                        onChange={(event) =>
+                          atualizarItemEdicao(index, {
+                            qtd: Math.max(1, Math.round(Number(event.target.value) || 1)),
+                          })
+                        }
+                        aria-label={`Quantidade de ${item.nome}`}
+                        className="h-8 w-full rounded-lg bg-card px-2 text-xs outline-none focus:ring-2 ring-primary/30"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[9px] uppercase text-muted-foreground">Preço un.</span>
+                      <input
+                        inputMode="decimal"
+                        value={String(item.preco)}
+                        onChange={(event) =>
+                          atualizarItemEdicao(index, {
+                            preco: dinheiroInputParaNumero(event.target.value),
+                          })
+                        }
+                        aria-label={`Preço de ${item.nome}`}
+                        className="h-8 w-full rounded-lg bg-card px-2 text-xs outline-none focus:ring-2 ring-primary/30"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removerItemEdicao(index)}
+                      title={`Remover ${item.nome}`}
+                      aria-label={`Remover ${item.nome}`}
+                      className="grid size-8 place-items-center rounded-lg text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={editProdutoBusca}
+                    onChange={(event) => setEditProdutoBusca(event.target.value)}
+                    placeholder="Adicionar ou trocar produto"
+                    className="h-9 w-full rounded-lg bg-secondary pl-9 pr-3 text-xs outline-none focus:ring-2 ring-primary/30"
+                  />
+                  {editProdutoBusca.trim() && (
+                    <div className="absolute z-20 mt-1 max-h-40 w-full overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-xl">
+                      {produtos
+                        .filter((produto) =>
+                          normalizarBusca(`${produto.nome} ${produto.sku}`).includes(
+                            normalizarBusca(editProdutoBusca),
+                          ),
+                        )
+                        .slice(0, 8)
+                        .map((produto) => (
+                          <button
+                            key={produto.sku}
+                            type="button"
+                            onClick={() => adicionarProdutoEdicao(produto)}
+                            className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left hover:bg-secondary"
+                          >
+                            <span className="min-w-0 truncate text-xs font-semibold">
+                              {produto.nome}
+                            </span>
+                            <span className="shrink-0 text-[10px] text-muted-foreground">
+                              {brl(produto.preco)} · est. {produto.estoque}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1">
                   <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
@@ -2486,6 +2771,18 @@ type PetRapidoForm = {
   porte: "" | NonNullable<PetDetalhe["porte"]>;
   pesoKg: string;
   idade: "" | "filhote" | "adulto" | "senior";
+  idadeMeses: string;
+  nascimento: string;
+  castrado: "" | "sim" | "nao";
+};
+
+const hojeIso = () => new Date().toISOString().slice(0, 10);
+
+// Idade em meses vira data de nascimento estimada: e dela que sai a curva de crescimento do filhote.
+const nascimentoEstimadoPorMeses = (meses: number) => {
+  const data = new Date();
+  data.setMonth(data.getMonth() - meses);
+  return data.toISOString().slice(0, 10);
 };
 
 // Cliente selecionado sem nenhum pet: cadastra o pet ali mesmo para fechar a venda de uma vez.
@@ -2507,11 +2804,16 @@ function CadastroPetRapido({
     porte: "",
     pesoKg: "",
     idade: "",
+    idadeMeses: "",
+    nascimento: "",
+    castrado: "",
   });
   const [salvando, setSalvando] = useState(false);
   const update = (patch: Partial<PetRapidoForm>) => setForm((atual) => ({ ...atual, ...patch }));
   const racaAtual = RACAS_PESO_BASE.find((raca) => raca.nome === form.raca);
   const racas = RACAS_PESO_BASE.filter((raca) => !form.especie || raca.especie === form.especie);
+  const ehFilhote = form.idade === "filhote";
+  const ehGato = form.especie === "gato";
 
   // A raça traz porte e peso médio, que são o que o cálculo de recompra de ração usa.
   const selecionarRaca = (nome: string) => {
@@ -2548,14 +2850,36 @@ function CadastroPetRapido({
       return;
     }
 
+    const meses = Number(form.idadeMeses);
+    const mesesValido = form.idadeMeses.trim() !== "" && Number.isFinite(meses) && meses >= 0;
+    // Filhote sem idade nao tem curva de crescimento, e a recompra sai errada.
+    if (ehFilhote && !mesesValido && !form.nascimento) {
+      toast.error("Filhote precisa da idade em meses ou da data de nascimento");
+      return;
+    }
+    if (ehGato && !form.castrado) {
+      toast.error("Informe se o gato e castrado");
+      return;
+    }
+
+    const nascimento = form.nascimento || (mesesValido ? nascimentoEstimadoPorMeses(meses) : "");
     const pesoKg = Number(form.pesoKg.replace(",", "."));
+    const pesoValido = Number.isFinite(pesoKg) && pesoKg > 0;
     const pet: PetDetalhe = {
       nome,
       especie: form.especie || undefined,
       raca: form.raca || undefined,
       porte: form.porte || undefined,
-      pesoKg: Number.isFinite(pesoKg) && pesoKg > 0 ? pesoKg : undefined,
+      pesoKg: pesoValido ? pesoKg : undefined,
+      // Sem a data da pesagem o calculo descarta o peso do filhote e usa so a curva.
+      pesoKgMedidoEm: pesoValido && nascimento ? hojeIso() : undefined,
       idade: form.idade || undefined,
+      ...(form.nascimento
+        ? { nascimento: form.nascimento }
+        : nascimento
+          ? { dataNascimentoEstimada: nascimento }
+          : {}),
+      castrado: form.castrado ? form.castrado === "sim" : undefined,
       idadeAdultaConfirmada: form.idade === "filhote" ? false : form.idade ? true : undefined,
     };
 
@@ -2683,7 +3007,11 @@ function CadastroPetRapido({
         />
         <select
           value={form.idade}
-          onChange={(e) => update({ idade: e.target.value as PetRapidoForm["idade"] })}
+          onChange={(e) => {
+            const idade = e.target.value as PetRapidoForm["idade"];
+            // Sair de filhote esconde os campos de idade: limpa para nao salvar dado invisivel.
+            update(idade === "filhote" ? { idade } : { idade, idadeMeses: "", nascimento: "" });
+          }}
           aria-label="Fase"
           className={campo}
         >
@@ -2692,7 +3020,46 @@ function CadastroPetRapido({
           <option value="adulto">Adulto</option>
           <option value="senior">Sênior</option>
         </select>
+        <select
+          value={form.castrado}
+          onChange={(e) => update({ castrado: e.target.value as PetRapidoForm["castrado"] })}
+          aria-label={ehGato ? "Castrado (obrigatório para gato)" : "Castrado"}
+          className={`${campo} ${ehGato && !form.castrado ? "border-destructive" : ""}`}
+        >
+          <option value="">{ehGato ? "Castrado? *" : "Castrado?"}</option>
+          <option value="sim">Castrado</option>
+          <option value="nao">Não castrado</option>
+        </select>
+        {ehFilhote && (
+          <>
+            <input
+              value={form.idadeMeses}
+              onChange={(e) =>
+                update({ idadeMeses: e.target.value.replace(/\D/g, "").slice(0, 2) })
+              }
+              inputMode="numeric"
+              placeholder="Idade (meses) *"
+              aria-label="Idade em meses (obrigatório para filhote)"
+              className={`${campo} ${!form.idadeMeses && !form.nascimento ? "border-destructive" : ""}`}
+            />
+            <input
+              type="date"
+              value={form.nascimento}
+              onChange={(e) => update({ nascimento: e.target.value })}
+              max={hojeIso()}
+              aria-label="Data de nascimento do filhote"
+              title="Nascimento (se souber a data exata)"
+              className={campo}
+            />
+          </>
+        )}
       </div>
+      {ehFilhote && (
+        <p className="text-[11px] text-muted-foreground">
+          Filhote: informe a idade em meses ou a data de nascimento — é o que calcula o crescimento
+          e a próxima recompra.
+        </p>
+      )}
       <button
         type="button"
         onClick={() => void salvar()}

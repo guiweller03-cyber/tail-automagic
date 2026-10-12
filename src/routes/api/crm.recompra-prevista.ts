@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 import {
   definirCicloManualRecompra,
+  definirDataCompraRecompra,
+  historicoVendasRecompra,
   listarRecompraPrevista,
   marcarRecompraContato,
   marcarRecompraTravada,
@@ -69,8 +71,10 @@ function parsePetsDetalhes(value: unknown): PetDetalhe[] | undefined {
 export const Route = createFileRoute("/api/crm/recompra-prevista")({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }) => {
         try {
+          const historico = new URL(request.url).searchParams.get("historico");
+          if (historico) return json({ ok: true, ...(await historicoVendasRecompra(historico)) });
           return json(await listarRecompraPrevista());
         } catch (error) {
           const message = error instanceof Error ? error.message : "Erro desconhecido";
@@ -94,6 +98,11 @@ export const Route = createFileRoute("/api/crm/recompra-prevista")({
               ok: true,
               recompra: await definirCicloManualRecompra(body.id, body.dias),
             });
+          }
+
+          if (body.tipo === "data_compra") {
+            await definirDataCompraRecompra(body.id, body.compraEm);
+            return json({ ok: true, ...(await listarRecompraPrevista()) });
           }
 
           if (body.tipo === "travado") {

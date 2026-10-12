@@ -478,7 +478,16 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
       observacao: pedido.observacao ?? "",
       cupomCodigo: "",
     });
-    setNovoItens([]);
+    setNovoItens(
+      (pedido.itens ?? []).map((item) => ({
+        sku: item.sku,
+        nome: item.nome,
+        quantidade: item.quantidade,
+        preco: item.preco,
+        precoCompra: item.precoCompra,
+        petNome: item.petNome,
+      })),
+    );
     setProdutoBusca("");
     setNovoAberto(true);
   }
@@ -917,6 +926,17 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
 
               {editandoPedido && (
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_160px] gap-3">
+                  <Field label="Adicionar produto">
+                    <div className="relative">
+                      <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={produtoBusca}
+                        onChange={(event) => setProdutoBusca(event.target.value)}
+                        className="input-soft h-10 w-full pl-9"
+                        placeholder="Buscar produto"
+                      />
+                    </div>
+                  </Field>
                   <Field label="Pagamento">
                     <select
                       value={novo.formaPagamento}
@@ -948,92 +968,88 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                 </div>
               )}
 
-              {!editandoPedido && (
-                <div className="rounded-xl border border-border overflow-hidden">
-                  <div className="p-3 bg-secondary/60 flex items-center justify-between">
-                    <span className="text-sm font-semibold">Itens</span>
-                    {carregandoProdutos && (
-                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                    )}
+              <div className="rounded-xl border border-border overflow-hidden">
+                <div className="p-3 bg-secondary/60 flex items-center justify-between">
+                  <span className="text-sm font-semibold">Itens</span>
+                  {carregandoProdutos && (
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+                {produtosFiltrados.length > 0 && (
+                  <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-2 border-b border-border">
+                    {produtosFiltrados.map((produto) => (
+                      <button
+                        key={produto.sku}
+                        onClick={() => addProduto(produto)}
+                        className="text-left rounded-lg border border-border p-2 hover:bg-secondary"
+                      >
+                        <div className="text-sm font-semibold truncate">{produto.nome}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {produto.sku} · {brl(produto.preco)} · estoque {produto.estoque}
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                  {produtosFiltrados.length > 0 && (
-                    <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-2 border-b border-border">
-                      {produtosFiltrados.map((produto) => (
-                        <button
-                          key={produto.sku}
-                          onClick={() => addProduto(produto)}
-                          className="text-left rounded-lg border border-border p-2 hover:bg-secondary"
-                        >
-                          <div className="text-sm font-semibold truncate">{produto.nome}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {produto.sku} · {brl(produto.preco)} · estoque {produto.estoque}
-                          </div>
-                        </button>
-                      ))}
+                )}
+                <div className="p-2 space-y-2">
+                  {novoItens.map((item) => (
+                    <div
+                      key={novoPedidoItemKey(item)}
+                      className="flex items-center gap-2 rounded-lg bg-secondary/50 p-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold truncate">{item.nome}</div>
+                        <div className="text-xs text-muted-foreground">{brl(item.preco)} cada</div>
+                        {petsClienteSelecionado.length > 0 && (
+                          <select
+                            value={item.petNome ?? ""}
+                            onChange={(event) => alterarPetNovoItem(item, event.target.value)}
+                            className="mt-1 h-8 w-full rounded-lg bg-card px-2 text-xs outline-none"
+                          >
+                            <option value="">Sem pet especifico</option>
+                            {petsClienteSelecionado.map((pet) => (
+                              <option key={pet} value={pet}>
+                                {pet}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => changeItemQuantidade(item, -1)}
+                        className="size-8 rounded-lg border border-border hover:bg-card"
+                      >
+                        -
+                      </button>
+                      <span className="w-8 text-center text-sm font-semibold">
+                        {item.quantidade}
+                      </span>
+                      <button
+                        onClick={() => changeItemQuantidade(item, 1)}
+                        className="size-8 rounded-lg border border-border hover:bg-card"
+                      >
+                        +
+                      </button>
+                      <span className="w-20 text-right text-sm font-bold">
+                        {brl(item.preco * item.quantidade)}
+                      </span>
+                      <button
+                        onClick={() =>
+                          setNovoItens((current) => current.filter((row) => row.sku !== item.sku))
+                        }
+                        className="size-8 rounded-lg hover:bg-destructive/10 text-destructive"
+                      >
+                        <Trash2 className="size-4 mx-auto" />
+                      </button>
+                    </div>
+                  ))}
+                  {novoItens.length === 0 && (
+                    <div className="text-center text-xs text-muted-foreground py-5">
+                      Adicione produtos ou informe um total avulso.
                     </div>
                   )}
-                  <div className="p-2 space-y-2">
-                    {novoItens.map((item) => (
-                      <div
-                        key={novoPedidoItemKey(item)}
-                        className="flex items-center gap-2 rounded-lg bg-secondary/50 p-2"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-semibold truncate">{item.nome}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {brl(item.preco)} cada
-                          </div>
-                          {petsClienteSelecionado.length > 0 && (
-                            <select
-                              value={item.petNome ?? ""}
-                              onChange={(event) => alterarPetNovoItem(item, event.target.value)}
-                              className="mt-1 h-8 w-full rounded-lg bg-card px-2 text-xs outline-none"
-                            >
-                              <option value="">Sem pet especifico</option>
-                              {petsClienteSelecionado.map((pet) => (
-                                <option key={pet} value={pet}>
-                                  {pet}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => changeItemQuantidade(item, -1)}
-                          className="size-8 rounded-lg border border-border hover:bg-card"
-                        >
-                          -
-                        </button>
-                        <span className="w-8 text-center text-sm font-semibold">
-                          {item.quantidade}
-                        </span>
-                        <button
-                          onClick={() => changeItemQuantidade(item, 1)}
-                          className="size-8 rounded-lg border border-border hover:bg-card"
-                        >
-                          +
-                        </button>
-                        <span className="w-20 text-right text-sm font-bold">
-                          {brl(item.preco * item.quantidade)}
-                        </span>
-                        <button
-                          onClick={() =>
-                            setNovoItens((current) => current.filter((row) => row.sku !== item.sku))
-                          }
-                          className="size-8 rounded-lg hover:bg-destructive/10 text-destructive"
-                        >
-                          <Trash2 className="size-4 mx-auto" />
-                        </button>
-                      </div>
-                    ))}
-                    {novoItens.length === 0 && (
-                      <div className="text-center text-xs text-muted-foreground py-5">
-                        Adicione produtos ou informe um total avulso.
-                      </div>
-                    )}
-                  </div>
                 </div>
-              )}
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-[1fr_160px] gap-3">
                 <Field label="Observacao">
@@ -1206,6 +1222,27 @@ function normalizarPedido(pedido: Record<string, unknown>): Pedido {
     taxaMaquina: Number(pedido.taxaMaquina ?? pedido.taxa_maquininha ?? 0),
     notaFiscal: false,
     observacao: String(pedido.observacao ?? ""),
+    itens: Array.isArray(pedido.itens)
+      ? pedido.itens.flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const fields = item as Record<string, unknown>;
+          return [
+            {
+              sku: String(fields.sku ?? ""),
+              nome: String(fields.nome ?? ""),
+              quantidade: Number(fields.quantidade ?? 0),
+              preco: Number(fields.preco ?? 0),
+              precoCompra: Number(fields.precoCompra ?? fields.preco_compra ?? 0),
+              petNome:
+                typeof fields.petNome === "string"
+                  ? fields.petNome
+                  : typeof fields.pet_nome === "string"
+                    ? fields.pet_nome
+                    : null,
+            },
+          ];
+        })
+      : [],
   };
 }
 

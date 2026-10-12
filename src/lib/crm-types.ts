@@ -21,6 +21,14 @@ export type Pedido = {
   taxaMaquina: number;
   notaFiscal: boolean;
   observacao?: string;
+  itens?: Array<{
+    sku: string;
+    nome: string;
+    quantidade: number;
+    preco: number;
+    precoCompra: number;
+    petNome?: string | null;
+  }>;
 };
 
 export type ConversaFiltro =

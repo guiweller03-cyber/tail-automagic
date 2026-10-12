@@ -1,5 +1,4 @@
 import type { OrigemCicloRecompra, RecompraPetCalculo, RecompraPrevista } from "@/lib/crm-types";
-import { Link } from "@tanstack/react-router";
 import {
   dataRecompra,
   explicacaoCiclo,
@@ -32,6 +31,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DataCompraEditor } from "@/components/recompra/DataCompraEditor";
+import { HistoricoVendasRecompra } from "@/components/recompra/HistoricoVendasRecompra";
 import {
   Area,
   AreaChart,
@@ -172,15 +173,6 @@ function urlPdv(item: RecompraPrevista) {
   })}`;
 }
 
-function buscaConversa(item: RecompraPrevista) {
-  return {
-    telefone: telefoneWhatsApp(item.telefone),
-    clienteId: item.clienteId,
-    cliente: item.cliente,
-    origem: "recompra",
-  };
-}
-
 export function PainelRecompra() {
   const [items, setItems] = useState<RecompraPrevista[]>([]);
   const [loading, setLoading] = useState(true);
@@ -272,6 +264,10 @@ export function PainelRecompra() {
     setItems((current) =>
       current.map((item) => (item.id === atualizado.id ? { ...item, ...atualizado } : item)),
     );
+  }
+
+  function atualizarItens(atualizados: RecompraPrevista[]) {
+    setItems(atualizados);
   }
 
   return (
@@ -604,6 +600,7 @@ export function PainelRecompra() {
               item={selecionado}
               onContatado={() => marcarContatado(selecionado.id)}
               onAtualizado={atualizarItem}
+              onItensAtualizados={atualizarItens}
             />
           )}
         </DialogContent>
@@ -742,13 +739,16 @@ function RecompraDetalhe({
   item,
   onContatado,
   onAtualizado,
+  onItensAtualizados,
 }: {
   item: RecompraPrevista;
   onContatado: () => void;
   onAtualizado: (item: RecompraPrevista) => void;
+  onItensAtualizados: (items: RecompraPrevista[]) => void;
 }) {
   const pets = item.petsCalculo ?? [];
   const situacao = situacaoPainel(item);
+  const [conversaAberta, setConversaAberta] = useState(false);
 
   return (
     <>
@@ -779,6 +779,21 @@ function RecompraDetalhe({
             value={formatarData(item.ultimaCompraIso, item.ultimaCompra)}
           />
           <DetailField
+            label="Cálculo da ração"
+            value={`${item.cicloRacao ?? item.previsaoBase} dias`}
+          />
+          <DetailField
+            label="Intervalo médio dos pedidos"
+            value={
+              item.intervaloPedidos
+                ? `${item.intervaloPedidos} dias${
+                    item.origemCiclo === "historico" ? " · usado na previsão" : ""
+                  }`
+                : "Sem compras anteriores suficientes"
+            }
+          />
+          <DetailField label="Ciclo usado na previsão" value={`${item.previsaoBase} dias`} />
+          <DetailField
             label="Pacote"
             value={`${item.quantidade} un. · ${item.pesoKg.toLocaleString("pt-BR")} kg`}
           />
@@ -794,7 +809,12 @@ function RecompraDetalhe({
           />
         </dl>
 
-        <CicloEditor item={item} onAtualizado={onAtualizado} />
+        <div className="grid gap-3 md:grid-cols-2">
+          <DataCompraEditor item={item} onAtualizados={onItensAtualizados} />
+          <CicloEditor item={item} onAtualizado={onAtualizado} />
+        </div>
+
+        <HistoricoVendasRecompra item={item} />
 
         <div>
           <p className="text-xs font-semibold uppercase text-muted-foreground">Pets considerados</p>
@@ -815,14 +835,22 @@ function RecompraDetalhe({
               <ShoppingBag className="size-4" /> Criar pedido no PDV
             </a>
           </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/conversas" search={buscaConversa(item)}>
-              <MessageCircle className="size-4" /> Abrir conversa no CRM
-            </Link>
+          <Button type="button" variant="outline" size="sm" onClick={() => setConversaAberta(true)}>
+            <MessageCircle className="size-4" /> Abrir conversa no CRM
           </Button>
         </div>
 
-        <WhatsAppReal item={item} onContatado={onContatado} />
+        <Dialog open={conversaAberta} onOpenChange={setConversaAberta}>
+          <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Conversa com {item.cliente}</DialogTitle>
+              <DialogDescription>
+                Consulte o histórico e envie a mensagem sem sair do Painel de Recompra.
+              </DialogDescription>
+            </DialogHeader>
+            <WhatsAppReal item={item} onContatado={onContatado} />
+          </DialogContent>
+        </Dialog>
       </div>
     </>
   );

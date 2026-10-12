@@ -138,7 +138,18 @@ export const Route = createFileRoute("/api/crm/followups")({
             origemParam === "recompra" || origemParam === "geral" || origemParam === "whatsapp_ia"
               ? origemParam
               : undefined;
-          return json(await listarFollowups({ telefone, status, origem }));
+          const de = url.searchParams.get("de") ?? undefined;
+          const ate = url.searchParams.get("ate") ?? undefined;
+          const periodoValido =
+            de && ate && !Number.isNaN(Date.parse(de)) && !Number.isNaN(Date.parse(ate));
+          return json(
+            await listarFollowups({
+              telefone,
+              status,
+              origem,
+              ...(periodoValido ? { de, ate } : {}),
+            }),
+          );
         } catch (error) {
           return json({ ok: false, erro: followupErrorMessage(error) }, { status: 500 });
         }

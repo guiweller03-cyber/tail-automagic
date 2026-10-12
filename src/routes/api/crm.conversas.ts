@@ -24,6 +24,7 @@ import {
   buscarConversasPorTelefones,
   listarConversasAtualizadasDesde,
   listarConversasResumo,
+  listarContatosPorDia,
   resumoFinanceiroPorTelefone,
   salvarCadastroCliente,
   upsertConversas,
@@ -38,6 +39,7 @@ import {
 } from "@/lib/crm-supabase";
 import { removerLeadTotal } from "@/lib/leads-totais-supabase";
 import type { PetDetalhe } from "@/lib/crm-types";
+import { intervaloDoMes, type ContatoDoDia } from "@/lib/calendario-contatos";
 import type { PerfilClienteExtraido } from "@/lib/openai";
 import { salvarDadosObservadosCliente } from "@/lib/recompra-supabase";
 import { BASE_SYSTEM_PROMPT, type IaRegraCustomizada } from "@/lib/openai";
@@ -750,6 +752,17 @@ async function salvarPerfilExtraidoCliente({
   return { ok: true, cliente, extraido, comprovantesPix };
 }
 
+const CALENDARIO_CACHE_MS = 30_000;
+const calendarioCache = new Map<string, { expiresAt: number; payload: ContatoDoDia[] }>();
+
+async function contatosDoMesCache(mes: string, inicio: string, fim: string) {
+  const cached = calendarioCache.get(mes);
+  if (cached && cached.expiresAt > Date.now()) return cached.payload;
+  const payload = await listarContatosPorDia(inicio, fim);
+  calendarioCache.set(mes, { expiresAt: Date.now() + CALENDARIO_CACHE_MS, payload });
+  return payload;
+}
+
 const CONVERSAS_CACHE_MS = 15_000;
 let conversasCache: { expiresAt: number; payload: unknown[] } | null = null;
 let conversasRequestInFlight: Promise<unknown[]> | null = null;
@@ -801,6 +814,15 @@ export const Route = createFileRoute("/api/crm/conversas")({
 
           if (url.searchParams.get("kanban") === "config") {
             return json({ columns: await buscarKanbanConfig() });
+          }
+
+          const mesCalendario = url.searchParams.get("calendario");
+          if (mesCalendario) {
+            const intervalo = intervaloDoMes(mesCalendario);
+            if (!intervalo) {
+              return json({ ok: false, erro: "Mes invalido (use AAAA-MM)" }, { status: 400 });
+            }
+            return json(await contatosDoMesCache(mesCalendario, intervalo.inicio, intervalo.fim));
           }
 
           if (url.searchParams.get("bloqueados") === "lista") {

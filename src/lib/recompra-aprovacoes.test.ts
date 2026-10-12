@@ -13,6 +13,7 @@ import {
   recompraElegivelParaAprovacao,
   selecionarContatosRecompraSemPrevisao,
   telefoneRecompraValido,
+  ultimaInteracaoConversa,
 } from "./recompra-aprovacoes";
 
 function followupWhatsapp(patch: Partial<Followup> = {}): Followup {
@@ -179,4 +180,27 @@ test("gera mensagem neutra para contato ainda sem dados de recompra", () => {
   assert.match(mensagemContatoSemCadastro("Ana Souza"), /^Oi, Ana!/);
   assert.match(mensagemContatoSemCadastro(null), /^Oi!/);
   assert.match(mensagemContatoSemCadastro(null), /qual produto costuma usar/);
+});
+
+test("usa a data real da ultima mensagem em vez da atualizacao tecnica da conversa", () => {
+  assert.equal(
+    ultimaInteracaoConversa({
+      atualizado_em: "2026-09-14T20:00:00.000Z",
+      historico: [
+        { role: "user", content: "Oi", at: "2026-09-11T10:00:00.000Z" },
+        { role: "assistant", content: "Tudo bem?", at: "2026-09-12T11:30:00.000Z" },
+      ],
+    }),
+    "2026-09-12T11:30:00.000Z",
+  );
+});
+
+test("usa atualizado_em quando o historico antigo nao tem horario", () => {
+  assert.equal(
+    ultimaInteracaoConversa({
+      atualizado_em: "2026-09-14T20:00:00.000Z",
+      historico: [{ role: "user", content: "Oi" }],
+    }),
+    "2026-09-14T20:00:00.000Z",
+  );
 });

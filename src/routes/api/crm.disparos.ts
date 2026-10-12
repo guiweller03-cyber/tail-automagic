@@ -1,15 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
+import { defaultKanbanColumnId } from "@/features/whatsapp-crm/kanban-config";
 import { listarClientes } from "@/lib/crm-supabase";
 import type { Cliente } from "@/lib/crm-types";
+import { buscarKanbanConfig, listarConversasContatos } from "@/lib/supabase";
 import { enviarMensagemLonga, enviarMidia, enviarMidiaBase64 } from "@/lib/uazapi";
 
-type DisparoModo = "automatico" | "semi";
+type DisparoModo = "automatico" | "semi" | "lista";
+
+// Destinatario montado no front (ex.: publico de colunas do kanban), enviado em lotes.
+type DisparoDestinatario = {
+  telefone: string;
+  nome?: string;
+  pets?: string[];
+};
 
 type DisparoInput = {
   modo?: DisparoModo;
   mensagem?: string;
   clienteIds?: string[];
+  destinatarios?: DisparoDestinatario[];
   limite?: number;
   midiaUrl?: string;
   midiaBase64?: string;
@@ -123,6 +133,22 @@ function mediaBase64Valida(value: unknown): string {
   return /^[a-zA-Z0-9+/]+={0,2}$/.test(trimmed) ? trimmed : "";
 }
 
+function clientesDaLista(destinatarios: unknown): Cliente[] {
+  if (!Array.isArray(destinatarios)) return [];
+  const vistos = new Set<string>();
+
+  return destinatarios.slice(0, LIMITE_MAXIMO).flatMap((item): Cliente[] => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as DisparoDestinatario;
+    const telefone = telefoneValido(String(row.telefone ?? ""));
+    if (!telefone || vistos.has(telefone)) return [];
+    vistos.add(telefone);
+    const nome = typeof row.nome === "string" && NOME_UTIL_RE.test(row.nome) ? row.nome.trim() : "";
+    const pets = Array.isArray(row.pets) ? row.pets.filter((pet) => typeof pet === "string") : [];
+    return [{ id: telefone, nome, telefone, pets } as unknown as Cliente];
+  });
+}
+
 function selecionarClientes(clientes: Cliente[], input: DisparoInput): Cliente[] {
   const modo: DisparoModo = input.modo === "semi" ? "semi" : "automatico";
   const limite = limiteSeguro(input.limite);
@@ -140,6 +166,28 @@ function selecionarClientes(clientes: Cliente[], input: DisparoInput): Cliente[]
 export const Route = createFileRoute("/api/crm/disparos")({
   server: {
     handlers: {
+      // Publico do kanban: colunas configuradas + contatos (sem historico) com a coluna atual.
+      GET: async () => {
+        try {
+          const [colunas, contatos] = await Promise.all([
+            buscarKanbanConfig(),
+            listarConversasContatos(),
+          ]);
+          return json({
+            colunas,
+            contatos: contatos
+              .filter((contato) => telefoneValido(contato.telefone))
+              .map((contato) => ({
+                telefone: telefoneValido(contato.telefone),
+                nome: contato.nome_cliente ?? "",
+                kanbanColuna: contato.kanban_coluna || defaultKanbanColumnId(contato.estagio),
+              })),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Erro desconhecido";
+          return json({ ok: false, erro: message }, { status: 500 });
+        }
+      },
       POST: async ({ request }) => {
         try {
           const body = (await request.json()) as DisparoInput;
@@ -150,8 +198,10 @@ export const Route = createFileRoute("/api/crm/disparos")({
             return json({ ok: false, erro: "Mensagem ou midia obrigatoria" }, { status: 400 });
           }
 
-          const clientes = await listarClientes();
-          const selecionados = selecionarClientes(clientes, body);
+          const selecionados =
+            body.modo === "lista"
+              ? clientesDaLista(body.destinatarios)
+              : selecionarClientes(await listarClientes(), body);
           if (selecionados.length === 0) {
             return json({ ok: false, erro: "Nenhum lead valido selecionado" }, { status: 400 });
           }

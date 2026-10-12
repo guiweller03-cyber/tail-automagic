@@ -553,6 +553,47 @@ export function normalizarTextoRecompra(value: string): string {
     .toLowerCase();
 }
 
+/** Gera um codigo estavel para racoes vendidas fora do catalogo da loja. */
+export function skuRacaoAvulsa(nome: string): string {
+  const slug = normalizarTextoRecompra(nome)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 72)
+    .toUpperCase();
+  return slug ? `AVULSA-${slug}` : "";
+}
+
+/** Valida a data-base informada pelo operador sem conversao de fuso horario. */
+export function normalizarDataCompraRecompra(value: unknown): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error("Informe uma data de compra válida");
+  }
+
+  const [ano, mes, dia] = value.split("-").map(Number);
+  const data = new Date(Date.UTC(ano, mes - 1, dia));
+  if (
+    data.getUTCFullYear() !== ano ||
+    data.getUTCMonth() !== mes - 1 ||
+    data.getUTCDate() !== dia
+  ) {
+    throw new Error("Informe uma data de compra válida");
+  }
+
+  return value;
+}
+
+/**
+ * A data da venda e a referencia da recompra. A data de faturamento indica
+ * quando o pagamento foi confirmado e pode ser posterior, principalmente em
+ * vendas retroativas; por isso ela serve apenas como fallback legado.
+ */
+export function dataBaseRecompra(input: {
+  criadoEm?: string | null;
+  faturadoEm?: string | null;
+}): string | null {
+  return input.criadoEm?.trim() || input.faturadoEm?.trim() || null;
+}
+
 export function ehRacaoParaRecompra(produto?: ProdutoRecompraInfo | null): boolean {
   const text = normalizarTextoRecompra(
     [produto?.nome, produto?.categoria, detalhesTecnicos(produto)?.tipoProduto]
@@ -866,5 +907,129 @@ export function consumoDiarioPetRacao(params: {
     consumoDiaG: Math.round(pesoKg * consumoPorKg),
     linha,
     fase,
+  };
+}
+
+export type CompraHistoricoRecompra = {
+  /** Data da compra (YYYY-MM-DD). */
+  data: string;
+  /** Kg de ração comprados nessa compra (pacote × quantidade). 0 se desconhecido. */
+  pesoKg: number;
+};
+
+export type CicloHistoricoRecompra = {
+  /** Dias até a próxima compra, contados a partir da data da compra atual. */
+  dias: number;
+  /** Intervalos reais entre compras usados no cálculo (mais recente primeiro). */
+  intervalos: number[];
+  /** Consumo real observado (g/dia), quando todas as compras usadas têm peso. */
+  consumoRealG: number | null;
+};
+
+const JANELA_MESMA_COMPRA_DIAS = 3;
+const INTERVALO_MIN_DIAS = 3;
+const INTERVALO_MAX_DIAS = 180;
+const MAX_INTERVALOS_HISTORICO = 3;
+const PESOS_RECENCIA = [3, 2, 1];
+
+function diasEntre(inicio: string, fim: string): number {
+  const a = new Date(`${inicio.slice(0, 10)}T00:00:00.000Z`).getTime();
+  const b = new Date(`${fim.slice(0, 10)}T00:00:00.000Z`).getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
+function mediaPonderada(valores: number[]): number {
+  const pesos = valores.map((_, i) => PESOS_RECENCIA[i] ?? 1);
+  const total = pesos.reduce((sum, peso) => sum + peso, 0);
+  return valores.reduce((sum, valor, i) => sum + valor * pesos[i], 0) / total;
+}
+
+function mediana(valores: number[]): number {
+  const ordenados = [...valores].sort((a, b) => a - b);
+  const meio = Math.floor(ordenados.length / 2);
+  return ordenados.length % 2 ? ordenados[meio] : (ordenados[meio - 1] + ordenados[meio]) / 2;
+}
+
+/**
+ * Ciclo a partir do comportamento real do cliente (a partir da 2ª compra).
+ *
+ * - Compras com até 3 dias de diferença contam como uma só (pacote extra, pedido dividido).
+ * - Cada intervalo vira um consumo real: kg da compra anterior ÷ dias até a seguinte.
+ *   Assim, se o cliente comprou 1 pacote e agora levou 2, o ciclo dobra; trocar de
+ *   marca/tamanho não zera o histórico.
+ * - Usa os 3 intervalos mais recentes com peso 3/2/1 e descarta outliers (> 2,5× a mediana).
+ * - Sem peso em alguma compra, cai na média ponderada dos dias.
+ *
+ * Retorna null quando ainda não há intervalo válido (1ª compra): aí vale o cálculo por métricas.
+ */
+export function calcularCicloPorHistorico(
+  compras: CompraHistoricoRecompra[],
+): CicloHistoricoRecompra | null {
+  const ordenadas = compras
+    .filter((compra) => /^\d{4}-\d{2}-\d{2}/.test(compra.data))
+    .map((compra) => ({ data: compra.data.slice(0, 10), pesoKg: Math.max(0, compra.pesoKg || 0) }))
+    .sort((a, b) => a.data.localeCompare(b.data));
+  if (ordenadas.length < 2) return null;
+
+  // Agrupa compras muito próximas: o evento começa na 1ª data e soma os kg.
+  const eventos: Array<{ inicio: string; fim: string; pesoKg: number; semPeso: boolean }> = [];
+  for (const compra of ordenadas) {
+    const ultimo = eventos[eventos.length - 1];
+    if (ultimo && diasEntre(ultimo.fim, compra.data) <= JANELA_MESMA_COMPRA_DIAS) {
+      ultimo.fim = compra.data;
+      ultimo.pesoKg += compra.pesoKg;
+      ultimo.semPeso ||= compra.pesoKg <= 0;
+    } else {
+      eventos.push({
+        inicio: compra.data,
+        fim: compra.data,
+        pesoKg: compra.pesoKg,
+        semPeso: compra.pesoKg <= 0,
+      });
+    }
+  }
+  if (eventos.length < 2) return null;
+
+  let intervalos: Array<{ dias: number; consumoG: number | null }> = [];
+  for (let i = eventos.length - 1; i > 0; i--) {
+    const anterior = eventos[i - 1];
+    const dias = diasEntre(anterior.inicio, eventos[i].inicio);
+    if (dias < INTERVALO_MIN_DIAS || dias > INTERVALO_MAX_DIAS) continue;
+    intervalos.push({
+      dias,
+      consumoG: anterior.semPeso ? null : (anterior.pesoKg * 1000) / dias,
+    });
+    if (intervalos.length >= MAX_INTERVALOS_HISTORICO + 1) break;
+  }
+  if (intervalos.length === 0) return null;
+
+  if (intervalos.length >= 3) {
+    const base = intervalos.every((item) => item.consumoG)
+      ? intervalos.map((item) => item.consumoG as number)
+      : intervalos.map((item) => item.dias);
+    const centro = mediana(base);
+    const filtrados = intervalos.filter((_, i) => {
+      const razao = base[i] / centro;
+      return razao <= 2.5 && razao >= 1 / 2.5;
+    });
+    if (filtrados.length > 0) intervalos = filtrados;
+  }
+  intervalos = intervalos.slice(0, MAX_INTERVALOS_HISTORICO);
+
+  const atual = eventos[eventos.length - 1];
+  const todosComPeso = !atual.semPeso && intervalos.every((item) => item.consumoG);
+  const consumoRealG = todosComPeso
+    ? Math.round(mediaPonderada(intervalos.map((item) => item.consumoG as number)))
+    : null;
+  const cicloEvento = consumoRealG
+    ? (atual.pesoKg * 1000) / consumoRealG
+    : mediaPonderada(intervalos.map((item) => item.dias));
+  // Se a compra atual é um pacote extra dentro do mesmo evento, desconta os dias já passados.
+  const dias = Math.round(cicloEvento) - diasEntre(atual.inicio, atual.fim);
+
+  return {
+    dias: Math.max(1, Math.min(365, dias)),
+    intervalos: intervalos.map((item) => item.dias),
+    consumoRealG,
   };
 }

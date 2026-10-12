@@ -52,6 +52,7 @@ import {
   Ban,
   Store,
   Maximize2,
+  CalendarDays,
 } from "lucide-react";
 import { useSearch } from "@tanstack/react-router";
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -59,7 +60,9 @@ import { chaveDiaConversa, formatarDiaConversa, formatarQuandoConversa } from "@
 import { SpeciePill } from "@/pages/RecompraPrevista";
 import { AIAssistantToggle } from "@/features/whatsapp-crm/components/AIAssistantToggle";
 import { FollowupScheduler } from "@/features/whatsapp-crm/components/FollowupScheduler";
+import { CalendarioContatos } from "@/features/whatsapp-crm/components/CalendarioContatos";
 import { produtoFotoProxyUrl } from "@/lib/produto-foto-url";
+import { conversaCorrespondeBusca } from "@/lib/conversa-search";
 import { useMessageNotifications } from "@/features/whatsapp-crm/hooks/useMessageNotifications";
 import { toast } from "sonner";
 
@@ -176,11 +179,6 @@ function phoneMatches(a: unknown, b: unknown): boolean {
   const left = phoneCandidates(a);
   const right = phoneCandidates(b);
   return left.some((item) => right.includes(item));
-}
-function phoneIncludes(value: unknown, query: unknown): boolean {
-  const phone = phoneForMatch(value);
-  const term = phoneForMatch(query);
-  return Boolean(term && (phone.includes(term) || onlyDigits(value).includes(onlyDigits(query))));
 }
 const normalizeName = (value: unknown) =>
   String(value ?? "")
@@ -786,7 +784,7 @@ export function Conversas({
   const telefoneLink = onlyDigits(conversaSearch.telefone);
   const clienteIdLink = conversaSearch.clienteId;
   const clienteNomeLink = conversaSearch.cliente;
-  const [view, setView] = useState<"chat" | "kanban" | "regras">("chat");
+  const [view, setView] = useState<"chat" | "kanban" | "calendario" | "regras">("chat");
   const [active, setActive] = useState<ConversaView | null>(conversasIniciais[0] ?? null);
   const [items, setItems] = useState<ConversaView[]>(conversasIniciais);
   const [kanbanColumns, setKanbanColumns] = useState<KanbanColumn[]>(
@@ -1203,25 +1201,36 @@ export function Conversas({
     };
   }, []);
 
+  const clientesBuscaIndex = useMemo(() => {
+    const porTelefone = new Map<string, Cliente>();
+    const porNome = new Map<string, Cliente>();
+
+    for (const cliente of clientesAtuais) {
+      for (const telefone of phoneCandidates(cliente.telefone)) {
+        if (!porTelefone.has(telefone)) porTelefone.set(telefone, cliente);
+      }
+      const nome = normalizarTextoBusca(cliente.nome);
+      if (nome && !porNome.has(nome)) porNome.set(nome, cliente);
+    }
+
+    return { porTelefone, porNome };
+  }, [clientesAtuais]);
+
   const filtered = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    const termoNumerico = onlyDigits(busca);
+    const termo = busca.trim();
 
     return items.filter((c) => {
       if (filtro !== "Todos" && !c.filtros.includes(filtro as ConversaFiltro)) return false;
-      if (
-        termo &&
-        !c.cliente.toLowerCase().includes(termo) &&
-        !String(c.ultima ?? "")
-          .toLowerCase()
-          .includes(termo) &&
-        !(termoNumerico && phoneIncludes(c.telefone, termoNumerico))
-      ) {
-        return false;
-      }
-      return true;
+      if (!termo) return true;
+
+      const clienteVinculado =
+        phoneCandidates(c.telefone)
+          .map((telefone) => clientesBuscaIndex.porTelefone.get(telefone))
+          .find(Boolean) ?? clientesBuscaIndex.porNome.get(normalizarTextoBusca(c.cliente));
+
+      return conversaCorrespondeBusca(c, termo, clienteVinculado);
     });
-  }, [items, filtro, busca]);
+  }, [busca, clientesBuscaIndex, filtro, items]);
 
   async function syncWhatsappHistory() {
     if (syncingWhatsapp) return;
@@ -1605,6 +1614,33 @@ export function Conversas({
     }
   }
 
+  async function openConversationFromCalendar(conversaId: string, telefone: string) {
+    const encontrada =
+      items.find((item) => item.id === conversaId) ??
+      items.find((item) => onlyDigits(item.telefone) === telefone);
+    if (encontrada) {
+      setActive(encontrada);
+      setView("chat");
+      return;
+    }
+    try {
+      const query = conversaId
+        ? `detalhe=${encodeURIComponent(conversaId)}`
+        : `telefone=${encodeURIComponent(telefone)}`;
+      const response = await fetch(`/api/crm/conversas?${query}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.erro || "Conversa não encontrada");
+      const conversa = mapApiConversa(data as Record<string, unknown>);
+      setItems((current) =>
+        current.some((item) => item.id === conversa.id) ? current : [conversa, ...current],
+      );
+      setActive(conversa);
+      setView("chat");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Conversa não encontrada");
+    }
+  }
+
   async function saveKanbanColumns(columns: KanbanColumn[]) {
     const normalized = sanitizeKanbanColumns(columns);
     const response = await fetch("/api/crm/conversas", {
@@ -1700,7 +1736,7 @@ export function Conversas({
               offText="Desligada para todos"
             />
           </span>
-          <div className="grid w-full min-w-0 grid-cols-3 rounded-lg bg-secondary p-1 sm:inline-flex sm:w-auto sm:shrink-0 sm:rounded-xl">
+          <div className="grid w-full min-w-0 grid-cols-4 rounded-lg bg-secondary p-1 sm:inline-flex sm:w-auto sm:shrink-0 sm:rounded-xl">
             <button
               onClick={() => setView("chat")}
               className={`h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap sm:h-9 sm:rounded-lg ${
@@ -1717,6 +1753,15 @@ export function Conversas({
             >
               <LayoutGrid className="size-3.5" /> <span className="sm:hidden">Kanban</span>
               <span className="hidden sm:inline">Kanban IA</span>
+            </button>
+            <button
+              onClick={() => setView("calendario")}
+              className={`h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap sm:h-9 sm:rounded-lg ${
+                view === "calendario" ? "bg-card shadow-sm" : ""
+              }`}
+            >
+              <CalendarDays className="size-3.5" /> <span className="sm:hidden">Agenda</span>
+              <span className="hidden sm:inline">Calendário</span>
             </button>
             <button
               onClick={() => setView("regras")}
@@ -1809,6 +1854,13 @@ export function Conversas({
             setActive(conversation);
             setView("chat");
           }}
+        />
+      ) : view === "calendario" ? (
+        <CalendarioContatos
+          conversas={items}
+          onOpenConversation={(conversaId, telefone) =>
+            void openConversationFromCalendar(conversaId, telefone)
+          }
         />
       ) : (
         <IaRulesView />
@@ -2223,56 +2275,90 @@ function ChatView({
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <input
+              type="search"
               value={busca}
               onChange={(event) => setBusca(event.target.value)}
-              placeholder="Buscar conversa"
-              className="h-11 w-full rounded-lg bg-secondary pl-9 pr-3 text-sm outline-none"
+              placeholder="Buscar por nome ou telefone"
+              aria-label="Buscar conversa por nome ou telefone"
+              className="h-11 w-full rounded-lg bg-secondary pl-9 pr-9 text-sm outline-none ring-primary/25 placeholder:text-muted-foreground focus:bg-card focus:ring-2"
             />
+            {busca && (
+              <button
+                type="button"
+                onClick={() => setBusca("")}
+                className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-card hover:text-foreground"
+                aria-label="Limpar busca"
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            )}
           </div>
+          {busca && (
+            <div className="mt-2 px-1 text-[11px] font-medium text-muted-foreground">
+              {items.length} {items.length === 1 ? "conversa encontrada" : "conversas encontradas"}
+            </div>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
-          {items.map((item) => {
-            const naoLidas = unread[item.id] ?? 0;
-            return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setActive(item);
-                  setMobilePane("chat");
-                }}
-                className={`w-full border-b border-border/60 px-2.5 py-3 text-left transition last:border-b-0 ${
-                  item.id === active.id ? "bg-primary/10" : "hover:bg-secondary/60"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    {naoLidas > 0 && (
-                      <span className="size-2 shrink-0 rounded-full bg-success" aria-hidden />
-                    )}
-                    <span className="truncate text-sm font-bold">{item.cliente}</span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1.5">
-                    <span className="text-[10px] text-muted-foreground">{item.hora}</span>
-                    {naoLidas > 0 && (
-                      <span
-                        className="grid h-5 min-w-5 place-items-center rounded-full bg-success px-1.5 text-[11px] font-bold leading-none text-success-foreground"
-                        aria-label={`${naoLidas} ${naoLidas === 1 ? "mensagem nova" : "mensagens novas"}`}
-                      >
-                        {naoLidas > 99 ? "99+" : naoLidas}
-                      </span>
-                    )}
-                  </span>
+          {items.length === 0 && busca ? (
+            <div className="grid min-h-44 place-items-center px-5 text-center">
+              <div>
+                <div className="mx-auto grid size-10 place-items-center rounded-full bg-secondary text-muted-foreground">
+                  <Search className="size-4" />
                 </div>
-                <p
-                  className={`mt-1 truncate text-xs ${
-                    naoLidas > 0 ? "font-semibold text-foreground" : "text-muted-foreground"
+                <p className="mt-3 text-sm font-bold">Nenhuma conversa encontrada</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Tente o nome cadastrado, o telefone completo ou os ultimos digitos.
+                </p>
+              </div>
+            </div>
+          ) : (
+            items.map((item) => {
+              const naoLidas = unread[item.id] ?? 0;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActive(item);
+                    setMobilePane("chat");
+                  }}
+                  className={`w-full border-b border-border/60 px-2.5 py-3 text-left transition last:border-b-0 ${
+                    item.id === active.id ? "bg-primary/10" : "hover:bg-secondary/60"
                   }`}
                 >
-                  {item.ultima || "Sem mensagens"}
-                </p>
-              </button>
-            );
-          })}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {naoLidas > 0 && (
+                        <span className="size-2 shrink-0 rounded-full bg-success" aria-hidden />
+                      )}
+                      <span className="truncate text-sm font-bold">{item.cliente}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <span className="text-[10px] text-muted-foreground">{item.hora}</span>
+                      {naoLidas > 0 && (
+                        <span
+                          className="grid h-5 min-w-5 place-items-center rounded-full bg-success px-1.5 text-[11px] font-bold leading-none text-success-foreground"
+                          aria-label={`${naoLidas} ${naoLidas === 1 ? "mensagem nova" : "mensagens novas"}`}
+                        >
+                          {naoLidas > 99 ? "99+" : naoLidas}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
+                    {item.telefone || "Telefone nao informado"}
+                  </div>
+                  <p
+                    className={`mt-0.5 truncate text-xs ${
+                      naoLidas > 0 ? "font-semibold text-foreground" : "text-muted-foreground"
+                    }`}
+                  >
+                    {item.ultima || "Sem mensagens"}
+                  </p>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -2928,6 +3014,8 @@ function CrmPanel({
   const [pesoPetDrafts, setPesoPetDrafts] = useState<Record<string, string>>({});
   const [sugerindoPets, setSugerindoPets] = useState(false);
   const [salvandoPets, setSalvandoPets] = useState(false);
+  const [showPdv, setShowPdv] = useState(false);
+  const [showQuickPet, setShowQuickPet] = useState(false);
   const [manual, setManual] = useState({
     nome: cli.nome,
     telefone: cli.telefone,
@@ -3089,17 +3177,17 @@ function CrmPanel({
     }
   }
 
-  async function salvarPetsDetalhe() {
+  async function persistirPetsDetalhe(lista: PetDetalhe[], mensagemSucesso: string) {
     if (salvandoPets) return;
 
     const nome = cli.nome.trim();
     const telefone = cli.telefone.replace(/\D/g, "");
     if (!nome || telefone.length < 8) {
       toast.error("Cliente precisa de nome e telefone para salvar os pets");
-      return;
+      return false;
     }
 
-    const limpos = petsDetalhe.map(normalizarPetFormulario).filter(petTemConteudo);
+    const limpos = lista.map(normalizarPetFormulario).filter(petTemConteudo);
     const nomesPets = nomesPetsDetalhes(limpos);
 
     setSalvandoPets(true);
@@ -3136,12 +3224,44 @@ function CrmPanel({
         bairro: clienteSalvo.bairro,
         pets: clienteSalvo.pets.join(", "),
       }));
-      toast.success("Dados do pet salvos");
+      toast.success(mensagemSucesso);
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao salvar pets");
+      return false;
     } finally {
       setSalvandoPets(false);
     }
+  }
+
+  async function salvarPetsDetalhe() {
+    await persistirPetsDetalhe(petsDetalhe, "Dados do pet salvos");
+  }
+
+  async function salvarPetRapido(pet: PetDetalhe) {
+    const novoPet = normalizarPetFormulario(pet);
+    if (!novoPet.nome.trim()) {
+      toast.error("Informe o nome do pet");
+      return false;
+    }
+
+    const chaveNovoPet = normalizarTextoBusca(novoPet.nome);
+    const indexExistente = petsDetalhe.findIndex(
+      (item) => normalizarTextoBusca(item.nome) === chaveNovoPet,
+    );
+    const proximaLista =
+      indexExistente >= 0
+        ? petsDetalhe.map((item, index) =>
+            index === indexExistente ? { ...item, ...novoPet } : item,
+          )
+        : [...petsDetalhe, novoPet];
+    const salvo = await persistirPetsDetalhe(
+      proximaLista,
+      indexExistente >= 0 ? `${novoPet.nome} atualizado` : `${novoPet.nome} cadastrado`,
+    );
+
+    if (salvo) setShowQuickPet(false);
+    return Boolean(salvo);
   }
 
   useEffect(() => {
@@ -3627,6 +3747,44 @@ function CrmPanel({
             {especiesContexto.map((e) => (
               <SpeciePill key={e} especie={e} />
             ))}
+          </div>
+          <div className="mt-3 overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-accent/10 p-2.5 shadow-sm">
+            <div className="flex items-center justify-between gap-3 px-0.5">
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+                  <Store className="size-3" /> Venda e cadastro
+                </div>
+                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  {cli.pets.length > 0
+                    ? `${cli.pets.length} ${cli.pets.length === 1 ? "pet cadastrado" : "pets cadastrados"}`
+                    : "Nenhum pet cadastrado"}
+                </p>
+              </div>
+              {cli.totalGasto > 0 && (
+                <div className="shrink-0 text-right">
+                  <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                    Historico
+                  </div>
+                  <div className="text-xs font-bold text-success">{brl(cli.totalGasto)}</div>
+                </div>
+              )}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPdv(true)}
+                className="inline-flex h-11 items-center justify-center gap-1.5 rounded-lg border border-primary/25 bg-card px-2 text-xs font-bold text-primary shadow-sm transition hover:border-primary/45 hover:bg-primary/5 sm:h-10"
+              >
+                <Store className="size-4" /> Abrir PDV
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowQuickPet(true)}
+                className="inline-flex h-11 items-center justify-center gap-1.5 rounded-lg bg-primary px-2 text-xs font-bold text-primary-foreground shadow-sm transition hover:opacity-90 sm:h-10"
+              >
+                <PawPrint className="size-4" /> Cadastrar pet
+              </button>
+            </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button
@@ -4554,6 +4712,240 @@ function CrmPanel({
           )}
         </div>
       </div>
+      {showPdv && <KanbanPdvModal conversation={active} onClose={() => setShowPdv(false)} />}
+      {showQuickPet && (
+        <QuickPetModal
+          clienteNome={cli.nome}
+          saving={salvandoPets}
+          onClose={() => setShowQuickPet(false)}
+          onSave={salvarPetRapido}
+        />
+      )}
+    </div>
+  );
+}
+
+function QuickPetModal({
+  clienteNome,
+  saving,
+  onClose,
+  onSave,
+}: {
+  clienteNome: string;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (pet: PetDetalhe) => Promise<boolean>;
+}) {
+  const [pet, setPet] = useState<PetDetalhe>({ nome: "" });
+  const [pesoDraft, setPesoDraft] = useState("");
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !saving) onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose, saving]);
+
+  const update = <K extends keyof PetDetalhe>(key: K, value: PetDetalhe[K]) =>
+    setPet((current) => ({ ...current, [key]: value }));
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-foreground/45 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      onMouseDown={() => !saving && onClose()}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onSave({
+            ...pet,
+            pesoKg:
+              parsePesoPetKg(pesoDraft) ??
+              (pet.especie === "gato" ? PESO_PADRAO_GATO_KG : undefined),
+          });
+        }}
+        onMouseDown={(event) => event.stopPropagation()}
+        className="flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-2xl sm:max-w-xl sm:rounded-3xl"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-gradient-to-br from-primary/10 to-accent/10 px-4 py-4 sm:px-5">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 text-base font-bold">
+              <span className="grid size-8 place-items-center rounded-xl bg-primary text-primary-foreground">
+                <PawPrint className="size-4" />
+              </span>
+              Cadastrar pet
+            </div>
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              O pet sera salvo na ficha de {clienteNome}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="grid size-9 shrink-0 place-items-center rounded-xl bg-card/80 text-muted-foreground hover:text-foreground disabled:opacity-50"
+            aria-label="Fechar cadastro de pet"
+          >
+            <XIcon className="size-4" />
+          </button>
+        </div>
+
+        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1.5 sm:col-span-2">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                Nome do pet *
+              </span>
+              <input
+                autoFocus
+                required
+                value={pet.nome}
+                onChange={(event) => update("nome", event.target.value)}
+                placeholder="Ex.: Mel"
+                className="h-12 w-full rounded-xl border border-border bg-secondary px-3 text-sm font-semibold outline-none ring-primary/25 focus:border-primary focus:bg-card focus:ring-2 sm:h-11"
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                Especie
+              </span>
+              <select
+                value={pet.especie ?? ""}
+                onChange={(event) => {
+                  const especie =
+                    event.target.value === "cachorro" || event.target.value === "gato"
+                      ? event.target.value
+                      : undefined;
+                  setPet((current) => ({
+                    ...current,
+                    especie,
+                    pesoKg:
+                      especie === "gato" && !current.pesoKg ? PESO_PADRAO_GATO_KG : current.pesoKg,
+                  }));
+                  if (especie === "gato" && !pesoDraft) setPesoDraft("3,5");
+                }}
+                className="h-12 w-full rounded-xl border border-border bg-secondary px-3 text-sm outline-none focus:border-primary sm:h-11"
+              >
+                <option value="">Selecionar</option>
+                <option value="cachorro">Cachorro</option>
+                <option value="gato">Gato</option>
+              </select>
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                Raca
+              </span>
+              <input
+                value={pet.raca ?? ""}
+                onChange={(event) => update("raca", event.target.value)}
+                placeholder="Ex.: Shih-tzu"
+                className="h-12 w-full rounded-xl border border-border bg-secondary px-3 text-sm outline-none focus:border-primary sm:h-11"
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                Porte
+              </span>
+              <select
+                value={pet.porte ?? ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  update(
+                    "porte",
+                    value === "pequeno" || value === "medio" || value === "grande"
+                      ? value
+                      : undefined,
+                  );
+                }}
+                className="h-12 w-full rounded-xl border border-border bg-secondary px-3 text-sm outline-none focus:border-primary sm:h-11"
+              >
+                <option value="">Nao informado</option>
+                <option value="pequeno">Pequeno</option>
+                <option value="medio">Medio</option>
+                <option value="grande">Grande</option>
+              </select>
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                Castrado
+              </span>
+              <select
+                value={pet.castrado === undefined ? "" : pet.castrado ? "sim" : "nao"}
+                onChange={(event) =>
+                  update(
+                    "castrado",
+                    event.target.value === "sim"
+                      ? true
+                      : event.target.value === "nao"
+                        ? false
+                        : undefined,
+                  )
+                }
+                className="h-12 w-full rounded-xl border border-border bg-secondary px-3 text-sm outline-none focus:border-primary sm:h-11"
+              >
+                <option value="">Nao informado</option>
+                <option value="sim">Sim</option>
+                <option value="nao">Nao</option>
+              </select>
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                Nascimento
+              </span>
+              <input
+                type="date"
+                value={pet.nascimento ?? ""}
+                onChange={(event) => update("nascimento", event.target.value)}
+                className="h-12 w-full rounded-xl border border-border bg-secondary px-3 text-sm outline-none focus:border-primary sm:h-11"
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                Peso (kg)
+              </span>
+              <input
+                inputMode="decimal"
+                value={pesoDraft}
+                onChange={(event) => setPesoDraft(event.target.value)}
+                onBlur={(event) => update("pesoKg", parsePesoPetKg(event.currentTarget.value))}
+                placeholder={pet.especie === "gato" ? "3,5" : "Ex.: 8,2"}
+                className="h-12 w-full rounded-xl border border-border bg-secondary px-3 text-sm outline-none focus:border-primary sm:h-11"
+              />
+            </label>
+            <label className="space-y-1.5 sm:col-span-2">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                Observacao
+              </span>
+              <textarea
+                value={pet.observacao ?? ""}
+                onChange={(event) => update("observacao", event.target.value)}
+                placeholder="Alergias, preferencias ou algum cuidado importante"
+                rows={3}
+                className="w-full resize-none rounded-xl border border-border bg-secondary px-3 py-2.5 text-sm outline-none focus:border-primary"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-border bg-card px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:flex sm:justify-end sm:px-5 sm:py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="h-11 rounded-xl bg-secondary px-5 text-sm font-semibold hover:bg-secondary/70 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={saving || !pet.nome.trim()}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-bold text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-50"
+          >
+            <Save className="size-4" /> {saving ? "Salvando..." : "Salvar pet"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

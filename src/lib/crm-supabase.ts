@@ -5,6 +5,7 @@ import {
   registrarLeadTotal,
   registrarLeadsTotais,
 } from "@/lib/leads-totais-supabase";
+import { formatarQuandoConversa } from "@/lib/formato-data";
 import { requireSupabaseServerKey } from "@/lib/server-env";
 
 export type DashboardData = {
@@ -1192,7 +1193,7 @@ function mapConversa(row: ConversaDashboardRow): DashboardData["conversas"][numb
     id: row.id,
     cliente: row.nome_cliente ?? row.telefone,
     ultima: ultimaMensagem || "Sem mensagens",
-    hora: atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+    hora: formatarQuandoConversa(atualizadoEm),
     naoLidas: row.aguardando_humano ? 1 : 0,
   };
 }

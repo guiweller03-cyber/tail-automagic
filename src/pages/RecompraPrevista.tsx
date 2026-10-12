@@ -14,8 +14,11 @@ import {
   calcularDiasRecompraRacao,
   consumoDiarioPetRacao,
   inferirPesoRacaoKg,
+  skuRacaoAvulsa,
+  type ProdutoRecompraInfo,
 } from "@/lib/recompra-calculo";
 import { useSearch } from "@tanstack/react-router";
+import { DataCompraEditor } from "@/components/recompra/DataCompraEditor";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -87,6 +90,8 @@ type VendaManualForm = {
   >;
   modoDistribuicao: "compartilhada" | "por_pet";
   sku: string;
+  produtoAvulso: boolean;
+  produtoNomeAvulso: string;
   compraEm: string;
   diasRecompra: string;
   quantidade: string;
@@ -186,6 +191,8 @@ const VENDA_MANUAL_INICIAL: VendaManualForm = {
   petsDetalhes: {},
   modoDistribuicao: "compartilhada",
   sku: "",
+  produtoAvulso: false,
+  produtoNomeAvulso: "",
   compraEm: todayInputValue(),
   diasRecompra: "30",
   quantidade: "1",
@@ -301,7 +308,24 @@ export function RecompraPrevista() {
   }, [catalogoProdutos]);
   const clienteManual = clientes.find((cliente) => cliente.id === vendaManual.clienteId) ?? null;
   const produtoManual = catalogoProdutos.find((produto) => produto.sku === vendaManual.sku) ?? null;
-  const modeloManual = modelosRacao.find((modelo) => modelo.sku === vendaManual.sku) ?? null;
+  const produtoNomeManual = vendaManual.produtoAvulso
+    ? vendaManual.produtoNomeAvulso.trim()
+    : (produtoManual?.nome ?? "");
+  const skuProdutoManual = vendaManual.produtoAvulso
+    ? skuRacaoAvulsa(produtoNomeManual)
+    : (produtoManual?.sku ?? "");
+  const produtoCalculoManual = useMemo<ProdutoRecompraInfo | null>(() => {
+    if (produtoManual) return produtoManual;
+    if (!vendaManual.produtoAvulso || !produtoNomeManual) return null;
+    return {
+      nome: produtoNomeManual,
+      categoria: "Racao",
+      detalhesTecnicos: vendaManual.pesoKg
+        ? { peso: `${vendaManual.pesoKg.replace(",", ".")} kg` }
+        : undefined,
+    };
+  }, [produtoManual, produtoNomeManual, vendaManual.pesoKg, vendaManual.produtoAvulso]);
+  const modeloManual = modelosRacao.find((modelo) => modelo.sku === skuProdutoManual) ?? null;
   const petNomesManualSelecionados = useMemo(() => {
     return Array.from(
       new Set(
@@ -332,17 +356,17 @@ export function RecompraPrevista() {
     });
   }, [clienteManual, petNomesManualSelecionados, vendaManual.petsDetalhes]);
   const diasRecompraSugeridos = useMemo(() => {
-    if (!produtoManual || petNomesManualSelecionados.length === 0) return null;
+    if (!produtoCalculoManual || petNomesManualSelecionados.length === 0) return null;
 
     const quantidade = numeroPositivo(vendaManual.quantidade) ?? 1;
     const pesoRacaoKg =
-      numeroPositivo(vendaManual.pesoKg) ?? inferirPesoRacaoKg(produtoManual, quantidade);
+      numeroPositivo(vendaManual.pesoKg) ?? inferirPesoRacaoKg(produtoCalculoManual, quantidade);
     const consumoManual = numeroPositivo(vendaManual.consumoDiarioG);
     const consumoDiarioG =
       consumoManual ??
       petDetalhesManualSelecionados.reduce((sum, pet) => {
         const consumo = consumoDiarioPetRacao({
-          produto: produtoManual,
+          produto: produtoCalculoManual,
           pet,
           especiePadrao: clienteManual?.especies?.[0] ?? "cachorro",
           portePadrao: "medio",
@@ -355,7 +379,7 @@ export function RecompraPrevista() {
     clienteManual,
     petDetalhesManualSelecionados,
     petNomesManualSelecionados,
-    produtoManual,
+    produtoCalculoManual,
     vendaManual.consumoDiarioG,
     vendaManual.pesoKg,
     vendaManual.quantidade,
@@ -536,15 +560,43 @@ export function RecompraPrevista() {
   }
 
   function escolherProdutoManual(sku: string) {
-    const produto = catalogoProdutos.find((item) => item.sku === sku);
     const modelo = modelosRacao.find((item) => item.sku === sku);
     updateVendaManual({
       sku,
+      produtoAvulso: false,
+      produtoNomeAvulso: "",
       diasRecompra: String(modelo?.diasRecompra ?? (vendaManual.diasRecompra || 30)),
       consumoDiarioG: modelo?.consumoDiarioG
         ? String(modelo.consumoDiarioG)
         : vendaManual.consumoDiarioG,
-      pesoKg: produto?.detalhesTecnicos?.peso?.match(/\d+(?:[,.]\d+)?/)?.[0] ?? vendaManual.pesoKg,
+      // Vazio faz o calculo usar peso do cadastro multiplicado pela quantidade.
+      pesoKg: "",
+    });
+  }
+
+  function alternarProdutoAvulso() {
+    setVendaManual((current) => ({
+      ...current,
+      sku: "",
+      produtoAvulso: !current.produtoAvulso,
+      produtoNomeAvulso: "",
+      pesoKg: "",
+      consumoDiarioG: "",
+      diasRecompra: "30",
+    }));
+  }
+
+  function atualizarProdutoAvulsoNome(nome: string) {
+    const sku = skuRacaoAvulsa(nome);
+    const modelo = modelosRacao.find((item) => item.sku === sku);
+    updateVendaManual({
+      produtoNomeAvulso: nome,
+      ...(modelo
+        ? {
+            diasRecompra: String(modelo.diasRecompra),
+            consumoDiarioG: modelo.consumoDiarioG ? String(modelo.consumoDiarioG) : "",
+          }
+        : {}),
     });
   }
 
@@ -595,8 +647,8 @@ export function RecompraPrevista() {
   }
 
   async function salvarModeloAtual() {
-    if (!produtoManual) {
-      toast.error("Escolha uma racao do catalogo");
+    if (!skuProdutoManual || !produtoNomeManual) {
+      toast.error("Escolha ou informe a racao");
       return;
     }
     const diasRecompra = Number(vendaManual.diasRecompra);
@@ -612,8 +664,8 @@ export function RecompraPrevista() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           tipo: "modelo_racao",
-          sku: produtoManual.sku,
-          produtoNome: produtoManual.nome,
+          sku: skuProdutoManual,
+          produtoNome: produtoNomeManual,
           diasRecompra,
           consumoDiarioG: vendaManual.consumoDiarioG,
           ativo: true,
@@ -639,7 +691,7 @@ export function RecompraPrevista() {
 
   async function registrarVendaManual() {
     const petNomes = petsSelecionadosManual();
-    if (!clienteManual || !produtoManual || petNomes.length === 0) {
+    if (!clienteManual || !skuProdutoManual || !produtoNomeManual || petNomes.length === 0) {
       toast.error("Escolha cliente, pelo menos um pet e racao");
       return;
     }
@@ -666,8 +718,8 @@ export function RecompraPrevista() {
           petNomes,
           petsDetalhes: petsDetalhesParaPayload(),
           modoDistribuicao: vendaManual.modoDistribuicao,
-          sku: produtoManual.sku,
-          produtoNome: produtoManual.nome,
+          sku: skuProdutoManual,
+          produtoNome: produtoNomeManual,
           compraEm: vendaManual.compraEm,
           diasRecompra,
           quantidade: vendaManual.quantidade,
@@ -953,26 +1005,55 @@ export function RecompraPrevista() {
                 <option key={`cliente-${pet}`} value={pet} />
               ))}
               {petsCadastradosManual.map((item) => (
-                <option key={`${item.cliente.id}-${item.pet}`} value={item.pet} label={item.cliente.nome} />
+                <option
+                  key={`${item.cliente.id}-${item.pet}`}
+                  value={item.pet}
+                  label={item.cliente.nome}
+                />
               ))}
             </datalist>
           </div>
 
-          <label className="space-y-1.5 lg:col-span-2">
-            <span className="text-[10px] font-bold uppercase text-muted-foreground">Racao</span>
-            <select
-              value={vendaManual.sku}
-              onChange={(event) => escolherProdutoManual(event.target.value)}
-              className="input h-10"
-            >
-              <option value="">Selecione a racao vendida</option>
-              {produtosRacao.map((produto) => (
-                <option key={produto.sku} value={produto.sku}>
-                  {produto.nome}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="space-y-1.5 lg:col-span-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase text-muted-foreground">Racao</span>
+              <button
+                type="button"
+                onClick={alternarProdutoAvulso}
+                className="text-[10px] font-bold text-primary hover:underline"
+              >
+                {vendaManual.produtoAvulso ? "Voltar ao catalogo" : "Racao fora do catalogo"}
+              </button>
+            </div>
+            {vendaManual.produtoAvulso ? (
+              <input
+                value={vendaManual.produtoNomeAvulso}
+                onChange={(event) => atualizarProdutoAvulsoNome(event.target.value)}
+                className="input h-10"
+                placeholder="Marca, linha, fase e peso (ex.: Outra Marca Adulto 15 kg)"
+                autoComplete="off"
+              />
+            ) : (
+              <select
+                value={vendaManual.sku}
+                onChange={(event) => escolherProdutoManual(event.target.value)}
+                className="input h-10"
+              >
+                <option value="">Selecione a racao vendida</option>
+                {produtosRacao.map((produto) => (
+                  <option key={produto.sku} value={produto.sku}>
+                    {produto.nome}
+                  </option>
+                ))}
+              </select>
+            )}
+            {vendaManual.produtoAvulso && (
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                Informe o nome completo e o peso abaixo. O consumo pode ser estimado pelos pets ou
+                digitado manualmente; salve o modelo para reutilizar essa racao.
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -1134,7 +1215,7 @@ export function RecompraPrevista() {
             onChange={(quantidade) => updateVendaManual({ quantidade })}
           />
           <RecompraInput
-            label="Peso kg"
+            label="Peso total kg"
             value={vendaManual.pesoKg}
             onChange={(pesoKg) => updateVendaManual({ pesoKg })}
           />
@@ -1169,7 +1250,7 @@ export function RecompraPrevista() {
           <button
             type="button"
             onClick={() => void salvarModeloAtual()}
-            disabled={salvandoModelo || !produtoManual}
+            disabled={salvandoModelo || !skuProdutoManual}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-secondary px-4 text-sm font-bold hover:bg-secondary/70 disabled:opacity-50"
           >
             {salvandoModelo ? (
@@ -1603,6 +1684,7 @@ export function RecompraPrevista() {
         <ClienteDrawer
           item={drawerItem}
           onClose={() => setDrawerId(null)}
+          onItensAtualizados={setItems}
           onWhatsAppIa={abrirConversaWhatsAppIa}
           onGerarPedido={gerarPedido}
           onFollowUp={registrarFollowUp}
@@ -1950,7 +2032,10 @@ function AgendarAvisoTutorModal({
           mensagem: draft.texto.trim(),
           contexto: {
             nome: draft.grupo.cliente,
-            pet: draft.grupo.itens.map((item) => item.pet).filter(Boolean).join(", "),
+            pet: draft.grupo.itens
+              .map((item) => item.pet)
+              .filter(Boolean)
+              .join(", "),
             resumo: draft.grupo.itens
               .map((item) => `${item.pet}: ${item.racao} (${prazoLabel(item.diasRestantes)})`)
               .join("; "),
@@ -2275,12 +2360,14 @@ function PrecisaoBar({ v }: { v: number }) {
 function ClienteDrawer({
   item,
   onClose,
+  onItensAtualizados,
   onWhatsAppIa,
   onGerarPedido,
   onFollowUp,
 }: {
   item: RecompraPrevista;
   onClose: () => void;
+  onItensAtualizados: (items: RecompraPrevista[]) => void;
   onWhatsAppIa: (item: RecompraPrevista) => void;
   onGerarPedido: (item: RecompraPrevista) => void;
   onFollowUp: (item: RecompraPrevista) => void;
@@ -2401,6 +2488,8 @@ function ClienteDrawer({
             </div>
           </div>
         </div>
+
+        <DataCompraEditor item={item} onAtualizados={onItensAtualizados} />
 
         <div className="grid grid-cols-2 gap-2 pt-2">
           <button

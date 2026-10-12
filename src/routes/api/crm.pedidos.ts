@@ -7,6 +7,7 @@ import {
   editarPedidoManual,
   listarPedidos,
   type PedidoProcesso,
+  type ProdutoPedido,
 } from "@/lib/supabase";
 
 function json(data: unknown, init?: ResponseInit): Response {
@@ -39,6 +40,67 @@ function inicioHojeSaoPaulo(): Date {
   return new Date(`${year}-${month}-${day}T00:00:00-03:00`);
 }
 
+function limiteDataSaoPaulo(value: string | null, proximoDia = false): Date | undefined {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const data = new Date(`${value}T00:00:00-03:00`);
+  if (Number.isNaN(data.getTime())) return undefined;
+  if (proximoDia) data.setUTCDate(data.getUTCDate() + 1);
+  return data;
+}
+
+function lerItensPedido(value: unknown): { itens: ProdutoPedido[]; invalido: boolean } {
+  if (value === undefined) return { itens: [], invalido: false };
+  if (!Array.isArray(value)) return { itens: [], invalido: true };
+
+  let invalido = false;
+  const itens = value.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      invalido = true;
+      return [];
+    }
+
+    const fields = item as Record<string, unknown>;
+    const quantidade = Number(fields.quantidade);
+    const preco = Number(fields.preco);
+    const precoCompra = Number(fields.precoCompra);
+    if (
+      typeof fields.sku !== "string" ||
+      !fields.sku.trim() ||
+      typeof fields.nome !== "string" ||
+      !fields.nome.trim() ||
+      !Number.isInteger(quantidade) ||
+      quantidade <= 0 ||
+      !Number.isFinite(preco) ||
+      preco < 0 ||
+      !Number.isFinite(precoCompra) ||
+      precoCompra < 0
+    ) {
+      invalido = true;
+      return [];
+    }
+
+    return [
+      {
+        sku: fields.sku.trim(),
+        nome: fields.nome.trim(),
+        quantidade,
+        preco,
+        precoCompra,
+        petNome:
+          typeof fields.petNome === "string"
+            ? fields.petNome.trim() || null
+            : typeof fields.pet_nome === "string"
+              ? fields.pet_nome.trim() || null
+              : typeof fields.pet === "string"
+                ? fields.pet.trim() || null
+                : null,
+      },
+    ];
+  });
+
+  return { itens, invalido };
+}
+
 export const Route = createFileRoute("/api/crm/pedidos")({
   server: {
     handlers: {
@@ -47,12 +109,16 @@ export const Route = createFileRoute("/api/crm/pedidos")({
           const url = new URL(request.url);
           const today = url.searchParams.get("today") === "1";
           const recentHours = Number(url.searchParams.get("recentHours"));
-          const desde = today
-            ? inicioHojeSaoPaulo()
-            : Number.isFinite(recentHours) && recentHours > 0
-              ? new Date(Date.now() - recentHours * 60 * 60 * 1000)
-              : undefined;
-          const pedidos = await listarPedidos({ desde });
+          const inicioInformado = limiteDataSaoPaulo(url.searchParams.get("inicio"));
+          const fimInformado = limiteDataSaoPaulo(url.searchParams.get("fim"), true);
+          const desde =
+            inicioInformado ??
+            (today
+              ? inicioHojeSaoPaulo()
+              : Number.isFinite(recentHours) && recentHours > 0
+                ? new Date(Date.now() - recentHours * 60 * 60 * 1000)
+                : undefined);
+          const pedidos = await listarPedidos({ desde, ate: fimInformado });
 
           return json(pedidos);
         } catch (error) {
@@ -124,51 +190,7 @@ export const Route = createFileRoute("/api/crm/pedidos")({
             typeof body.taxaMaquininha === "number"
               ? body.taxaMaquininha
               : Number(body.taxaMaquininha);
-          let temItemInvalido = false;
-          const itens = Array.isArray(body.itens)
-            ? body.itens.flatMap((item) => {
-                if (!item || typeof item !== "object") {
-                  temItemInvalido = true;
-                  return [];
-                }
-
-                const fields = item as Record<string, unknown>;
-                const quantidade = Number(fields.quantidade);
-                const preco = Number(fields.preco);
-                const precoCompra = Number(fields.precoCompra);
-                if (
-                  typeof fields.sku !== "string" ||
-                  typeof fields.nome !== "string" ||
-                  !Number.isInteger(quantidade) ||
-                  quantidade <= 0 ||
-                  !Number.isFinite(preco) ||
-                  preco <= 0 ||
-                  !Number.isFinite(precoCompra) ||
-                  precoCompra < 0
-                ) {
-                  temItemInvalido = true;
-                  return [];
-                }
-
-                return [
-                  {
-                    sku: fields.sku,
-                    nome: fields.nome,
-                    quantidade,
-                    preco,
-                    precoCompra,
-                    petNome:
-                      typeof fields.petNome === "string"
-                        ? fields.petNome.trim() || null
-                        : typeof fields.pet_nome === "string"
-                          ? fields.pet_nome.trim() || null
-                          : typeof fields.pet === "string"
-                            ? fields.pet.trim() || null
-                            : null,
-                  },
-                ];
-              })
-            : [];
+          const { itens, invalido: temItemInvalido } = lerItensPedido(body.itens);
 
           if (temItemInvalido) {
             return json({ ok: false, erro: "Itens do pedido invalidos" }, { status: 400 });
@@ -218,10 +240,17 @@ export const Route = createFileRoute("/api/crm/pedidos")({
           const telefone =
             typeof body.telefone === "string" ? body.telefone.replace(/\D/g, "") : "";
           const total = typeof body.total === "number" ? body.total : Number(body.total);
+          const itensInformados = body.itens !== undefined;
+          const { itens, invalido: temItemInvalido } = lerItensPedido(body.itens);
 
-          if (!id || !nome || !Number.isFinite(total) || total <= 0) {
+          if (!id || !nome || !Number.isFinite(total) || total <= 0 || temItemInvalido) {
             return json(
-              { ok: false, erro: "Pedido, nome e total valido sao obrigatorios" },
+              {
+                ok: false,
+                erro: temItemInvalido
+                  ? "Itens do pedido invalidos"
+                  : "Pedido, nome e total valido sao obrigatorios",
+              },
               { status: 400 },
             );
           }
@@ -238,6 +267,7 @@ export const Route = createFileRoute("/api/crm/pedidos")({
               pet: typeof body.pet === "string" ? body.pet : null,
               pago: body.pago === true,
               criadoEm: typeof body.dataVenda === "string" ? body.dataVenda : null,
+              itens: itensInformados ? itens : undefined,
             }),
           );
         } catch (error) {

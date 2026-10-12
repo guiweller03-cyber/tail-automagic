@@ -1,19 +1,51 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calcularCicloPorHistorico,
   calcularDiasRecompraRacao,
   cicloEfetivoRecompra,
   classificarFaseRacao,
   classificarLinhaRacao,
   consumoDiarioPetRacao,
+  dataBaseRecompra,
   ehRacaoParaRecompra,
   inferirPesoRacaoKg,
   listarRacasPesoBase,
   normalizarCicloManual,
+  normalizarDataCompraRecompra,
   pesoAtualKg,
   pesoMedioPorRaca,
   pesoPadraoPorPorte,
+  skuRacaoAvulsa,
 } from "./recompra-calculo.ts";
+
+test("gera SKU estavel para racao vendida fora do catalogo", () => {
+  assert.equal(
+    skuRacaoAvulsa("Ração Outra Marca Adulto 15 kg"),
+    "AVULSA-RACAO-OUTRA-MARCA-ADULTO-15-KG",
+  );
+  assert.equal(skuRacaoAvulsa("  "), "");
+});
+
+test("valida data de compra sem deslocar o dia pelo fuso", () => {
+  assert.equal(normalizarDataCompraRecompra("2026-09-30"), "2026-09-30");
+  assert.throws(() => normalizarDataCompraRecompra("2026-02-30"));
+  assert.throws(() => normalizarDataCompraRecompra("30/09/2026"));
+});
+
+test("usa a data real da venda antes da data de faturamento", () => {
+  assert.equal(
+    dataBaseRecompra({
+      criadoEm: "2026-09-01T15:00:00.000Z",
+      faturadoEm: "2026-09-18T15:00:00.000Z",
+    }),
+    "2026-09-01T15:00:00.000Z",
+  );
+  assert.equal(
+    dataBaseRecompra({ criadoEm: null, faturadoEm: "2026-09-18T15:00:00.000Z" }),
+    "2026-09-18T15:00:00.000Z",
+  );
+});
 
 test("ajuste manual do ciclo vence o calculo automatico", () => {
   assert.equal(cicloEfetivoRecompra(36, 45), 45);
@@ -268,4 +300,69 @@ test("recompra fica mais proxima quando a racao e cadastrada para dois cachorros
 
   assert.ok(diasDoisCachorros < diasUmCachorro);
   assert.equal(diasDoisCachorros, Math.round(diasUmCachorro / 2));
+});
+
+test("historico: primeira compra nao tem ciclo real (usa metricas)", () => {
+  assert.equal(calcularCicloPorHistorico([{ data: "2026-09-10", pesoKg: 15 }]), null);
+});
+
+test("historico: comprou dia 10 e dia 20, recompra em ~10 dias", () => {
+  const ciclo = calcularCicloPorHistorico([
+    { data: "2026-09-10", pesoKg: 15 },
+    { data: "2026-09-20", pesoKg: 15 },
+  ]);
+  assert.equal(ciclo?.dias, 10);
+  assert.deepEqual(ciclo?.intervalos, [10]);
+  assert.equal(ciclo?.consumoRealG, 1500);
+});
+
+test("historico: normaliza pela quantidade comprada", () => {
+  // 15 kg duraram 30 dias (500 g/dia); agora levou 30 kg -> 60 dias.
+  const ciclo = calcularCicloPorHistorico([
+    { data: "2026-08-01", pesoKg: 15 },
+    { data: "2026-08-31", pesoKg: 30 },
+  ]);
+  assert.equal(ciclo?.dias, 60);
+});
+
+test("historico: compras com ate 3 dias de diferenca contam como uma", () => {
+  const ciclo = calcularCicloPorHistorico([
+    { data: "2026-08-01", pesoKg: 10 },
+    { data: "2026-08-03", pesoKg: 5 },
+    { data: "2026-08-31", pesoKg: 15 },
+  ]);
+  assert.deepEqual(ciclo?.intervalos, [30]);
+  assert.equal(ciclo?.dias, 30);
+});
+
+test("historico: pacote extra logo apos a compra desconta os dias passados", () => {
+  const ciclo = calcularCicloPorHistorico([
+    { data: "2026-08-01", pesoKg: 15 },
+    { data: "2026-08-31", pesoKg: 15 },
+    { data: "2026-09-02", pesoKg: 15 },
+  ]);
+  // 30 kg a 500 g/dia = 60 dias desde 31/08 -> 58 dias a partir de 02/09.
+  assert.equal(ciclo?.dias, 58);
+});
+
+test("historico: pesa mais os intervalos recentes e ignora outlier", () => {
+  const ciclo = calcularCicloPorHistorico([
+    { data: "2026-03-01", pesoKg: 15 },
+    { data: "2026-03-31", pesoKg: 15 },
+    { data: "2026-06-29", pesoKg: 15 }, // 90 dias: cliente sumiu/comprou fora
+    { data: "2026-07-29", pesoKg: 15 },
+    { data: "2026-08-28", pesoKg: 15 },
+  ]);
+  assert.deepEqual(ciclo?.intervalos, [30, 30, 30]);
+  assert.equal(ciclo?.dias, 30);
+});
+
+test("historico: sem peso usa media dos dias", () => {
+  const ciclo = calcularCicloPorHistorico([
+    { data: "2026-08-01", pesoKg: 0 },
+    { data: "2026-08-21", pesoKg: 0 },
+    { data: "2026-09-12", pesoKg: 0 },
+  ]);
+  // (22*2 + 20*1) / 3 = 21,3
+  assert.equal(ciclo?.dias, 21);
 });

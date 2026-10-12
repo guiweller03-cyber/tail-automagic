@@ -18,12 +18,16 @@ import {
   Link,
   Clock,
   CalendarClock,
+  Store,
 } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { telefoneWhatsApp } from "@/lib/painel-recompra";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { dispatchCrmReload, onCrmReload } from "@/lib/crm-refresh";
 import { listarRacasPesoBase, type RacaPesoBase } from "@/lib/recompra-calculo";
+
+const PDV = lazy(() => import("@/pages/PDV").then((m) => ({ default: m.PDV })));
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const WHATSAPP_SYNC_KEY = "crm_clientes_whatsapp_sync_at";
@@ -236,6 +240,15 @@ function manualToolsFromCliente(cliente: Cliente | null): ManualToolsState {
   };
 }
 
+function buscaConversaCliente(cliente: Cliente) {
+  return {
+    telefone: telefoneWhatsApp(cliente.telefone ?? ""),
+    clienteId: cliente.id,
+    cliente: cliente.nome,
+    origem: "clientes",
+  };
+}
+
 export function Clientes({ clientes }: { clientes: Cliente[] }) {
   const navigate = useNavigate();
   const [clientesAtuais, setClientesAtuais] = useState<Cliente[]>(clientes);
@@ -246,6 +259,7 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
   const [cupons, setCupons] = useState<Cupom[]>([]);
 
   const [showCupomModal, setShowCupomModal] = useState(false);
+  const [pdvCliente, setPdvCliente] = useState<Cliente | null>(null);
   const [cupomTipo, setCupomTipo] = useState<CupomTipo>("percentual");
   const [cupomValor, setCupomValor] = useState(10);
   const [cupomDias, setCupomDias] = useState(30);
@@ -381,15 +395,16 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
     setClienteEditando(null);
   }
 
+  // Abre o PDV em pop-up para o operador nao sair da ficha do cliente.
   function abrirPedidoNoPdv(clienteAtual: Cliente) {
-    navigate({
-      to: "/pdv",
-      search: {
-        cliente: clienteAtual.nome,
-        telefone: clienteAtual.telefone,
-      },
-    });
+    setPdvCliente(clienteAtual);
   }
+
+  const fecharPdv = useCallback(() => {
+    setPdvCliente(null);
+    // Atualiza pedidos/total gasto caso uma venda tenha sido finalizada.
+    void recarregarClientes().catch(() => undefined);
+  }, [recarregarClientes]);
 
   function abrirRecompraCliente(clienteAtual: Cliente) {
     const pet = petsResumoCliente(clienteAtual)[0]?.nome;
@@ -776,15 +791,14 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex gap-1">
-                        <a
-                          href={`https://wa.me/55${c.telefone.replace(/\D/g, "")}`}
-                          target="_blank"
-                          rel="noreferrer"
+                        <RouterLink
+                          to="/conversas"
+                          search={buscaConversaCliente(c)}
                           className="p-2 rounded-lg hover:bg-success/10 text-success"
-                          title="WhatsApp"
+                          title="Abrir no WhatsApp IA"
                         >
                           <MessageCircle className="size-4" />
-                        </a>
+                        </RouterLink>
                         <a
                           href={`tel:${c.telefone.replace(/\D/g, "")}`}
                           className="p-2 rounded-lg hover:bg-secondary text-muted-foreground"
@@ -816,7 +830,7 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
           onClick={() => !salvandoCliente && fecharClienteModal()}
         >
           <div
-            className="card-soft p-5 w-full max-w-lg space-y-4"
+            className="card-soft p-5 w-full max-w-lg max-h-[92dvh] overflow-y-auto overscroll-contain space-y-4"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between">
@@ -1127,9 +1141,9 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-card w-full md:max-w-2xl md:rounded-2xl rounded-t-3xl shadow-2xl max-h-[92vh] overflow-hidden flex flex-col"
+            className="bg-card w-full md:max-w-2xl md:rounded-2xl rounded-t-3xl shadow-2xl max-h-[92dvh] overflow-hidden flex flex-col"
           >
-            <div className="p-5 border-b border-border flex items-start gap-4">
+            <div className="shrink-0 p-5 border-b border-border flex items-start gap-4">
               <div className="size-12 rounded-2xl bg-primary/15 grid place-items-center text-primary font-bold">
                 {active.nome
                   .split(" ")
@@ -1156,7 +1170,7 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
               </button>
             </div>
 
-            <div className="px-5 pt-3 flex gap-2 border-b border-border">
+            <div className="shrink-0 px-5 pt-3 flex gap-2 overflow-x-auto border-b border-border">
               {(["perfil", "manual", "historico", "cupons"] as const).map((t) => (
                 <button
                   key={t}
@@ -1172,7 +1186,7 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
               ))}
             </div>
 
-            <div className="overflow-y-auto p-5 space-y-4">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 space-y-4">
               {tab === "perfil" && (
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -1502,15 +1516,14 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
               )}
             </div>
 
-            <div className="p-4 border-t border-border flex flex-wrap gap-2">
-              <a
-                href={`https://wa.me/55${active.telefone.replace(/\D/g, "")}`}
-                target="_blank"
-                rel="noreferrer"
+            <div className="shrink-0 p-4 border-t border-border flex flex-wrap gap-2">
+              <RouterLink
+                to="/conversas"
+                search={buscaConversaCliente(active)}
                 className="flex-1 min-w-[140px] h-10 px-4 rounded-xl bg-success text-success-foreground text-sm font-semibold inline-flex items-center justify-center gap-2"
               >
                 <MessageCircle className="size-4" /> WhatsApp
-              </a>
+              </RouterLink>
               <button
                 onClick={() => abrirPedidoNoPdv(active)}
                 className="flex-1 min-w-[140px] h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center justify-center gap-2"
@@ -1547,13 +1560,15 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
         </div>
       )}
 
+      {pdvCliente && <ClientePdvModal cliente={pdvCliente} onClose={fecharPdv} />}
+
       {showCupomModal && active && (
         <div
           className="fixed inset-0 z-[60] grid place-items-center p-4 bg-foreground/50"
           onClick={() => setShowCupomModal(false)}
         >
           <div
-            className="card-soft p-5 w-full max-w-sm space-y-4"
+            className="card-soft p-5 w-full max-w-sm max-h-[92dvh] overflow-y-auto overscroll-contain space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">
@@ -1656,5 +1671,56 @@ function FormField({
       </span>
       {children}
     </label>
+  );
+}
+
+function ClientePdvModal({ cliente, onClose }: { cliente: Cliente; onClose: () => void }) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  // Nao fecha ao clicar fora para nao perder uma venda sendo montada.
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-foreground/50 p-2 sm:p-4">
+      <div className="flex max-h-[94vh] w-full max-w-5xl flex-col rounded-lg border border-border bg-card shadow-xl">
+        <div className="flex items-center justify-between gap-3 border-b border-border p-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-bold">
+              <Store className="size-4 text-primary" /> PDV
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground">
+              Venda para {cliente.nome}
+              {cliente.telefone ? ` · ${cliente.telefone}` : ""}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            aria-label="Fechar PDV"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto bg-background p-3 sm:p-4">
+          <Suspense
+            fallback={
+              <div className="rounded-lg bg-secondary/50 p-3 text-sm text-muted-foreground">
+                Carregando PDV...
+              </div>
+            }
+          >
+            <PDV
+              initialCliente={cliente.nome}
+              initialTelefone={cliente.telefone.replace(/\D/g, "")}
+            />
+          </Suspense>
+        </div>
+      </div>
+    </div>
   );
 }

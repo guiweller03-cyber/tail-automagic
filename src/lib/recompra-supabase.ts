@@ -8,15 +8,25 @@ import type {
   RecompraStatus,
 } from "@/lib/crm-types";
 import {
+  calcularCicloPorHistorico,
   calcularDiasRecompraRacao,
+  type CompraHistoricoRecompra,
   cicloEfetivoRecompra,
   classificarLinhaRacao,
+  dataBaseRecompra,
   normalizarCicloManual,
   consumoDiarioPetRacao,
   ehRacaoParaRecompra,
   inferirPesoRacaoKg,
+  normalizarDataCompraRecompra,
   normalizarTextoRecompra,
 } from "@/lib/recompra-calculo";
+import {
+  calcularDuracoesHistorico,
+  compararCicloComHistorico,
+  type ComparacaoCicloHistorico,
+  type HistoricoVendaRecompra,
+} from "@/lib/historico-recompra";
 import { requireSupabaseServerKey } from "@/lib/server-env";
 
 type ClienteRow = {
@@ -580,7 +590,12 @@ function observacaoRecompraAuto(
 }
 
 function dataCompraVenda(venda: VendaItemComVendaRow["vendas"]): string {
-  return dateOnly(venda?.faturado_em || venda?.criado_em || new Date());
+  return dateOnly(
+    dataBaseRecompra({
+      criadoEm: venda?.criado_em,
+      faturadoEm: venda?.faturado_em,
+    }) ?? new Date(),
+  );
 }
 
 function modeloToApi(row: ModeloRacaoRow): ModeloRecompraRacao {
@@ -649,28 +664,70 @@ async function listarProdutosPorSku(skus: string[]): Promise<Map<string, Produto
   return new Map(rows.map((row) => [row.sku, row]));
 }
 
-async function comprasRacaoClienteSku(
-  clienteId: string,
-  sku: string,
-  petNome?: string | null,
-): Promise<VendaItemComVendaRow[]> {
+async function comprasCliente(clienteId: string): Promise<VendaItemComVendaRow[]> {
   const params = new URLSearchParams({
-    sku: `eq.${sku}`,
+    "vendas.cliente_id": `eq.${clienteId}`,
     select:
       "id,venda_id,sku,nome,pet_nome,quantidade,preco,preco_compra,vendas!inner(id,cliente_id,cliente_nome,telefone,criado_em,faturado_em,status,observacao)",
     order: "criado_em.desc",
+    limit: "300",
   });
   const rows = await selectRows<VendaItemComVendaRow>(`/venda_itens?${params}`);
-  const petBusca = petNome?.trim().toLowerCase();
-
   return rows
-    .filter((row) => {
-      if (row.vendas?.cliente_id !== clienteId || row.vendas.status === "cancelada") return false;
-      if (!petBusca) return true;
-
-      return row.pet_nome?.trim().toLowerCase() === petBusca;
-    })
+    .filter((row) => row.vendas?.cliente_id === clienteId && row.vendas.status !== "cancelada")
     .sort((a, b) => dataCompraVenda(b.vendas).localeCompare(dataCompraVenda(a.vendas)));
+}
+
+function mesmosPets(a: string | null | undefined, b: string | null | undefined): boolean {
+  const petsA = petTokens(a).sort();
+  const petsB = petTokens(b).sort();
+  return petsA.length === petsB.length && petsA.every((pet, i) => pet === petsB[i]);
+}
+
+function produtoDoItem(item: VendaItemComVendaRow, produtos: Map<string, ProdutoRow>): ProdutoRow {
+  return (
+    produtos.get(item.sku) ?? {
+      sku: item.sku,
+      nome: item.nome,
+      categoria: null,
+      preco: item.preco,
+      preco_compra: item.preco_compra,
+      estoque: null,
+      detalhes_tecnicos: null,
+    }
+  );
+}
+
+/**
+ * Historico usado no ciclo real: todas as compras de racao do mesmo cliente,
+ * para os mesmos pets e mesma especie, ate a compra atual (inclusive). Nao
+ * filtra por SKU: trocar de sabor/tamanho nao zera o comportamento do cliente.
+ */
+function historicoRacaoDoItem(
+  item: VendaItemComVendaRow,
+  comprasDoCliente: VendaItemComVendaRow[],
+  produtos: Map<string, ProdutoRow>,
+  cliente: ClienteRow | null,
+): CompraHistoricoRecompra[] {
+  const dataAtual = dataCompraVenda(item.vendas);
+  const especieAtual = especiePadrao(produtoDoItem(item, produtos), cliente);
+  const compras = comprasDoCliente.filter((compra) => {
+    if (compra.id === item.id) return true;
+    if (dataCompraVenda(compra.vendas) > dataAtual) return false;
+    if (!mesmosPets(compra.pet_nome, item.pet_nome)) return false;
+    const produto = produtoDoItem(compra, produtos);
+    return isRacao(produto) && especiePadrao(produto, cliente) === especieAtual;
+  });
+  if (!compras.some((compra) => compra.id === item.id)) compras.push(item);
+
+  return compras.map((compra) => {
+    const observacao = observacaoRecompraAuto(compra.vendas?.observacao, compra.sku);
+    return {
+      data: dataCompraVenda(compra.vendas),
+      pesoKg:
+        observacao?.pesoKg ?? inferirPesoKg(produtoDoItem(compra, produtos), compra.quantidade),
+    };
+  });
 }
 
 /**
@@ -699,6 +756,16 @@ async function cicloManualDaVenda(
 }
 
 export async function recalcularRecompraVenda(vendaId: string): Promise<void> {
+  return recalcularRecompraVendaInterna(vendaId, new Set());
+}
+
+async function recalcularRecompraVendaInterna(
+  vendaId: string,
+  vendasVisitadas: Set<string>,
+): Promise<void> {
+  if (vendasVisitadas.has(vendaId)) return;
+  vendasVisitadas.add(vendaId);
+
   const params = new URLSearchParams({
     venda_id: `eq.${vendaId}`,
     select:
@@ -708,48 +775,49 @@ export async function recalcularRecompraVenda(vendaId: string): Promise<void> {
   const clienteIds = Array.from(
     new Set(itens.map((item) => item.vendas?.cliente_id).filter(Boolean)),
   ) as string[];
-  const skus = Array.from(new Set(itens.map((item) => item.sku).filter(Boolean)));
-  const [clientes, produtos] = await Promise.all([
+  const [clientes, comprasPorCliente] = await Promise.all([
     listarClientesPorId(clienteIds),
-    listarProdutosPorSku(skus),
+    Promise.all(clienteIds.map(async (id) => [id, await comprasCliente(id)] as const)),
   ]);
+  const comprasDoCliente = new Map(comprasPorCliente);
+  const skus = Array.from(
+    new Set(
+      [...itens, ...comprasPorCliente.flatMap(([, compras]) => compras)]
+        .map((item) => item.sku)
+        .filter(Boolean),
+    ),
+  );
+  const produtos = await listarProdutosPorSku(skus);
 
   for (const item of itens) {
     const clienteId = item.vendas?.cliente_id;
     if (!clienteId || item.vendas?.status === "cancelada") continue;
 
-    const produto = produtos.get(item.sku) ?? {
-      sku: item.sku,
-      nome: item.nome,
-      categoria: null,
-      preco: item.preco,
-      preco_compra: item.preco_compra,
-      estoque: null,
-      detalhes_tecnicos: null,
-    };
+    const produto = produtoDoItem(item, produtos);
     if (!isRacao(produto)) continue;
 
     const cliente = clientes.get(clienteId) ?? null;
-    const compras = await comprasRacaoClienteSku(clienteId, item.sku, item.pet_nome);
-    const compraMaisRecente = compras[0];
+    const historicoCliente = comprasDoCliente.get(clienteId) ?? [];
+    const compraMaisRecente = historicoCliente.find(
+      (compra) => compra.sku === item.sku && mesmosPets(compra.pet_nome, item.pet_nome),
+    );
     if (
       compraMaisRecente?.id &&
       compraMaisRecente.id !== item.id &&
       dataCompraVenda(compraMaisRecente.vendas) >= dataCompraVenda(item.vendas)
     ) {
+      // Uma venda antiga pode ser cadastrada depois da atual. Nesse caso,
+      // restaura/recalcula a previsao da compra cronologicamente mais recente.
+      await recalcularRecompraVendaInterna(compraMaisRecente.venda_id, vendasVisitadas);
       continue;
     }
 
-    const historicoDias = compras
-      .slice(0, 4)
-      .flatMap((compra, index, arr) => {
-        const proxima = arr[index + 1];
-        if (!proxima?.vendas || !compra.vendas) return [];
-        return [diffDays(dataCompraVenda(proxima.vendas), dataCompraVenda(compra.vendas))];
-      })
-      .filter((dias) => dias >= 3 && dias <= 180)
-      .slice(0, 3);
-    const mediaReal = media(historicoDias);
+    // 1a compra: ciclo pelas metricas (racao + pet). A partir da 2a: comportamento real.
+    const cicloHistorico = calcularCicloPorHistorico(
+      historicoRacaoDoItem(item, historicoCliente, produtos, cliente),
+    );
+    const historicoDias = cicloHistorico?.intervalos ?? [];
+    const mediaReal = cicloHistorico?.dias ?? null;
     const observacaoAuto = observacaoRecompraAuto(item.vendas?.observacao, item.sku);
     const pesoKg = observacaoAuto?.pesoKg ?? inferirPesoKg(produto, item.quantidade);
     const pets = petsEstimados(cliente, produto, item.pet_nome);
@@ -881,6 +949,18 @@ export async function registrarRecompraManual(input: {
   ]);
   const cliente = clientes.get(clienteId) ?? null;
   const produto = produtos.get(sku) ?? null;
+  const produtoCalculo: ProdutoRow | null =
+    produto ??
+    (input.produtoNome?.trim()
+      ? {
+          sku,
+          nome: input.produtoNome.trim(),
+          categoria: "Racao",
+          preco: null,
+          preco_compra: null,
+          estoque: null,
+        }
+      : null);
   const modelo = modelos.find((item) => item.sku === sku);
   const quantidade = input.quantidade ?? 1;
   if (!Number.isFinite(quantidade) || quantidade <= 0) {
@@ -892,13 +972,14 @@ export async function registrarRecompraManual(input: {
       : [{ petNomes, quantidade }];
 
   async function registrarGrupo(grupo: { petNomes: string[]; quantidade: number }) {
-    const pets = petsEstimadosPorNomes(cliente, produto, grupo.petNomes, input.petsDetalhes);
+    const pets = petsEstimadosPorNomes(cliente, produtoCalculo, grupo.petNomes, input.petsDetalhes);
     const petNome = pets.map((pet) => pet.nome).join(", ");
     const consumoDiario =
       input.consumoDiarioG ??
       modelo?.consumoDiarioG ??
       (pets.reduce((sum, pet) => sum + pet.consumoDiaG, 0) || DEFAULT_CONSUMO_G_DIA);
-    const pesoKg = input.pesoKg ?? (produto ? inferirPesoKg(produto, grupo.quantidade) : 0);
+    const pesoKg =
+      input.pesoKg ?? (produtoCalculo ? inferirPesoKg(produtoCalculo, grupo.quantidade) : 0);
     const diasEstimados =
       diasRecompraInformado ??
       modelo?.diasRecompra ??
@@ -1274,6 +1355,100 @@ export async function marcarRecompraTravada(id: string, travado: boolean): Promi
  * Grava (ou remove, com `dias` vazio/null) o ciclo informado pelo operador e
  * recalcula as datas da previsao a partir da ultima compra.
  */
+/**
+ * Histórico de vendas do cliente da previsão (todas as vendas não canceladas, mais
+ * recente primeiro), marcando quais itens entram no ciclo — mesma regra de
+ * historicoRacaoDoItem: ração, mesmos pets e mesma espécie.
+ */
+export async function historicoVendasRecompra(previsaoId: string): Promise<{
+  vendas: HistoricoVendaRecompra[];
+  comparacao: ComparacaoCicloHistorico;
+}> {
+  const [previsao] = await selectRows<
+    Pick<PrevisaoRow, "cliente_id" | "sku" | "pet_nome" | "produto_nome" | "dias_estimados">
+  >(
+    `/recompra_previsoes?id=eq.${encodeURIComponent(previsaoId)}&select=cliente_id,sku,pet_nome,produto_nome,dias_estimados`,
+  );
+  if (!previsao) throw new Error("Previsão de recompra não encontrada");
+
+  const params = new URLSearchParams({
+    "vendas.cliente_id": `eq.${previsao.cliente_id}`,
+    select:
+      "id,venda_id,sku,nome,pet_nome,quantidade,preco,vendas!inner(id,cliente_id,criado_em,faturado_em,status,observacao,total)",
+    order: "criado_em.desc",
+    limit: "300",
+  });
+  const itens = (
+    await selectRows<
+      Omit<VendaItemComVendaRow, "preco_compra" | "vendas"> & {
+        vendas: (VendaItemComVendaRow["vendas"] & { total?: number | null }) | null;
+      }
+    >(`/venda_itens?${params}`)
+  ).filter(
+    (row) => row.vendas?.cliente_id === previsao.cliente_id && row.vendas.status !== "cancelada",
+  );
+
+  const skus = [...new Set([previsao.sku, ...itens.map((item) => item.sku)].filter(Boolean))];
+  const [produtos, clientes] = await Promise.all([
+    listarProdutosPorSku(skus as string[]),
+    listarClientesPorId([previsao.cliente_id]),
+  ]);
+  const cliente = clientes.get(previsao.cliente_id) ?? null;
+  const produtoPrevisao = (previsao.sku && produtos.get(previsao.sku)) || {
+    sku: previsao.sku ?? "",
+    nome: previsao.produto_nome,
+    categoria: null,
+    preco: null,
+    preco_compra: null,
+    estoque: null,
+    detalhes_tecnicos: null,
+  };
+  const especiePrevisao = especiePadrao(produtoPrevisao, cliente);
+
+  const porVenda = new Map<string, Omit<HistoricoVendaRecompra, "durouDias" | "consumoRealG">>();
+  for (const row of itens) {
+    const venda = row.vendas!;
+    const produto = produtoDoItem({ ...row, preco_compra: null, vendas: venda }, produtos);
+    const racao = isRacao(produto);
+    const observacao = observacaoRecompraAuto(venda.observacao, row.sku);
+    const pesoKg = racao ? (observacao?.pesoKg ?? inferirPesoKg(produto, row.quantidade)) : 0;
+    const entraNoCiclo =
+      racao &&
+      mesmosPets(row.pet_nome, previsao.pet_nome) &&
+      especiePadrao(produto, cliente) === especiePrevisao;
+
+    const atual = porVenda.get(venda.id) ?? {
+      vendaId: venda.id,
+      data: dataCompraVenda(venda),
+      total: venda.total ?? null,
+      status: venda.status,
+      itens: [],
+      kgCiclo: 0,
+    };
+    atual.itens.push({
+      sku: row.sku,
+      nome: row.nome,
+      quantidade: Number(row.quantidade ?? 1),
+      preco: row.preco,
+      petNome: row.pet_nome,
+      racao,
+      pesoKg,
+      entraNoCiclo,
+    });
+    if (entraNoCiclo) atual.kgCiclo += pesoKg;
+    porVenda.set(venda.id, atual);
+  }
+
+  const vendas = calcularDuracoesHistorico([...porVenda.values()]);
+  return {
+    vendas,
+    comparacao: compararCicloComHistorico(
+      vendas,
+      Math.max(1, Math.round(Number(previsao.dias_estimados))),
+    ),
+  };
+}
+
 export async function definirCicloManualRecompra(
   id: string,
   dias: unknown,
@@ -1325,4 +1500,66 @@ export async function definirCicloManualRecompra(
   const [row] = (await response.json()) as PrevisaoRow[];
   if (!row) throw new Error("Previsão de recompra não encontrada");
   return mapPrevisao(row);
+}
+
+/**
+ * Corrige a data real da compra. Quando a previsao veio de uma venda, tambem
+ * corrige a venda e refaz todas as previsoes ligadas a ela. Previsoes criadas
+ * manualmente nao possuem venda_id e sao atualizadas diretamente.
+ */
+export async function definirDataCompraRecompra(id: string, value: unknown): Promise<void> {
+  const compraEm = normalizarDataCompraRecompra(value);
+  if (signedDiffDaysFromToday(compraEm) > 0) {
+    throw new Error("A data da compra não pode ficar no futuro");
+  }
+
+  const [atual] = await selectRows<PrevisaoRow>(
+    `/recompra_previsoes?id=eq.${encodeURIComponent(id)}&select=*`,
+  );
+  if (!atual) throw new Error("Previsao de recompra nao encontrada");
+
+  if (atual.venda_id) {
+    const [venda] = await selectRows<{ id: string; faturado_em: string | null }>(
+      `/vendas?id=eq.${encodeURIComponent(atual.venda_id)}&select=id,faturado_em`,
+    );
+    if (!venda) throw new Error("Venda vinculada a recompra nao encontrada");
+
+    const timestamp = new Date(`${compraEm}T12:00:00-03:00`).toISOString();
+    const response = await fetch(
+      supabaseUrl(`/vendas?id=eq.${encodeURIComponent(atual.venda_id)}`),
+      {
+        method: "PATCH",
+        headers: supabaseHeaders("return=minimal"),
+        body: JSON.stringify({
+          criado_em: timestamp,
+          ...(venda.faturado_em ? { faturado_em: timestamp } : {}),
+          atualizado_em: new Date().toISOString(),
+        }),
+      },
+    );
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Supabase venda data failed (${response.status}): ${errorBody}`);
+    }
+
+    await recalcularRecompraVenda(atual.venda_id);
+    return;
+  }
+
+  const proximaCompra = addDays(compraEm, atual.dias_estimados);
+  const response = await fetch(supabaseUrl(`/recompra_previsoes?id=eq.${encodeURIComponent(id)}`), {
+    method: "PATCH",
+    headers: supabaseHeaders("return=minimal"),
+    body: JSON.stringify({
+      ultima_compra_em: compraEm,
+      proxima_compra_em: proximaCompra,
+      data_alerta: addDays(proximaCompra, -diasAntecedenciaAviso(atual.pets)),
+      status: statusFromDias(signedDiffDaysFromToday(proximaCompra)),
+      atualizado_em: new Date().toISOString(),
+    }),
+  });
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase recompra data failed (${response.status}): ${errorBody}`);
+  }
 }

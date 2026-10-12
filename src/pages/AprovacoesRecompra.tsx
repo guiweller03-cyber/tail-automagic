@@ -22,9 +22,11 @@ import {
   Loader2,
   MessageCircle,
   RefreshCw,
+  Save,
   Send,
   ShieldCheck,
   ShoppingBag,
+  Sparkles,
   UserRoundX,
   X,
 } from "lucide-react";
@@ -45,6 +47,14 @@ type ApiAction = {
   aprovacao: Followup;
   bloqueadoPor?: string;
   agendada?: boolean;
+};
+
+type ApiReformulacao = { ok: true; mensagem: string };
+
+type SecaoAprovacoes = {
+  chave: string;
+  titulo: string;
+  itens: Followup[];
 };
 
 const statusMeta: Record<FollowupStatus, { label: string; className: string }> = {
@@ -109,6 +119,59 @@ function rotuloPrazo(value?: string): string {
   }
   if (dias === 0) return "Prevista para hoje";
   return `Prevista em ${dias} ${dias === 1 ? "dia" : "dias"}`;
+}
+
+function dataDaAprovacao(item: Followup): Date | null {
+  const value = ehFollowupWhatsappIa(item) ? item.agendadoPara : item.contexto.dataPrevista;
+  if (!value) return null;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function inicioDoDia(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function chaveLocal(date: Date): string {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function tituloDia(date: Date, agora = new Date()): string {
+  const diferenca = Math.round((inicioDoDia(date) - inicioDoDia(agora)) / 86_400_000);
+  const dataCompleta = date.toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  });
+  const texto = dataCompleta.charAt(0).toUpperCase() + dataCompleta.slice(1);
+  if (diferenca === 0) return `Hoje · ${texto}`;
+  if (diferenca === 1) return `Amanhã · ${texto}`;
+  if (diferenca < 0) return `${texto} · em atraso`;
+  return texto;
+}
+
+function agruparPorDia(items: Followup[]): SecaoAprovacoes[] {
+  const grupos = new Map<string, SecaoAprovacoes>();
+  for (const item of items) {
+    const date = dataDaAprovacao(item);
+    const chave = date ? chaveLocal(date) : "sem-data";
+    const grupo = grupos.get(chave) ?? {
+      chave,
+      titulo: date ? tituloDia(date) : "Sem data prevista",
+      itens: [],
+    };
+    grupo.itens.push(item);
+    grupos.set(chave, grupo);
+  }
+  return [...grupos.values()].sort((a, b) => {
+    if (a.chave === "sem-data") return 1;
+    if (b.chave === "sem-data") return -1;
+    return a.chave.localeCompare(b.chave);
+  });
 }
 
 export function AprovacoesRecompra() {
@@ -178,6 +241,7 @@ export function AprovacoesRecompra() {
     () => pendentes.filter((item) => item.contexto.contatoSemCadastro === true).length,
     [pendentes],
   );
+  const secoesPendentes = useMemo(() => agruparPorDia(pendentes), [pendentes]);
 
   async function agir(id: string, acao: "enviar" | "cancelar", mensagem?: string) {
     if (acaoId) return;
@@ -207,6 +271,53 @@ export function AprovacoesRecompra() {
       }
     } catch (actionError) {
       toast.error(actionError instanceof Error ? actionError.message : "Falha na aprovação");
+    } finally {
+      setAcaoId(null);
+    }
+  }
+
+  async function salvarMensagem(id: string, mensagem: string) {
+    if (acaoId) return;
+    setAcaoId(id);
+    try {
+      const response = await fetch(ENDPOINT, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, acao: "salvar", mensagem }),
+      });
+      const data = (await response.json()) as ApiAction | { ok?: false; erro?: string };
+      if (!response.ok || !data.ok || !("aprovacao" in data)) {
+        throw new Error("erro" in data ? data.erro : "Não foi possível salvar a mensagem");
+      }
+      setAprovacoes((current) => current.map((item) => (item.id === id ? data.aprovacao : item)));
+      toast.success("Mensagem salva como padrão deste cliente");
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : "Falha ao salvar a mensagem");
+    } finally {
+      setAcaoId(null);
+    }
+  }
+
+  async function reformularMensagem(id: string, mensagem: string): Promise<string | null> {
+    if (acaoId) return null;
+    setAcaoId(id);
+    try {
+      const response = await fetch(ENDPOINT, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, acao: "reformular", mensagem }),
+      });
+      const data = (await response.json()) as ApiReformulacao | { ok?: false; erro?: string };
+      if (!response.ok || !data.ok || !("mensagem" in data)) {
+        throw new Error("erro" in data ? data.erro : "Não foi possível reformular a mensagem");
+      }
+      toast.success("Mensagem reformulada. Revise o texto antes de autorizar.");
+      return data.mensagem;
+    } catch (rewriteError) {
+      toast.error(
+        rewriteError instanceof Error ? rewriteError.message : "Falha ao reformular a mensagem",
+      );
+      return null;
     } finally {
       setAcaoId(null);
     }
@@ -337,9 +448,28 @@ export function AprovacoesRecompra() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-3 xl:grid-cols-2">
-            {pendentes.map((item) => (
-              <ApprovalCard key={item.id} item={item} busy={acaoId === item.id} onAction={agir} />
+          <div className="space-y-5">
+            {secoesPendentes.map((secao) => (
+              <section key={secao.chave} className="space-y-3">
+                <div className="flex items-center gap-2 border-b border-border pb-2">
+                  <h3 className="text-sm font-bold capitalize">{secao.titulo}</h3>
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
+                    {secao.itens.length}
+                  </span>
+                </div>
+                <div className="grid gap-3 xl:grid-cols-2">
+                  {secao.itens.map((item) => (
+                    <ApprovalCard
+                      key={item.id}
+                      item={item}
+                      busy={acaoId === item.id}
+                      onAction={agir}
+                      onSave={salvarMensagem}
+                      onReformulate={reformularMensagem}
+                    />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         )}
@@ -387,10 +517,14 @@ function ApprovalCard({
   item,
   busy,
   onAction,
+  onSave,
+  onReformulate,
 }: {
   item: Followup;
   busy: boolean;
   onAction: (id: string, action: "enviar" | "cancelar", mensagem?: string) => Promise<void>;
+  onSave: (id: string, mensagem: string) => Promise<void>;
+  onReformulate: (id: string, mensagem: string) => Promise<string | null>;
 }) {
   const [mensagem, setMensagem] = useState(item.mensagem);
   const [confirmando, setConfirmando] = useState(false);
@@ -515,6 +649,34 @@ function ApprovalCard({
           className="min-h-36 resize-y leading-relaxed"
         />
       </label>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy || !mensagem.trim()}
+          onClick={async () => {
+            const reformulada = await onReformulate(item.id, mensagem);
+            if (reformulada) setMensagem(reformulada);
+          }}
+        >
+          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+          Reformular com IA
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy || !mensagem.trim()}
+          onClick={() => void onSave(item.id, mensagem)}
+        >
+          <Save className="size-3.5" /> Salvar para este cliente
+        </Button>
+        {item.contexto.mensagemSalvaCliente && (
+          <span className="text-[11px] font-medium text-success">Padrão deste cliente salvo</span>
+        )}
+      </div>
 
       {item.status === "erro" && item.erro && (
         <p className="mt-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">

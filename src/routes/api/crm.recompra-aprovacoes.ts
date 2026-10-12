@@ -4,6 +4,8 @@ import {
   cancelarAprovacaoRecompra,
   enviarAprovacaoRecompra,
   janelaRecompraSegura,
+  reformularMensagemAprovacao,
+  salvarMensagemCliente,
   sincronizarAprovacoesRecompra,
 } from "@/lib/recompra-aprovacoes";
 
@@ -46,6 +48,18 @@ export const Route = createFileRoute("/api/crm/recompra-aprovacoes")({
           }
           if (body.acao === "cancelar") {
             return json({ ok: true, aprovacao: await cancelarAprovacaoRecompra(body.id) });
+          }
+          if (body.acao === "salvar" && typeof body.mensagem === "string") {
+            return json({
+              ok: true,
+              aprovacao: await salvarMensagemCliente(body.id, body.mensagem),
+            });
+          }
+          if (body.acao === "reformular" && typeof body.mensagem === "string") {
+            return json({
+              ok: true,
+              mensagem: await reformularMensagemAprovacao(body.id, body.mensagem),
+            });
           }
 
           return json({ ok: false, erro: "Ação inválida" }, { status: 400 });

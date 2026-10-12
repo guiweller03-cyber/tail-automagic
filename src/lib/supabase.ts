@@ -12,6 +12,7 @@ import {
   validarCupom,
   type CupomAplicado,
 } from "./indicacoes-supabase";
+import { agruparContatosPorDia, type ContatoDoDia } from "./calendario-contatos";
 import { registrarLeadTotal } from "./leads-totais-supabase";
 import { recalcularRecompraVenda } from "./recompra-supabase";
 import { requireSupabaseServerKey } from "./server-env";
@@ -75,6 +76,7 @@ export type PedidoCrm = {
   statusPagamento: string;
   observacao: string;
   taxaMaquina: number;
+  itens: ProdutoPedido[];
 };
 
 export type PedidoPixRow = {
@@ -223,6 +225,7 @@ export type ConversaContato = Pick<
   | "aguardando_humano"
   | "ia_ativa"
   | "atualizado_em"
+  | "kanban_coluna"
 >;
 
 function semBloqueados<T extends { telefone: string }>(rows: T[], bloqueados: Set<string>): T[] {
@@ -233,7 +236,8 @@ function semBloqueados<T extends { telefone: string }>(rows: T[], bloqueados: Se
 /** Contatos das conversas, sem historico. */
 export async function listarConversasContatos(): Promise<ConversaContato[]> {
   const params = new URLSearchParams({
-    select: "id,telefone,nome_cliente,estagio,aguardando_humano,ia_ativa,atualizado_em",
+    select:
+      "id,telefone,nome_cliente,estagio,aguardando_humano,ia_ativa,atualizado_em,kanban_coluna",
     order: "atualizado_em.desc",
   });
   const [response, bloqueados] = await Promise.all([
@@ -422,6 +426,68 @@ export async function listarConversasAtualizadasDesde(
   }
 
   return conversas;
+}
+
+/**
+ * Calendario do WhatsApp IA: contatos que mandaram mensagem em cada dia do
+ * intervalo. Usa a RPC contatos_mensagens_por_dia (so o resumo trafega); sem a
+ * migration 20261006120000, baixa o historico das conversas do periodo e agrega aqui.
+ */
+export async function listarContatosPorDia(inicio: string, fim: string): Promise<ContatoDoDia[]> {
+  const response = await fetch(supabaseUrl("/rpc/contatos_mensagens_por_dia"), {
+    method: "POST",
+    headers: supabaseHeaders(),
+    body: JSON.stringify({ inicio, fim }),
+  });
+
+  if (response.ok) {
+    const rows = (await response.json()) as Array<{
+      conversa_id: string;
+      telefone: string;
+      nome_cliente: string | null;
+      dia: string;
+      mensagens: number;
+      primeira: string;
+      ultima: string;
+      ultima_mensagem: string | null;
+    }>;
+    return rows.map((row) => ({
+      conversaId: row.conversa_id,
+      telefone: row.telefone,
+      nome: row.nome_cliente ?? "",
+      dia: row.dia,
+      mensagens: row.mensagens,
+      primeira: row.primeira,
+      ultima: row.ultima,
+      ultimaMensagem: row.ultima_mensagem ?? "",
+    }));
+  }
+
+  const rpcError = await response.text().catch(() => "");
+  if (response.status !== 404 && !rpcError.includes("contatos_mensagens_por_dia")) {
+    throw new Error(`Supabase contatos por dia failed (${response.status}): ${rpcError}`);
+  }
+
+  const params = new URLSearchParams({
+    select: "id,telefone,nome_cliente,historico",
+    atualizado_em: `gte.${inicio}`,
+    historico: "neq.[]",
+  });
+  const [fallback, bloqueados] = await Promise.all([
+    fetch(supabaseUrl(`/conversas?${params}`), { headers: supabaseHeaders() }),
+    listarTelefonesBloqueados(),
+  ]);
+  if (!fallback.ok) {
+    const errorBody = await fallback.text();
+    throw new Error(`Supabase contatos por dia fallback failed (${fallback.status}): ${errorBody}`);
+  }
+  const conversas = semBloqueados(
+    (await fallback.json()) as Array<
+      Pick<Conversa, "id" | "telefone" | "nome_cliente" | "historico">
+    >,
+    bloqueados,
+  );
+  return agruparContatosPorDia(conversas, inicio, fim);
 }
 
 /**
@@ -1104,11 +1170,6 @@ type VendaItemRow = {
   estoque_baixado: boolean;
 };
 
-type VendaItemPetRow = {
-  venda_id: string;
-  pet_nome: string | null;
-};
-
 export type ProdutoCrmResumo = ProdutoPedido & {
   estoque: number;
 };
@@ -1217,13 +1278,13 @@ async function buscarClientesCadastro(): Promise<ClienteCadastro[]> {
   return (await response.json()) as ClienteCadastro[];
 }
 
-async function listarPetsItensPorVenda(vendaIds: string[]): Promise<Map<string, string[]>> {
+async function listarItensPorVenda(vendaIds: string[]): Promise<Map<string, ProdutoPedido[]>> {
   if (vendaIds.length === 0) return new Map();
 
   const params = new URLSearchParams({
     venda_id: `in.(${vendaIds.map((id) => `"${id}"`).join(",")})`,
-    pet_nome: "not.is.null",
-    select: "venda_id,pet_nome",
+    select: "id,venda_id,sku,nome,quantidade,preco,preco_compra,pet_nome,estoque_baixado",
+    order: "criado_em.asc",
   });
 
   const response = await fetch(supabaseUrl(`/venda_itens?${params}`), {
@@ -1236,27 +1297,27 @@ async function listarPetsItensPorVenda(vendaIds: string[]): Promise<Map<string, 
       return new Map();
     }
 
-    throw new Error(`Supabase venda_itens pets select failed (${response.status}): ${errorBody}`);
+    throw new Error(`Supabase venda_itens select failed (${response.status}): ${errorBody}`);
   }
 
-  const rows = (await response.json()) as VendaItemPetRow[];
-  const petsPorVenda = new Map<string, string[]>();
-  const vistosPorVenda = new Map<string, Set<string>>();
+  const rows = (await response.json()) as VendaItemRow[];
+  const itensPorVenda = new Map<string, ProdutoPedido[]>();
 
   for (const row of rows) {
-    const pet = row.pet_nome?.trim();
-    if (!pet) continue;
-
-    const vistos = vistosPorVenda.get(row.venda_id) ?? new Set<string>();
-    const chave = pet.toLowerCase();
-    if (vistos.has(chave)) continue;
-
-    vistos.add(chave);
-    vistosPorVenda.set(row.venda_id, vistos);
-    petsPorVenda.set(row.venda_id, [...(petsPorVenda.get(row.venda_id) ?? []), pet]);
+    itensPorVenda.set(row.venda_id, [
+      ...(itensPorVenda.get(row.venda_id) ?? []),
+      {
+        sku: row.sku,
+        nome: row.nome,
+        quantidade: row.quantidade,
+        preco: row.preco,
+        precoCompra: row.preco_compra,
+        petNome: row.pet_nome,
+      },
+    ]);
   }
 
-  return petsPorVenda;
+  return itensPorVenda;
 }
 
 export type ResumoFinanceiroTelefone = {
@@ -1325,13 +1386,16 @@ export async function resumoFinanceiroPorTelefone(): Promise<
   return mapa;
 }
 
-export async function listarPedidos(options: { desde?: Date } = {}): Promise<PedidoCrm[]> {
+export async function listarPedidos(
+  options: { desde?: Date; ate?: Date } = {},
+): Promise<PedidoCrm[]> {
   const params = new URLSearchParams({
     select:
       "id,cliente_id,cliente_nome,telefone,pet_nome,total,taxa_maquininha,forma_pagamento,status_pagamento,status,processo,observacao,criado_em",
     order: "criado_em.desc",
   });
   if (options.desde) params.set("criado_em", `gte.${options.desde.toISOString()}`);
+  if (options.ate) params.append("criado_em", `lt.${options.ate.toISOString()}`);
 
   const fallbackParams = new URLSearchParams({
     select:
@@ -1339,6 +1403,7 @@ export async function listarPedidos(options: { desde?: Date } = {}): Promise<Ped
     order: "criado_em.desc",
   });
   if (options.desde) fallbackParams.set("criado_em", `gte.${options.desde.toISOString()}`);
+  if (options.ate) fallbackParams.append("criado_em", `lt.${options.ate.toISOString()}`);
 
   const [vendas, clientes] = await Promise.all([
     (async () => {
@@ -1368,14 +1433,17 @@ export async function listarPedidos(options: { desde?: Date } = {}): Promise<Ped
 
   const clientesPorId = new Map(clientes.map((cliente) => [cliente.id, cliente]));
   const clientesPorTelefone = new Map(clientes.map((cliente) => [cliente.telefone, cliente]));
-  const petsPorVenda = await listarPetsItensPorVenda(vendas.map((venda) => venda.id));
+  const itensPorVenda = await listarItensPorVenda(vendas.map((venda) => venda.id));
 
   return deduplicarVendasRecentes(vendas).map((venda) => {
     const cliente =
       (venda.cliente_id ? clientesPorId.get(venda.cliente_id) : undefined) ??
       (venda.telefone ? clientesPorTelefone.get(venda.telefone) : undefined);
-    const petsItens = petsPorVenda.get(venda.id);
-    const petResumo = petsItens?.length ? petsItens.join(", ") : null;
+    const itens = itensPorVenda.get(venda.id) ?? [];
+    const petsItens = Array.from(
+      new Set(itens.flatMap((item) => (item.petNome?.trim() ? [item.petNome.trim()] : []))),
+    );
+    const petResumo = petsItens.length ? petsItens.join(", ") : null;
 
     return {
       id: venda.id,
@@ -1392,6 +1460,7 @@ export async function listarPedidos(options: { desde?: Date } = {}): Promise<Ped
       statusPagamento: venda.status_pagamento ?? "pendente",
       observacao: venda.observacao ?? "",
       taxaMaquina: Number(venda.taxa_maquininha ?? 0),
+      itens,
     };
   });
 }
@@ -1438,17 +1507,20 @@ async function buscarPedidoPorId(id: string): Promise<PedidoCrm | null> {
 }
 
 async function mapPedidoVenda(venda: VendaPedidoRow): Promise<PedidoCrm> {
-  const [clientes, petsPorVenda] = await Promise.all([
+  const [clientes, itensPorVenda] = await Promise.all([
     buscarClientesCadastro(),
-    listarPetsItensPorVenda([venda.id]),
+    listarItensPorVenda([venda.id]),
   ]);
   const clientesPorId = new Map(clientes.map((cliente) => [cliente.id, cliente]));
   const clientesPorTelefone = new Map(clientes.map((cliente) => [cliente.telefone, cliente]));
   const cliente =
     (venda.cliente_id ? clientesPorId.get(venda.cliente_id) : undefined) ??
     (venda.telefone ? clientesPorTelefone.get(venda.telefone) : undefined);
-  const petsItens = petsPorVenda.get(venda.id);
-  const petResumo = petsItens?.length ? petsItens.join(", ") : null;
+  const itens = itensPorVenda.get(venda.id) ?? [];
+  const petsItens = Array.from(
+    new Set(itens.flatMap((item) => (item.petNome?.trim() ? [item.petNome.trim()] : []))),
+  );
+  const petResumo = petsItens.length ? petsItens.join(", ") : null;
 
   return {
     id: venda.id,
@@ -1465,6 +1537,7 @@ async function mapPedidoVenda(venda: VendaPedidoRow): Promise<PedidoCrm> {
     statusPagamento: venda.status_pagamento ?? "pendente",
     observacao: venda.observacao ?? "",
     taxaMaquina: Number(venda.taxa_maquininha ?? 0),
+    itens,
   };
 }
 
@@ -1524,6 +1597,7 @@ export async function editarPedidoManual({
   pet,
   pago,
   criadoEm,
+  itens,
 }: {
   id: string;
   nome: string;
@@ -1535,6 +1609,7 @@ export async function editarPedidoManual({
   pet?: string | null;
   pago?: boolean;
   criadoEm?: string | null;
+  itens?: ProdutoPedido[];
 }): Promise<PedidoCrm> {
   const nomeLimpo = nome.trim();
   const telefoneLimpo = telefone?.replace(/\D/g, "") ?? "";
@@ -1544,7 +1619,7 @@ export async function editarPedidoManual({
 
   const vendaAtualResponse = await fetch(
     supabaseUrl(
-      `/vendas?id=eq.${encodeURIComponent(id)}&select=id,cliente_id,telefone,status_pagamento,faturado_em,processo`,
+      `/vendas?id=eq.${encodeURIComponent(id)}&select=id,cliente_id,telefone,total,lucro,taxa_maquininha,status_pagamento,faturado_em,processo`,
     ),
     { headers: supabaseHeaders() },
   );
@@ -1561,6 +1636,9 @@ export async function editarPedidoManual({
       status_pagamento: string | null;
       faturado_em?: string | null;
       processo: PedidoProcesso | null;
+      total: number | null;
+      lucro: number | null;
+      taxa_maquininha: number | null;
     }>
   )[0];
   if (!vendaAtual) throw new Error("Pedido nao encontrado");
@@ -1592,6 +1670,17 @@ export async function editarPedidoManual({
     observacao: observacao?.trim() || "Pedido manual do CRM",
     atualizado_em: new Date().toISOString(),
   };
+  const custoItens = itens?.reduce(
+    (totalCusto, item) => totalCusto + item.precoCompra * item.quantidade,
+    0,
+  );
+  const lucroAnterior = Number(vendaAtual.lucro ?? 0);
+  const totalAnterior = Number(vendaAtual.total ?? 0);
+  const lucroAtualizado =
+    custoItens === undefined
+      ? lucroAnterior + (total - totalAnterior)
+      : total - custoItens - Number(vendaAtual.taxa_maquininha ?? 0);
+  payload.lucro = Math.round(lucroAtualizado * 100) / 100;
 
   const dataCustom = criadoEm ? new Date(criadoEm) : null;
   const dataCustomIso =
@@ -1608,6 +1697,10 @@ export async function editarPedidoManual({
   } else if (pago === false && vendaAtual.status_pagamento === "pago" && !vendaAtual.faturado_em) {
     payload.status_pagamento = "pendente";
     payload.processo = vendaAtual.processo === "pago" ? "novo" : vendaAtual.processo;
+  }
+
+  if (itens) {
+    await substituirItensVenda(id, itens, Boolean(vendaAtual.faturado_em));
   }
 
   let response = await fetch(supabaseUrl(`/vendas?id=eq.${encodeURIComponent(id)}`), {
@@ -1640,7 +1733,21 @@ export async function editarPedidoManual({
 
   if (pago === true && vendaAtual.status_pagamento !== "pago") {
     await registrarFaturamentoPedidoPago(id, { faturadoEm: dataCustomIso });
+  } else if (
+    vendaAtual.faturado_em &&
+    vendaAtual.cliente_id &&
+    vendaAtual.cliente_id === (cliente?.id ?? vendaAtual.cliente_id)
+  ) {
+    await ajustarAcumuladosCliente(
+      vendaAtual.cliente_id,
+      total - totalAnterior,
+      lucroAtualizado - lucroAnterior,
+    );
   }
+
+  await recalcularRecompraVenda(id).catch((error) => {
+    console.error("[recompra] erro_recalcular_pedido_editado", error);
+  });
 
   const pedido = await buscarPedidoPorId(id);
   if (!pedido) throw new Error("Pedido nao encontrado apos edicao");
@@ -2348,6 +2455,31 @@ async function estornarCliente(cliente: ClienteRow, total: number, lucro: number
   }
 }
 
+async function ajustarAcumuladosCliente(
+  clienteId: string,
+  diferencaTotal: number,
+  diferencaLucro: number,
+): Promise<void> {
+  if (Math.abs(diferencaTotal) < 0.005 && Math.abs(diferencaLucro) < 0.005) return;
+  const cliente = await buscarClientePorId(clienteId);
+  if (!cliente) return;
+
+  const response = await fetch(supabaseUrl(`/clientes?id=eq.${encodeURIComponent(clienteId)}`), {
+    method: "PATCH",
+    headers: supabaseHeaders(),
+    body: JSON.stringify({
+      total_gasto: Math.max(0, Number(cliente.total_gasto ?? 0) + diferencaTotal),
+      lucro_liquido: Math.max(0, Number(cliente.lucro_liquido ?? 0) + diferencaLucro),
+      atualizado_em: new Date().toISOString(),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase cliente edit totals failed (${response.status}): ${errorBody}`);
+  }
+}
+
 async function listarItensVendaComEstoque(vendaId: string): Promise<VendaItemRow[]> {
   const params = new URLSearchParams({
     venda_id: `eq.${vendaId}`,
@@ -2467,6 +2599,78 @@ async function salvarItensVenda(vendaId: string, itens: ProdutoPedido[]): Promis
     }
 
     throw new Error(`Supabase venda_itens insert failed (${response.status}): ${errorBody}`);
+  }
+}
+
+function itemVendaComparavel(item: ProdutoPedido): string {
+  return JSON.stringify({
+    sku: item.sku.trim(),
+    nome: item.nome.trim(),
+    quantidade: item.quantidade,
+    preco: Math.round(item.preco * 100) / 100,
+    precoCompra: Math.round(item.precoCompra * 100) / 100,
+    petNome: item.petNome?.trim() || null,
+  });
+}
+
+async function listarItensVenda(vendaId: string): Promise<VendaItemRow[]> {
+  const params = new URLSearchParams({
+    venda_id: `eq.${vendaId}`,
+    select: "*",
+    order: "criado_em.asc",
+  });
+  const response = await fetch(supabaseUrl(`/venda_itens?${params}`), {
+    headers: supabaseHeaders(),
+  });
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase venda_itens edit select failed (${response.status}): ${errorBody}`);
+  }
+  return (await response.json()) as VendaItemRow[];
+}
+
+async function substituirItensVenda(
+  vendaId: string,
+  itensNovos: ProdutoPedido[],
+  baixarEstoqueNovamente: boolean,
+): Promise<void> {
+  const itensAtuais = await listarItensVenda(vendaId);
+  const atuaisComparaveis = itensAtuais
+    .map((item) =>
+      itemVendaComparavel({
+        sku: item.sku,
+        nome: item.nome,
+        quantidade: item.quantidade,
+        preco: item.preco,
+        precoCompra: item.preco_compra,
+        petNome: item.pet_nome,
+      }),
+    )
+    .sort();
+  const novosComparaveis = itensNovos.map(itemVendaComparavel).sort();
+  if (
+    atuaisComparaveis.length === novosComparaveis.length &&
+    atuaisComparaveis.every((item, index) => item === novosComparaveis[index])
+  ) {
+    return;
+  }
+
+  for (const item of itensAtuais.filter((item) => item.estoque_baixado)) {
+    await devolverEstoque({
+      sku: item.sku,
+      nome: item.nome,
+      quantidade: item.quantidade,
+      preco: item.preco,
+      precoCompra: item.preco_compra,
+    });
+  }
+
+  await requestSupabase(`/venda_itens?venda_id=eq.${encodeURIComponent(vendaId)}`, {
+    method: "DELETE",
+  });
+  await salvarItensVenda(vendaId, itensNovos);
+  if (baixarEstoqueNovamente && itensNovos.length > 0) {
+    await baixarEstoqueDaVenda(vendaId);
   }
 }
 

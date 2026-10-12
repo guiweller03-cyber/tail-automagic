@@ -29,6 +29,7 @@ export type FollowupContexto = {
   dataPrevista?: string;
   diasRestantes?: string;
   mensagemGerada?: string;
+  mensagemSalvaCliente?: boolean;
   aprovadoEm?: string;
   contatoSemCadastro?: boolean;
   contatoSemPrevisao?: boolean;
@@ -149,8 +150,13 @@ export async function listarFollowups(filtro?: {
   telefone?: string;
   status?: FollowupStatus[];
   origem?: FollowupOrigem;
+  de?: string;
+  ate?: string;
 }): Promise<Followup[]> {
   const params = new URLSearchParams({ select: "*", order: "agendado_para.asc" });
+  if (filtro?.de && filtro?.ate) {
+    params.set("and", `(agendado_para.gte.${filtro.de},agendado_para.lt.${filtro.ate})`);
+  }
   if (filtro?.telefone) {
     params.set("telefone", `eq.${normalizarTelefone(filtro.telefone)}`);
   }
