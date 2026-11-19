@@ -53,8 +53,18 @@ function env(name, loja = "loja1") {
   return v;
 }
 
+// Mesmo critério do CRM (server-env.ts): aceita SERVICE_ROLE_KEY ou SECRET_KEY.
 function supaKey(loja) {
-  return env("SUPABASE_SERVICE_ROLE_KEY", loja);
+  const prefixo = loja === "loja2" ? "LOJA2_" : "";
+  const v =
+    process.env[`${prefixo}SUPABASE_SERVICE_ROLE_KEY`]?.trim() ||
+    process.env[`${prefixo}SUPABASE_SECRET_KEY`]?.trim();
+  if (!v) {
+    throw new Error(
+      `Variável de ambiente ausente: ${prefixo}SUPABASE_SERVICE_ROLE_KEY (ou ${prefixo}SUPABASE_SECRET_KEY)`,
+    );
+  }
+  return v;
 }
 
 function supaUrl(path, loja) {
@@ -203,7 +213,8 @@ async function tick() {
   try {
     await processar("loja1");
     if (process.env.LOJA2_ATIVA === "1" &&
-        process.env.LOJA2_SUPABASE_URL && process.env.LOJA2_SUPABASE_SERVICE_ROLE_KEY &&
+        process.env.LOJA2_SUPABASE_URL &&
+        (process.env.LOJA2_SUPABASE_SERVICE_ROLE_KEY || process.env.LOJA2_SUPABASE_SECRET_KEY) &&
         process.env.LOJA2_UAZAPI_URL && process.env.LOJA2_UAZAPI_TOKEN &&
         process.env.LOJA2_UAZAPI_WEBHOOK_SECRET) {
       await processar("loja2");
