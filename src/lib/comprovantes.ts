@@ -57,7 +57,7 @@ export async function persistirMidiaComprovante({
 }): Promise<{ url: string; mimeType?: string } | null> {
   try {
     // Ja persistida: nada a fazer.
-    if (mediaUrl && /\/storage\/v1\/object\/public\//.test(mediaUrl)) {
+    if (mediaUrl && /\/storage\/v1\/object\/(?:public\/)?comprovantes\//.test(mediaUrl)) {
       return { url: mediaUrl, mimeType };
     }
 

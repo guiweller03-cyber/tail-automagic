@@ -1,3 +1,4 @@
+import { lojaStorage } from "@/lib/loja-storage";
 import { useEffect, useMemo, useState } from "react";
 import {
   MapPin,
@@ -106,11 +107,11 @@ export function Entregas() {
   }, []);
 
   useEffect(() => {
-    const v = typeof window !== "undefined" ? localStorage.getItem("avisos_auto") : null;
+    const v = typeof window !== "undefined" ? lojaStorage.getItem("avisos_auto") : null;
     if (v) setAvisoAuto(v === "1");
   }, []);
   useEffect(() => {
-    if (typeof window !== "undefined") localStorage.setItem("avisos_auto", avisoAuto ? "1" : "0");
+    if (typeof window !== "undefined") lojaStorage.setItem("avisos_auto", avisoAuto ? "1" : "0");
   }, [avisoAuto]);
 
   // Escape fecha drawer/modal

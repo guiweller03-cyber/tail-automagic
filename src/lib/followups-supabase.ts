@@ -1,3 +1,4 @@
+import { configuracaoLoja } from "./loja-context";
 // Persistencia dos follow-ups agendados do CRM (tabela crm_followups, migration
 // 20260616120000_crm_followups.sql). Mesmo padrao REST/PostgREST usado em
 // campanhas-supabase.ts e financeiro-supabase.ts.
@@ -82,7 +83,7 @@ type FollowupRow = {
 };
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
   if (!value) throw new Error(`Missing environment variable: ${name}`);
   return value;
 }

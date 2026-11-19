@@ -1,3 +1,5 @@
+import { useLoja } from "@/lib/loja-ui";
+import { correspondeBusca, clienteCorrespondeBusca } from "@/lib/crm-search";
 import type { Cliente, Pedido, FormaPagamento, Produto } from "@/lib/crm-types";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
@@ -89,12 +91,12 @@ type NovoPedidoForm = {
   cupomCodigo: string;
 };
 
-const emptyNovoPedidoForm = (): NovoPedidoForm => ({
+const emptyNovoPedidoForm = (loja: "loja1" | "loja2" = "loja1"): NovoPedidoForm => ({
   nome: "",
   telefone: "",
   bairro: "",
   pet: "",
-  formaPagamento: "Pix",
+  formaPagamento: loja === "loja2" ? "Dinheiro" : "Pix",
   pago: false,
   total: "",
   observacao: "",
@@ -127,9 +129,7 @@ function clienteCombinaPedido(cliente: Cliente, valorBusca: string, exact = fals
     return (termo.length > 0 && nome === termo) || (digits.length > 0 && telefone === digits);
   }
 
-  return (
-    (termo.length > 0 && nome.includes(termo)) || (digits.length > 0 && telefone.includes(digits))
-  );
+  return Boolean(termo) && clienteCorrespondeBusca(cliente, valorBusca);
 }
 
 function petsDoCliente(cliente?: Cliente): string[] {
@@ -183,20 +183,31 @@ function PagamentoBadges({ p }: { p: Pedido }) {
   );
 }
 
-export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
+export function Pedidos({
+  pedidosIniciais,
+  buscaInicial = "",
+}: {
+  pedidosIniciais: Pedido[];
+  buscaInicial?: string;
+}) {
+  const loja = useLoja();
+  const formasDisponiveis = FORMAS.filter((forma) => loja === "loja1" || forma !== "Pix");
   const [items, setItems] = useState<Pedido[]>(pedidosIniciais);
   const [drag, setDrag] = useState<string | null>(null);
   const [confirmPago, setConfirmPago] = useState<{ pedido: Pedido } | null>(null);
-  const [forma, setForma] = useState<FormaPagamento>("Pix");
+  const [forma, setForma] = useState<FormaPagamento>(loja === "loja2" ? "Dinheiro" : "Pix");
   const [comprovante, setComprovante] = useState(true);
   const [salvandoStatus, setSalvandoStatus] = useState<string | null>(null);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
-  const [busca, setBusca] = useState("");
+  const [busca, setBusca] = useState(buscaInicial);
+  useEffect(() => {
+    setBusca(buscaInicial);
+  }, [buscaInicial]);
   const [statusFiltro, setStatusFiltro] = useState<PedidoFiltroStatus>("todos");
   const [pagamentoFiltro, setPagamentoFiltro] = useState<PedidoFiltroPagamento>("todos");
   const [novoAberto, setNovoAberto] = useState(false);
   const [editandoPedido, setEditandoPedido] = useState<Pedido | null>(null);
-  const [novo, setNovo] = useState<NovoPedidoForm>(() => emptyNovoPedidoForm());
+  const [novo, setNovo] = useState<NovoPedidoForm>(() => emptyNovoPedidoForm(loja));
   const [novoItens, setNovoItens] = useState<NovoPedidoItem[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -205,15 +216,19 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
   const [salvandoNovo, setSalvandoNovo] = useState(false);
 
   const filteredItems = useMemo(() => {
-    const termo = normalizarBusca(busca);
-    const digits = busca.replace(/\D/g, "");
-
     return items.filter((pedido) => {
-      const texto = normalizarBusca(
-        [pedido.id, pedido.cliente, pedido.pet, pedido.bairro, pedido.pagamento].join(" "),
+      const matchesBusca = correspondeBusca(
+        busca,
+        [
+          pedido.id,
+          pedido.cliente,
+          pedido.pet,
+          pedido.bairro,
+          pedido.pagamento,
+          ...(pedido.itens ?? []).flatMap((item) => [item.nome, item.sku, item.petNome]),
+        ],
+        [pedido.telefone],
       );
-      const matchesBusca =
-        !termo || texto.includes(termo) || (digits && pedido.id.includes(digits));
       const matchesStatus = statusFiltro === "todos" || pedido.status === statusFiltro;
       const matchesPagamento =
         pagamentoFiltro === "todos" ||
@@ -236,9 +251,7 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
       .filter((produto) => produto.estoque > 0 && produto.preco > 0)
       .filter((produto) => {
         if (!termo) return true;
-        return normalizarBusca([produto.sku, produto.nome, produto.categoria].join(" ")).includes(
-          termo,
-        );
+        return correspondeBusca(produtoBusca, [produto.sku, produto.nome, produto.categoria]);
       })
       .slice(0, 8);
   }, [produtoBusca, produtos]);
@@ -558,7 +571,7 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
           ? current.map((item) => (item.id === pedido.id ? pedido : item))
           : [pedido, ...current.filter((item) => item.id !== pedido.id)],
       );
-      setNovo(emptyNovoPedidoForm());
+      setNovo(emptyNovoPedidoForm(loja));
       setNovoItens([]);
       setProdutoBusca("");
       setNovoAberto(false);
@@ -656,7 +669,7 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
             <option value="todos">Todo pagamento</option>
             <option value="Pago">Pago</option>
             <option value="Pendente">Pendente</option>
-            {FORMAS.filter((formaItem) => formaItem !== "Pendente").map((formaItem) => (
+            {formasDisponiveis.filter((formaItem) => formaItem !== "Pendente").map((formaItem) => (
               <option key={formaItem} value={formaItem}>
                 {formaItem}
               </option>
@@ -903,7 +916,7 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                       }
                       className="input-soft h-10 w-full"
                     >
-                      {FORMAS.map((formaItem) => (
+                      {formasDisponiveis.map((formaItem) => (
                         <option key={formaItem} value={formaItem}>
                           {formaItem}
                         </option>
@@ -948,7 +961,7 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                       }
                       className="input-soft h-10 w-full"
                     >
-                      {FORMAS.map((formaItem) => (
+                      {formasDisponiveis.map((formaItem) => (
                         <option key={formaItem} value={formaItem}>
                           {formaItem}
                         </option>
@@ -1147,7 +1160,7 @@ export function Pedidos({ pedidosIniciais }: { pedidosIniciais: Pedido[] }) {
                 onChange={(e) => setForma(e.target.value as FormaPagamento)}
                 className="w-full h-10 px-3 rounded-lg bg-secondary text-sm outline-none"
               >
-                {FORMAS.filter((f) => f !== "Pendente").map((f) => (
+                {formasDisponiveis.filter((f) => f !== "Pendente").map((f) => (
                   <option key={f} value={f}>
                     {f}
                   </option>

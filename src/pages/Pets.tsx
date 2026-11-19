@@ -1,3 +1,6 @@
+import { dispatchCrmReload } from "@/lib/crm-refresh";
+import { petsDoCadastro } from "@/lib/crm-pets";
+import { clienteCorrespondeBusca, correspondeBusca } from "@/lib/crm-search";
 import type { Cliente, PetDetalhe } from "@/lib/crm-types";
 import { listarRacasPesoBase, type RacaPesoBase } from "@/lib/recompra-calculo";
 import {
@@ -73,9 +76,7 @@ const PET_FORM_INICIAL: PetForm = {
 };
 
 function petsDoCliente(cliente: Cliente): PetDetalhe[] {
-  const detalhes: PetDetalhe[] = cliente.petsDetalhes?.length
-    ? cliente.petsDetalhes
-    : cliente.pets.map((nome) => ({ nome }));
+  const detalhes = petsDoCadastro(cliente);
 
   return detalhes.filter((pet) =>
     Boolean(
@@ -162,9 +163,18 @@ function nomesPetsTutor(cliente: Cliente): string {
   return nomes.length ? nomes.slice(0, 3).join(", ") : "Sem pets";
 }
 
-export function Pets({ clientes }: { clientes: Cliente[] }) {
+export function Pets({
+  clientes,
+  buscaInicial = "",
+}: {
+  clientes: Cliente[];
+  buscaInicial?: string;
+}) {
   const [clientesAtuais, setClientesAtuais] = useState<Cliente[]>(clientes);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(buscaInicial);
+  useEffect(() => {
+    setSearch(buscaInicial);
+  }, [buscaInicial]);
   const [filter, setFilter] = useState<EspecieFiltro>("Todos");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<PetForm>(PET_FORM_INICIAL);
@@ -203,20 +213,22 @@ export function Pets({ clientes }: { clientes: Cliente[] }) {
       if (filter !== "Todos" && especie !== filter) return false;
       if (!termo) return true;
 
-      return [
-        pet.nome,
-        pet.nascimento,
-        pet.especie,
-        pet.raca,
-        pet.porte,
-        pet.idade,
-        pet.observacao,
-        cliente.nome,
-        cliente.telefone,
-        cliente.bairro,
-      ]
-        .filter(Boolean)
-        .some((valor) => String(valor).toLowerCase().includes(termo));
+      return correspondeBusca(
+        search,
+        [
+          pet.nome,
+          pet.nascimento,
+          pet.especie,
+          pet.raca,
+          pet.porte,
+          pet.idade,
+          pet.observacao,
+          cliente.nome,
+          cliente.telefone,
+          cliente.bairro,
+        ],
+        [cliente.telefone],
+      );
     });
   }, [filter, search, todosPets]);
 
@@ -234,13 +246,7 @@ export function Pets({ clientes }: { clientes: Cliente[] }) {
     const termo = buscaTutor.trim().toLowerCase();
     if (!termo) return clientesAtuais.slice(0, 8);
     return clientesAtuais
-      .filter((cliente) =>
-        [cliente.nome, cliente.telefone, cliente.bairro, cliente.pets?.join(" ")]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(termo),
-      )
+      .filter((cliente) => clienteCorrespondeBusca(cliente, buscaTutor))
       .slice(0, 8);
   }, [buscaTutor, clientesAtuais]);
 
@@ -418,6 +424,7 @@ export function Pets({ clientes }: { clientes: Cliente[] }) {
           ? current.map((cliente) => (cliente.id === data.id ? data : cliente))
           : [...current, data].sort((a, b) => a.nome.localeCompare(b.nome));
       });
+      dispatchCrmReload();
       setForm(PET_FORM_INICIAL);
       setBuscaTutor("");
       setShowForm(false);

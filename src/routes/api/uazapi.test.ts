@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
+import { configuracaoLoja } from "@/lib/loja-context";
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
@@ -10,8 +11,8 @@ export const Route = createFileRoute("/api/uazapi/test")({
     handlers: {
       GET: async () => {
         try {
-          const baseUrl = process.env.UAZAPI_URL;
-          const token = process.env.UAZAPI_TOKEN;
+          const baseUrl = configuracaoLoja("UAZAPI_URL");
+          const token = configuracaoLoja("UAZAPI_TOKEN");
 
           if (!baseUrl) {
             throw new Error("Missing environment variable: UAZAPI_URL");

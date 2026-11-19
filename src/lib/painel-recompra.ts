@@ -1,8 +1,11 @@
 import type { RecompraPrevista } from "@/lib/crm-types";
 
-export type PainelSituacao = "atrasado" | "urgente" | "normal";
+export type PainelSituacao = "atrasado" | "urgente" | "normal" | "pendente";
 
-export function situacaoPainel(item: Pick<RecompraPrevista, "diasRestantes">): PainelSituacao {
+export function situacaoPainel(
+  item: Pick<RecompraPrevista, "diasRestantes" | "pendenciaCalculo">,
+): PainelSituacao {
+  if (item.pendenciaCalculo) return "pendente";
   if (item.diasRestantes < 0) return "atrasado";
   if (item.diasRestantes <= 3) return "urgente";
   return "normal";
@@ -37,6 +40,7 @@ export function previsaoPorMes(items: RecompraPrevista[]) {
   const valores = new Map<string, number>();
 
   for (const item of items) {
+    if (item.pendenciaCalculo) continue;
     const data = dataRecompra(item);
     const chave = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}`;
     valores.set(chave, (valores.get(chave) ?? 0) + item.valorEstimado);
@@ -70,6 +74,7 @@ export function telefoneComparavel(telefone: string): string {
 
 /** Explica, em uma frase, de onde saiu o ciclo usado na previsão. */
 export function explicacaoCiclo(item: RecompraPrevista): string {
+  if (item.pendenciaCalculo) return item.pendenciaCalculo;
   const calculado = item.cicloCalculado ?? item.previsaoBase;
   if (item.cicloManual) {
     return `Ciclo ajustado manualmente para ${item.cicloManual} dias (o cálculo automático sugeria ${calculado} dias).`;
@@ -77,17 +82,19 @@ export function explicacaoCiclo(item: RecompraPrevista): string {
 
   switch (item.origemCiclo) {
     case "historico":
-      return `${calculado} dias = média dos intervalos reais entre as últimas compras deste produto (${item.historicoDias.join(", ")} dias).`;
+      return `${calculado} dias = média dos dias entre as compras (${item.historicoDias.join(", ")} dias).${item.intervalosDescartados?.length ? ` Intervalos fora de 3–180 dias desconsiderados: ${item.intervalosDescartados.join(", ")} dias.` : ""}`;
     case "observacao":
       return `${calculado} dias anotados na observação do pedido (marcador recompra_auto).`;
     case "cadastro_manual":
       return `${calculado} dias definidos no cadastro manual da venda.`;
     default:
-      return `${item.pesoKg.toLocaleString("pt-BR")} kg de ração ÷ ${Math.round(item.consumoDiaKg * 1000)} g/dia = aproximadamente ${calculado} dias de consumo.`;
+      return `${item.pesoKg.toLocaleString("pt-BR")} kg de ração × 1.000, com consumo estimado de ${Math.round(item.consumoEstimadoG ?? item.consumoDiaKg * 1000)} g/dia = aproximadamente ${calculado} dias restantes desde a última compra. Considera os pets, o crescimento estimado e os ${item.diasAbastecimento ?? 0} dias já passados no abastecimento.`;
   }
 }
 
 export function mensagemRecompra(item: RecompraPrevista): string {
+  if (item.pendenciaCalculo)
+    return "Precisamos confirmar a quantidade de ração e os pets antes de estimar a próxima compra.";
   const primeiroNome = item.cliente.trim().split(/\s+/)[0] || "Oi";
   const saudacao = /@|\p{L}.*@/u.test(primeiroNome) ? "Oi!" : `Oi, ${primeiroNome}!`;
   const pets = nomesPets(item);

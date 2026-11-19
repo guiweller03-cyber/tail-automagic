@@ -1,3 +1,5 @@
+import { configuracaoLoja } from "./loja-context";
+import { requireSupabaseServerKey } from "./server-env";
 import type { Cliente } from "@/lib/crm-types";
 
 type LeadTotalRow = {
@@ -41,7 +43,7 @@ export type LeadTotalInput = Partial<Cliente> & {
 };
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
 
   if (!value) {
     throw new Error(`Missing environment variable: ${name}`);
@@ -56,7 +58,7 @@ function supabaseUrl(path: string): string {
 }
 
 function supabaseHeaders(prefer?: string): HeadersInit {
-  const anonKey = requireEnv("SUPABASE_ANON_KEY");
+  const anonKey = requireSupabaseServerKey();
 
   return {
     apikey: anonKey,

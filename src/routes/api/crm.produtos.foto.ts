@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 import { cloudflareBindings } from "@/lib/cloudflare-env";
+import { lojaAtual } from "@/lib/loja-context";
 import {
   buscarProdutoFotoCrm,
   removerProdutoFotoCrm,
@@ -16,7 +17,7 @@ function json(data: unknown, init?: ResponseInit): Response {
 }
 
 function chaveFotoKv(versao: string): string {
-  return `produto-foto:${versao}`;
+  return `produto-foto:${lojaAtual()}:${versao}`;
 }
 
 function fotoResponse(
@@ -30,9 +31,8 @@ function fotoResponse(
       "content-type": contentType,
       // O front pede ?v=<foto_path>, que muda a cada upload: com a versao certa o
       // navegador pode guardar a foto de vez em vez de baixar de novo a cada hora.
-      "cache-control": imutavel
-        ? `private, max-age=${UM_ANO_S}, immutable`
-        : "private, max-age=3600",
+      "cache-control": "private, no-store",
+      vary: "Cookie",
       etag: `"${Buffer.from(versao).toString("base64url")}"`,
     },
   });

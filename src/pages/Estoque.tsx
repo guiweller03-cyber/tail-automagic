@@ -1,3 +1,5 @@
+import { lojaStorage } from "@/lib/loja-storage";
+import { correspondeBusca } from "@/lib/crm-search";
 import type { Produto, ProdutoDetalhesTecnicos } from "@/lib/crm-types";
 import { useGlobalSearch } from "@/lib/global-search";
 import {
@@ -23,11 +25,41 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { onCrmReload } from "@/lib/crm-refresh";
 
+type ExcelProdutoNovo = {
+  nome: string;
+  categoria: string;
+  preco: number;
+  precoCompra: number;
+  minimo: number;
+  fornecedor?: string;
+  tipo: Produto["tipo"];
+};
+
 type ExcelLinha = {
   sku: string;
   estoqueNovo: number;
   produto?: Produto;
+  /** Dados para cadastrar o produto quando o SKU ainda não existe. */
+  novo?: ExcelProdutoNovo;
 };
+
+type ExcelAcao = "atualizar" | "criar" | "ignorar";
+
+function acaoExcel(linha: ExcelLinha): ExcelAcao {
+  if (linha.produto) return "atualizar";
+  return linha.novo ? "criar" : "ignorar";
+}
+
+/** Aceita número nativo do Excel, "R$ 1.234,56", "1234.56" ou "12,5". */
+function numeroPlanilha(valor: unknown): number {
+  if (typeof valor === "number") return valor;
+  let texto = String(valor ?? "")
+    .replace(/[R$\s]/g, "")
+    .trim();
+  if (!texto) return NaN;
+  if (texto.includes(",")) texto = texto.replace(/\./g, "").replace(",", ".");
+  return Number(texto);
+}
 
 function normalizarHeader(valor: unknown): string {
   return String(valor ?? "")
@@ -48,6 +80,30 @@ const HEADERS_ESTOQUE = new Set([
   "saldo",
   "qnt",
 ]);
+const HEADERS_NOME = new Set(["nome", "produto", "descricao", "nome do produto", "item"]);
+const HEADERS_CATEGORIA = new Set(["categoria", "grupo", "departamento", "secao", "category"]);
+const HEADERS_PRECO = new Set([
+  "preco",
+  "preco venda",
+  "preco de venda",
+  "valor",
+  "valor venda",
+  "valor de venda",
+  "price",
+]);
+const HEADERS_CUSTO = new Set([
+  "custo",
+  "preco compra",
+  "preco de compra",
+  "valor compra",
+  "valor de compra",
+  "preco custo",
+  "preco de custo",
+  "cost",
+]);
+const HEADERS_MINIMO = new Set(["minimo", "estoque minimo", "min"]);
+const HEADERS_FORNECEDOR = new Set(["fornecedor", "marca fornecedor", "supplier"]);
+const HEADERS_TIPO = new Set(["tipo"]);
 
 async function parsearExcelLinhas(file: File, produtos: Produto[]): Promise<ExcelLinha[]> {
   const XLSX = await import("xlsx");
@@ -73,22 +129,48 @@ async function parsearExcelLinhas(file: File, produtos: Produto[]): Promise<Exce
       `Coluna de estoque não encontrada. Use um desses nomes: ${[...HEADERS_ESTOQUE].join(", ")}`,
     );
 
-  const produtoPorSku = new Map(produtos.map((p) => [p.sku.toUpperCase(), p]));
+  const coluna = (nomes: Set<string>) => headers.findIndex((h) => nomes.has(h));
+  const colNome = coluna(HEADERS_NOME);
+  const colCategoria = coluna(HEADERS_CATEGORIA);
+  const colPreco = coluna(HEADERS_PRECO);
+  const colCusto = coluna(HEADERS_CUSTO);
+  const colMinimo = coluna(HEADERS_MINIMO);
+  const colFornecedor = coluna(HEADERS_FORNECEDOR);
+  const colTipo = coluna(HEADERS_TIPO);
 
-  const linhas: ExcelLinha[] = [];
+  const produtoPorSku = new Map(produtos.map((p) => [p.sku.toUpperCase(), p]));
+  const texto = (rowArr: unknown[], col: number) =>
+    col < 0 ? "" : String(rowArr[col] ?? "").trim();
+  const numero = (rowArr: unknown[], col: number) => {
+    const n = col < 0 ? NaN : numeroPlanilha(rowArr[col]);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+
+  // SKU repetido na planilha: vale a última linha.
+  const porSku = new Map<string, ExcelLinha>();
   for (const row of rows.slice(1)) {
     const rowArr = row as unknown[];
-    const sku = String(rowArr[colSku] ?? "")
-      .trim()
-      .toUpperCase();
-    const raw = String(rowArr[colEstoque] ?? "")
-      .replace(",", ".")
-      .trim();
-    const estoqueNovo = Math.max(0, Math.floor(Number(raw)));
+    const sku = texto(rowArr, colSku).toUpperCase();
+    const estoqueNovo = Math.max(0, Math.floor(numeroPlanilha(rowArr[colEstoque])));
     if (!sku || !Number.isFinite(estoqueNovo)) continue;
-    linhas.push({ sku, estoqueNovo, produto: produtoPorSku.get(sku) });
+
+    const nome = texto(rowArr, colNome);
+    const tipoTexto = normalizarHeader(texto(rowArr, colTipo));
+    const novo: ExcelProdutoNovo | undefined = nome
+      ? {
+          nome,
+          categoria: texto(rowArr, colCategoria) || "Geral",
+          preco: Math.round(numero(rowArr, colPreco) * 100) / 100,
+          precoCompra: Math.round(numero(rowArr, colCusto) * 100) / 100,
+          minimo: Math.floor(numero(rowArr, colMinimo)),
+          fornecedor: texto(rowArr, colFornecedor) || undefined,
+          tipo: tipoTexto.startsWith("consig") ? "consignado" : "próprio",
+        }
+      : undefined;
+
+    porSku.set(sku, { sku, estoqueNovo, produto: produtoPorSku.get(sku), novo });
   }
-  return linhas;
+  return [...porSku.values()];
 }
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -415,7 +497,7 @@ function atualizarSkuConjuntosEstoqueStorage(skuAtual: string, skuNovo?: string)
   if (!alvo) return;
 
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(ESTOQUE_CONJUNTOS_STORAGE_KEY) ?? "[]");
+    const parsed = JSON.parse(lojaStorage.getItem(ESTOQUE_CONJUNTOS_STORAGE_KEY) ?? "[]");
     if (!Array.isArray(parsed)) return;
 
     const conjuntos = parsed
@@ -435,7 +517,7 @@ function atualizarSkuConjuntosEstoqueStorage(skuAtual: string, skuNovo?: string)
       })
       .filter(Boolean);
 
-    window.localStorage.setItem(ESTOQUE_CONJUNTOS_STORAGE_KEY, JSON.stringify(conjuntos));
+    lojaStorage.setItem(ESTOQUE_CONJUNTOS_STORAGE_KEY, JSON.stringify(conjuntos));
   } catch {
     // Se o localStorage estiver indisponivel, a exclusao principal ja foi aplicada.
   }
@@ -543,7 +625,6 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
     return () => window.removeEventListener("keydown", h);
   }, [showNovo]);
 
-  const termoBusca = normalizarBusca(buscaGlobal);
   const produtosPorOrigem = tipo === "todos" ? produtos : produtos.filter((p) => p.tipo === tipo);
   const opcoesGrupo = opcoesUnicas(produtosPorOrigem.map(grupoProduto));
   const produtosPorGrupo = produtosPorOrigem.filter((produto) =>
@@ -561,7 +642,7 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
   const list = produtosPorCategoria.filter(
     (produto) =>
       produtoBateFiltro(marcaProduto(produto), marcaFiltro) &&
-      (!termoBusca || textoProduto(produto).includes(termoBusca)),
+      correspondeBusca(buscaGlobal, [textoProduto(produto)]),
   );
   const criticos = list.filter((p) => p.estoque < p.minimo);
   const filtrosCatalogoAtivos =
@@ -1020,7 +1101,7 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
   }
 
   async function confirmarImportacaoExcel() {
-    const validas = excelLinhas.filter((l) => l.produto);
+    const validas = excelLinhas.filter((l) => acaoExcel(l) !== "ignorar");
     if (validas.length === 0 || excelEnviando) return;
 
     setExcelEnviando(true);
@@ -1029,21 +1110,44 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          atualizacoes: validas.map((l) => ({ sku: l.sku, estoque: l.estoqueNovo })),
+          atualizacoes: validas.map((l) => ({
+            sku: l.sku,
+            estoque: l.estoqueNovo,
+            ...(l.produto ? {} : l.novo),
+          })),
         }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as {
+        erro?: string;
+        atualizados?: number;
+        criados?: number;
+        naoEncontrados?: string[];
+        falhas?: Array<{ sku: string; erro: string }>;
+        produtosCriados?: Produto[];
+      };
       if (!response.ok) throw new Error(data?.erro ?? "Erro ao atualizar estoque");
 
-      setProdutos((prev) =>
-        prev.map((p) => {
+      const criados = data.produtosCriados ?? [];
+      setProdutos((prev) => [
+        ...prev.map((p) => {
           const linha = validas.find((l) => l.sku === p.sku.toUpperCase());
           return linha ? { ...p, estoque: linha.estoqueNovo } : p;
         }),
-      );
+        ...criados.filter((c) => !prev.some((p) => p.sku.toUpperCase() === c.sku.toUpperCase())),
+      ]);
 
-      toast.success(`${data.atualizados} produto(s) atualizados com sucesso!`);
-      if (data.naoEncontrados?.length > 0) {
+      toast.success(
+        `${data.atualizados ?? 0} atualizado(s), ${data.criados ?? 0} cadastrado(s) com sucesso!`,
+      );
+      if (data.falhas && data.falhas.length > 0) {
+        toast.error(
+          `${data.falhas.length} SKU(s) falharam: ${data.falhas
+            .slice(0, 3)
+            .map((f) => `${f.sku} (${f.erro})`)
+            .join(", ")}`,
+        );
+      }
+      if (data.naoEncontrados && data.naoEncontrados.length > 0) {
         toast.warning(
           `${data.naoEncontrados.length} SKU(s) não encontrados: ${data.naoEncontrados.slice(0, 3).join(", ")}${data.naoEncontrados.length > 3 ? "..." : ""}`,
         );
@@ -1360,8 +1464,9 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
               <FileSpreadsheet className="size-4 text-success" /> Importar estoque por Excel
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Planilha com colunas <b>SKU</b> e <b>Estoque</b> (ou Quantidade). Suporta .xlsx, .xls
-              e .csv.
+              Planilha com colunas <b>SKU</b> e <b>Estoque</b> (ou Quantidade). SKU que ainda não
+              existe é cadastrado se a planilha tiver <b>Nome</b>; opcionais: Categoria, Preço,
+              Custo, Mínimo, Fornecedor e Tipo. Suporta .xlsx, .xls e .csv.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1391,7 +1496,9 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                 <button
                   type="button"
                   onClick={() => void confirmarImportacaoExcel()}
-                  disabled={excelEnviando || excelLinhas.filter((l) => l.produto).length === 0}
+                  disabled={
+                    excelEnviando || excelLinhas.every((l) => acaoExcel(l) === "ignorar")
+                  }
                   className="h-9 rounded-lg bg-success px-3 text-xs font-bold text-success-foreground inline-flex items-center gap-2 disabled:opacity-50"
                 >
                   {excelEnviando ? (
@@ -1399,7 +1506,8 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                   ) : (
                     <CheckCircle2 className="size-3.5" />
                   )}
-                  Confirmar {excelLinhas.filter((l) => l.produto).length} atualizações
+                  Confirmar {excelLinhas.filter((l) => acaoExcel(l) !== "ignorar").length}{" "}
+                  produto(s)
                 </button>
                 <button
                   type="button"
@@ -1421,11 +1529,18 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                 {excelLinhas.length} linhas lidas
               </span>
               <span className="rounded-md bg-success/15 px-2 py-1 text-success">
-                {excelLinhas.filter((l) => l.produto).length} encontrados
+                {excelLinhas.filter((l) => acaoExcel(l) === "atualizar").length} para atualizar
               </span>
-              {excelLinhas.filter((l) => !l.produto).length > 0 && (
+              {excelLinhas.some((l) => acaoExcel(l) === "criar") && (
+                <span className="rounded-md bg-primary/15 px-2 py-1 text-primary">
+                  {excelLinhas.filter((l) => acaoExcel(l) === "criar").length} novos (serão
+                  cadastrados)
+                </span>
+              )}
+              {excelLinhas.some((l) => acaoExcel(l) === "ignorar") && (
                 <span className="rounded-md bg-destructive/10 px-2 py-1 text-destructive">
-                  {excelLinhas.filter((l) => !l.produto).length} não encontrados
+                  {excelLinhas.filter((l) => acaoExcel(l) === "ignorar").length} ignorados (SKU
+                  novo sem nome)
                 </span>
               )}
             </div>
@@ -1445,17 +1560,31 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                     <tr key={linha.sku} className="border-t border-border">
                       <td className="px-3 py-2 font-mono font-bold">{linha.sku}</td>
                       <td className="px-3 py-2 text-muted-foreground">
-                        {linha.produto?.nome ?? (
-                          <span className="text-destructive italic">não encontrado</span>
-                        )}
+                        {linha.produto?.nome ??
+                          (linha.novo ? (
+                            <span>
+                              {linha.novo.nome}{" "}
+                              <span className="text-[10px] text-muted-foreground/80">
+                                · {linha.novo.categoria} · {brl(linha.novo.preco)}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-destructive italic">
+                              SKU novo sem nome na planilha
+                            </span>
+                          ))}
                       </td>
                       <td className="px-3 py-2 text-center">
                         {linha.produto ? linha.produto.estoque : "—"}
                       </td>
                       <td className="px-3 py-2 text-center font-bold">{linha.estoqueNovo}</td>
                       <td className="px-3 py-2 text-center">
-                        {linha.produto ? (
+                        {acaoExcel(linha) === "atualizar" ? (
                           <CheckCircle2 className="size-4 text-success inline" />
+                        ) : acaoExcel(linha) === "criar" ? (
+                          <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                            NOVO
+                          </span>
                         ) : (
                           <AlertCircle className="size-4 text-destructive inline" />
                         )}
@@ -1724,26 +1853,28 @@ export function Estoque({ produtosIniciais }: { produtosIniciais: Produto[] }) {
                     </div>
                   </td>
                 </tr>
-              ) : list.length === 0 && (
-                <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center">
-                    <div className="mx-auto max-w-sm">
-                      <div className="text-sm font-semibold">Nenhum produto encontrado</div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Ajuste a busca ou limpe o termo para ver todos os itens do estoque.
-                      </p>
-                      {buscaGlobal && (
-                        <button
-                          type="button"
-                          onClick={() => setBuscaGlobal("")}
-                          className="mt-4 h-9 px-4 rounded-lg bg-secondary text-xs font-semibold hover:bg-secondary/70"
-                        >
-                          Limpar busca
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+              ) : (
+                list.length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="px-4 py-10 text-center">
+                      <div className="mx-auto max-w-sm">
+                        <div className="text-sm font-semibold">Nenhum produto encontrado</div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Ajuste a busca ou limpe o termo para ver todos os itens do estoque.
+                        </p>
+                        {buscaGlobal && (
+                          <button
+                            type="button"
+                            onClick={() => setBuscaGlobal("")}
+                            className="mt-4 h-9 px-4 rounded-lg bg-secondary text-xs font-semibold hover:bg-secondary/70"
+                          >
+                            Limpar busca
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
               )}
             </tbody>
           </table>

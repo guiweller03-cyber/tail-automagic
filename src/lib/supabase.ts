@@ -1,5 +1,7 @@
+import { configuracaoLoja } from "./loja-context";
+import { lerPaginasSupabase } from "./supabase-pagination";
 import {
-  BASE_SYSTEM_PROMPT,
+  promptBaseDaLoja,
   type IaPromptConfig,
   type IaRegraCustomizada,
   type Mensagem,
@@ -18,6 +20,7 @@ import { recalcularRecompraVenda } from "./recompra-supabase";
 import { requireSupabaseServerKey } from "./server-env";
 import {
   DEFAULT_KANBAN_COLUMNS,
+  colunaVendaAprovada,
   sanitizeKanbanColumns,
   type KanbanColumn,
 } from "@/features/whatsapp-crm/kanban-config";
@@ -113,7 +116,7 @@ type ConversaUpsert = {
 };
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
 
   if (!value) {
     throw new Error(`Missing environment variable: ${name}`);
@@ -340,20 +343,11 @@ export async function listarConversasResumo(): Promise<
   const params = new URLSearchParams({
     select:
       "id,telefone,nome_cliente,ultima_mensagem:historico->-1,aguardando_humano,ia_ativa,estagio,kanban_coluna,criado_em,atualizado_em,lido_ate",
-    order: "atualizado_em.desc",
+    order: "atualizado_em.desc,id.asc",
   });
-  const response = await fetch(supabaseUrl(`/conversas?${params}`), {
-    headers: supabaseHeaders(),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Supabase conversas resumo failed (${response.status}): ${errorBody}`);
-  }
-
-  const rows = (await response.json()) as Array<
+  const rows = await lerPaginasSupabase<
     Omit<Conversa, "historico"> & { ultima_mensagem: Mensagem | null }
-  >;
+  >(supabaseUrl("/conversas?" + params), supabaseHeaders());
   return rows.map(({ ultima_mensagem, ...conversa }) => ({
     ...conversa,
     historico: ultima_mensagem ? [ultima_mensagem] : [],
@@ -844,15 +838,20 @@ function isRegraCustomizada(value: unknown): value is IaRegraCustomizada {
   );
 }
 
+// v2 (2026-11-18): o prompt antigo ("Ana", catalogo fixo) ficava salvo em
+// "ia_system_prompt" e prevalecia sobre o padrao novo. Ele continua no banco,
+// mas nao e mais lido.
+const CHAVE_PROMPT_IA = "ia_system_prompt_v2";
+
 function normalizeIaConfigRow(
   rows: Array<{ chave: string; valor: unknown; atualizado_em?: string | null }>,
 ): IaPromptConfig {
-  const promptRow = rows.find((row) => row.chave === "ia_system_prompt");
+  const promptRow = rows.find((row) => row.chave === CHAVE_PROMPT_IA);
   const regrasRow = rows.find((row) => row.chave === "ia_regras_customizadas");
   const systemPrompt =
     typeof promptRow?.valor === "string" && promptRow.valor.trim()
       ? promptRow.valor
-      : BASE_SYSTEM_PROMPT;
+      : promptBaseDaLoja();
   const regras = Array.isArray(regrasRow?.valor) ? regrasRow.valor.filter(isRegraCustomizada) : [];
 
   return {
@@ -864,7 +863,7 @@ function normalizeIaConfigRow(
 
 export async function buscarIaPromptConfig(): Promise<IaPromptConfig> {
   const params = new URLSearchParams({
-    chave: "in.(ia_system_prompt,ia_regras_customizadas)",
+    chave: `in.(${CHAVE_PROMPT_IA},ia_regras_customizadas)`,
     select: "chave,valor,atualizado_em",
   });
 
@@ -873,7 +872,7 @@ export async function buscarIaPromptConfig(): Promise<IaPromptConfig> {
   });
 
   if (!response.ok) {
-    return { systemPrompt: BASE_SYSTEM_PROMPT, regras: [] };
+    return { systemPrompt: promptBaseDaLoja(), regras: [] };
   }
 
   const rows = (await response.json()) as Array<{
@@ -894,14 +893,19 @@ export async function salvarIaPromptConfig(
     ativa: regra.ativa,
   }));
   const atualizadoEm = new Date().toISOString();
+  const promptRecebido = input.systemPrompt.trim();
+  const systemPromptPersonalizado =
+    promptRecebido && promptRecebido !== promptBaseDaLoja().trim() ? promptRecebido : "";
 
   const response = await fetch(supabaseUrl("/crm_configuracoes?on_conflict=chave"), {
     method: "POST",
     headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
     body: JSON.stringify([
       {
-        chave: "ia_system_prompt",
-        valor: input.systemPrompt.trim() || BASE_SYSTEM_PROMPT,
+        chave: CHAVE_PROMPT_IA,
+        // Prompt igual ao padrao fica vazio: assim melhorias futuras do padrao
+        // chegam sozinhas para quem nao personalizou.
+        valor: systemPromptPersonalizado,
         atualizado_em: atualizadoEm,
       },
       {
@@ -1161,7 +1165,7 @@ type VendaDuplicadaRow = {
 type VendaItemRow = {
   id: string;
   venda_id: string;
-  sku: string;
+  sku: string | null;
   nome: string;
   quantidade: number;
   preco: number;
@@ -1307,7 +1311,7 @@ async function listarItensPorVenda(vendaIds: string[]): Promise<Map<string, Prod
     itensPorVenda.set(row.venda_id, [
       ...(itensPorVenda.get(row.venda_id) ?? []),
       {
-        sku: row.sku,
+        sku: row.sku ?? "avulso",
         nome: row.nome,
         quantidade: row.quantidade,
         preco: row.preco,
@@ -1598,6 +1602,7 @@ export async function editarPedidoManual({
   pago,
   criadoEm,
   itens,
+  taxaMaquininha,
 }: {
   id: string;
   nome: string;
@@ -1606,10 +1611,13 @@ export async function editarPedidoManual({
   formaPagamento?: string | null;
   observacao?: string | null;
   bairro?: string | null;
+  /** undefined mantém o pet atual da venda. */
   pet?: string | null;
   pago?: boolean;
   criadoEm?: string | null;
   itens?: ProdutoPedido[];
+  /** Valor em R$ da taxa da maquininha/link. undefined mantém a taxa atual. */
+  taxaMaquininha?: number;
 }): Promise<PedidoCrm> {
   const nomeLimpo = nome.trim();
   const telefoneLimpo = telefone?.replace(/\D/g, "") ?? "";
@@ -1664,12 +1672,18 @@ export async function editarPedidoManual({
     cliente_id: cliente?.id ?? vendaAtual.cliente_id,
     cliente_nome: nomeLimpo,
     telefone: telefoneLimpo.length >= 8 ? telefoneLimpo : vendaAtual.telefone,
-    pet_nome: pet?.trim() || null,
     total,
     forma_pagamento: formaPagamento?.trim() || null,
     observacao: observacao?.trim() || "Pedido manual do CRM",
     atualizado_em: new Date().toISOString(),
   };
+  if (pet !== undefined) payload.pet_nome = pet?.trim() || null;
+
+  // Total ou taxa mudaram: o lucro precisa acompanhar (total - custo dos itens - taxa).
+  const taxaAnterior = Number(vendaAtual.taxa_maquininha ?? 0) || 0;
+  const taxaFinal =
+    taxaMaquininha !== undefined ? normalizarTaxaMaquininha(total, taxaMaquininha) : taxaAnterior;
+  if (taxaMaquininha !== undefined) payload.taxa_maquininha = taxaFinal;
   const custoItens = itens?.reduce(
     (totalCusto, item) => totalCusto + item.precoCompra * item.quantidade,
     0,
@@ -1678,8 +1692,8 @@ export async function editarPedidoManual({
   const totalAnterior = Number(vendaAtual.total ?? 0);
   const lucroAtualizado =
     custoItens === undefined
-      ? lucroAnterior + (total - totalAnterior)
-      : total - custoItens - Number(vendaAtual.taxa_maquininha ?? 0);
+      ? lucroAnterior + (total - totalAnterior) - (taxaFinal - taxaAnterior)
+      : total - custoItens - taxaFinal;
   payload.lucro = Math.round(lucroAtualizado * 100) / 100;
 
   const dataCustom = criadoEm ? new Date(criadoEm) : null;
@@ -1687,7 +1701,11 @@ export async function editarPedidoManual({
     dataCustom && !Number.isNaN(dataCustom.getTime()) ? dataCustom.toISOString() : null;
   if (dataCustomIso) {
     payload.criado_em = dataCustomIso;
-    if (pago === true || vendaAtual.status_pagamento === "pago") {
+    // Só move faturado_em de venda que já estava faturada. Pendente -> pago fica
+    // com registrarFaturamentoPedidoPago (abaixo), que exige faturado_em nulo para
+    // marcar status_pagamento=pago e somar o cliente. Gravar aqui antes fazia o
+    // faturamento achar a venda "já faturada" e o status ficava pendente.
+    if (vendaAtual.faturado_em || vendaAtual.status_pagamento === "pago") {
       payload.faturado_em = dataCustomIso;
     }
   }
@@ -1709,26 +1727,27 @@ export async function editarPedidoManual({
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
+  // Banco sem alguma coluna opcional (migration atrasada): remove e tenta de novo.
+  for (let tentativa = 0; !response.ok && tentativa < 8; tentativa += 1) {
     const errorBody = await response.text();
-    if (errorBody.includes("pet_nome") || errorBody.includes("faturado_em")) {
-      if (errorBody.includes("pet_nome")) delete payload.pet_nome;
-      if (errorBody.includes("faturado_em")) delete payload.faturado_em;
-      response = await fetch(supabaseUrl(`/vendas?id=eq.${encodeURIComponent(id)}`), {
-        method: "PATCH",
-        headers: supabaseHeaders("return=representation"),
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        // Pedido salvo em banco ainda sem a migration pet_nome aplicada.
-      } else {
-        const retryErrorBody = await response.text();
-        throw new Error(`Supabase venda edit failed (${response.status}): ${retryErrorBody}`);
-      }
-    } else {
+    let removeu = removerCamposVendaNaoSuportados(payload, errorBody);
+    if (errorBody.includes("faturado_em") && "faturado_em" in payload) {
+      delete payload.faturado_em;
+      removeu = true;
+    }
+    if (!removeu) {
       throw new Error(`Supabase venda edit failed (${response.status}): ${errorBody}`);
     }
+    response = await fetch(supabaseUrl(`/vendas?id=eq.${encodeURIComponent(id)}`), {
+      method: "PATCH",
+      headers: supabaseHeaders("return=representation"),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase venda edit failed (${response.status}): ${errorBody}`);
   }
 
   if (pago === true && vendaAtual.status_pagamento !== "pago") {
@@ -1800,7 +1819,6 @@ export async function criarPedidoManual({
   const telefoneLimpo = telefone.replace(/\D/g, "");
   const itensValidos = itens.filter(
     (item) =>
-      item.sku.trim().toLowerCase() !== "avulso" &&
       item.nome.trim().length > 0 &&
       item.quantidade > 0 &&
       Number.isFinite(item.preco) &&
@@ -1865,32 +1883,29 @@ export async function criarPedidoManual({
     Object.assign(vendaPayload, vendaDescontoManualPayload(descontoManual));
   }
 
+  // Bancos de lojas com migrations atrasadas podem nao ter algumas colunas opcionais.
+  // O PostgREST aponta uma coluna faltante por vez, entao tentamos ate remover todas.
   let response = await fetch(supabaseUrl("/vendas"), {
     method: "POST",
     headers: supabaseHeaders("return=representation"),
     body: JSON.stringify(vendaPayload),
   });
 
-  if (!response.ok) {
+  for (let tentativa = 0; !response.ok && tentativa < 8; tentativa += 1) {
     const errorBody = await response.text();
-    if (removerCamposVendaNaoSuportados(vendaPayload, errorBody)) {
-      response = await fetch(supabaseUrl("/vendas"), {
-        method: "POST",
-        headers: supabaseHeaders("return=representation"),
-        body: JSON.stringify(vendaPayload),
-      });
-
-      if (response.ok) {
-        // Pedido salvo em banco ainda sem a migration pet_nome aplicada.
-      } else {
-        const retryErrorBody = await response.text();
-        throw new Error(
-          `Supabase venda manual insert failed (${response.status}): ${retryErrorBody}`,
-        );
-      }
-    } else {
+    if (!removerCamposVendaNaoSuportados(vendaPayload, errorBody)) {
       throw new Error(`Supabase venda manual insert failed (${response.status}): ${errorBody}`);
     }
+    response = await fetch(supabaseUrl("/vendas"), {
+      method: "POST",
+      headers: supabaseHeaders("return=representation"),
+      body: JSON.stringify(vendaPayload),
+    });
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase venda manual insert failed (${response.status}): ${errorBody}`);
   }
 
   const rows = (await response.json()) as Array<{ id: string }>;
@@ -2357,6 +2372,7 @@ async function buscarClientePorId(id: string): Promise<ClienteRow | null> {
 }
 
 async function baixarEstoque(item: ProdutoPedido): Promise<void> {
+  if (!item.sku || item.sku === "avulso") return;
   const params = new URLSearchParams({
     sku: `eq.${item.sku}`,
     select: "estoque",
@@ -2402,6 +2418,7 @@ async function baixarEstoque(item: ProdutoPedido): Promise<void> {
 }
 
 async function devolverEstoque(item: ProdutoPedido): Promise<void> {
+  if (!item.sku || item.sku === "avulso") return;
   const params = new URLSearchParams({
     sku: `eq.${item.sku}`,
     select: "estoque",
@@ -2517,6 +2534,7 @@ async function cancelarVendaComEstorno(vendaId: string): Promise<void> {
     throw new Error(`Supabase venda cancel failed (${response.status}): ${errorBody}`);
   }
   await cancelarComissoesVenda(vendaId);
+  await recalcularRecompraVenda(vendaId);
 
   const vendas = (await response.json()) as VendaFaturamentoRow[];
   const venda = vendas[0];
@@ -2545,7 +2563,7 @@ async function cancelarVendaComEstorno(vendaId: string): Promise<void> {
     if (!itensReservados[0]) continue;
 
     await devolverEstoque({
-      sku: item.sku,
+      sku: item.sku ?? "avulso",
       nome: item.nome,
       quantidade: item.quantidade,
       preco: item.preco,
@@ -2564,7 +2582,7 @@ async function salvarItensVenda(vendaId: string, itens: ProdutoPedido[]): Promis
 
   const payload = itens.map((item) => ({
     venda_id: vendaId,
-    sku: item.sku,
+    sku: item.sku === "avulso" ? null : item.sku,
     nome: item.nome,
     quantidade: item.quantidade,
     preco: item.preco,
@@ -2638,7 +2656,7 @@ async function substituirItensVenda(
   const atuaisComparaveis = itensAtuais
     .map((item) =>
       itemVendaComparavel({
-        sku: item.sku,
+        sku: item.sku ?? "avulso",
         nome: item.nome,
         quantidade: item.quantidade,
         preco: item.preco,
@@ -2657,7 +2675,7 @@ async function substituirItensVenda(
 
   for (const item of itensAtuais.filter((item) => item.estoque_baixado)) {
     await devolverEstoque({
-      sku: item.sku,
+      sku: item.sku ?? "avulso",
       nome: item.nome,
       quantidade: item.quantidade,
       preco: item.preco,
@@ -2735,6 +2753,7 @@ export async function baixarEstoqueDaVenda(vendaId: string): Promise<number> {
   let baixados = 0;
 
   for (const item of itens) {
+    if (!item.sku || item.sku === "avulso") continue;
     const reservaResponse = await fetch(
       supabaseUrl(`/venda_itens?id=eq.${encodeURIComponent(item.id)}&estoque_baixado=eq.false`),
       {
@@ -2836,6 +2855,42 @@ async function reservarVendaParaFaturamento(vendaId: string): Promise<VendaFatur
   return reservarVendaParaFaturamentoEm(vendaId, new Date().toISOString());
 }
 
+export async function moverConversaParaVendaAprovada(telefone: string | null): Promise<void> {
+  const telefoneLimpo = telefone?.replace(/\D/g, "") ?? "";
+  if (telefoneLimpo.length < 8) return;
+
+  const coluna = colunaVendaAprovada(await buscarKanbanConfig());
+  if (!coluna) return;
+
+  const params = new URLSearchParams({
+    telefone: `eq.${telefoneLimpo}`,
+    select: "id,kanban_coluna",
+    limit: "1",
+  });
+  const response = await fetch(supabaseUrl(`/conversas?${params}`), {
+    headers: supabaseHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Supabase conversa venda aprovada select failed (${response.status})`);
+  }
+
+  const conversa = ((await response.json()) as Array<{ id: string; kanban_coluna: string | null }>)[0];
+  if (!conversa || conversa.kanban_coluna === coluna.id) return;
+
+  const update = await fetch(supabaseUrl(`/conversas?id=eq.${encodeURIComponent(conversa.id)}`), {
+    method: "PATCH",
+    headers: supabaseHeaders("return=minimal"),
+    body: JSON.stringify({
+      kanban_coluna: coluna.id,
+      estagio: coluna.estagioInterno,
+      atualizado_em: new Date().toISOString(),
+    }),
+  });
+  if (!update.ok) {
+    throw new Error(`Supabase conversa venda aprovada update failed (${update.status})`);
+  }
+}
+
 async function reservarVendaParaFaturamentoEm(
   vendaId: string,
   faturadoEm: string,
@@ -2915,6 +2970,16 @@ export async function registrarFaturamentoPedidoPago(
   }
 
   if (venda.faturado_em) {
+    if (venda.status_pagamento !== "pago") {
+      // Faturada mas com status ainda pendente: garante que o status acompanhe.
+      await requestSupabase(`/vendas?id=eq.${encodeURIComponent(vendaId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status_pagamento: "pago",
+          atualizado_em: new Date().toISOString(),
+        }),
+      });
+    }
     return {
       faturado: false,
       estoqueBaixado: await baixarEstoqueDaVenda(vendaId),
@@ -2930,6 +2995,10 @@ export async function registrarFaturamentoPedidoPago(
       estoqueBaixado: await baixarEstoqueDaVenda(vendaId),
     };
   }
+
+  await moverConversaParaVendaAprovada(venda.telefone).catch((error) => {
+    console.error("[kanban] erro_mover_venda_aprovada", error);
+  });
 
   const cliente = venda.cliente_id
     ? await buscarClientePorId(venda.cliente_id)

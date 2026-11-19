@@ -10,10 +10,19 @@ import {
 } from "@/features/whatsapp-crm/kanban-config";
 
 export const Route = createFileRoute("/conversas")({
+  // Os loaders usam a API autenticada relativa ao navegador.
+  ssr: false,
   component: ConversasRoute,
   validateSearch: (
     search,
-  ): { telefone?: string; clienteId?: string; cliente?: string; origem?: string } => ({
+  ): {
+    telefone?: string;
+    clienteId?: string;
+    cliente?: string;
+    origem?: string;
+    aba?: "calendario";
+  } => ({
+    aba: search.aba === "calendario" ? "calendario" : undefined,
     telefone: typeof search.telefone === "string" ? search.telefone : undefined,
     clienteId: typeof search.clienteId === "string" ? search.clienteId : undefined,
     cliente: typeof search.cliente === "string" ? search.cliente : undefined,
@@ -25,7 +34,7 @@ export const Route = createFileRoute("/conversas")({
       const telefone = deps.telefone?.replace(/\D/g, "") ?? "";
       const acessoDireto = telefone.length >= 8;
       const endpointConversas = acessoDireto
-        ? `/api/crm/conversas?telefone=${encodeURIComponent(telefone)}`
+        ? "/api/crm/conversas?telefone=" + encodeURIComponent(telefone)
         : "/api/crm/conversas";
       const requests = [
         fetch(endpointConversas, { cache: "no-store" }),

@@ -1,3 +1,4 @@
+import { lojaStorage } from "@/lib/loja-storage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Sparkles,
@@ -84,7 +85,7 @@ function loadConversations(): Conversation[] {
   if (typeof window === "undefined") return [INITIAL_CONVERSATION];
 
   try {
-    const raw = window.localStorage.getItem(CONVERSATIONS_KEY);
+    const raw = lojaStorage.getItem(CONVERSATIONS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Conversation[];
       const conversations = Array.isArray(parsed)
@@ -107,7 +108,7 @@ function loadConversations(): Conversation[] {
       if (conversations.length > 0) return conversations;
     }
 
-    const oldRaw = window.localStorage.getItem(HISTORY_KEY);
+    const oldRaw = lojaStorage.getItem(HISTORY_KEY);
     const oldMessages = oldRaw ? validMessages(JSON.parse(oldRaw)) : [];
     if (oldMessages.length > 0) {
       return [createConversation(oldMessages, titleFromMessages(oldMessages))];
@@ -179,7 +180,7 @@ export function AssistenteIA() {
     if (!hydrated) return;
 
     try {
-      window.localStorage.setItem(
+      lojaStorage.setItem(
         CONVERSATIONS_KEY,
         JSON.stringify(
           conversations
@@ -190,7 +191,7 @@ export function AssistenteIA() {
             .slice(0, 30),
         ),
       );
-      window.localStorage.removeItem(HISTORY_KEY);
+      lojaStorage.removeItem(HISTORY_KEY);
     } catch {
       // Historico local nao deve travar a conversa.
     }
@@ -224,8 +225,8 @@ export function AssistenteIA() {
     setConversations([conversation]);
     setActiveConversationId(conversation.id);
     try {
-      window.localStorage.removeItem(HISTORY_KEY);
-      window.localStorage.removeItem(CONVERSATIONS_KEY);
+      lojaStorage.removeItem(HISTORY_KEY);
+      lojaStorage.removeItem(CONVERSATIONS_KEY);
     } catch {
       // noop
     }

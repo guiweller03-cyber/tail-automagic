@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LockKeyhole, Moon, PawPrint, Sun } from "lucide-react";
+import { ArrowRight, LockKeyhole, Moon, PawPrint, ShieldCheck, Sun } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -91,90 +91,136 @@ function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-8 text-foreground sm:px-6">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -left-32 -top-40 size-[420px] rounded-full bg-primary/[0.05] blur-3xl"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-48 -right-32 size-[480px] rounded-full bg-accent/[0.08] blur-3xl"
+      />
       <button
         type="button"
         onClick={() => setDarkMode((current) => !current)}
         aria-label={darkMode ? "Ativar modo claro" : "Ativar modo escuro"}
-        title={darkMode ? "Modo claro" : "Modo escuro"}
-        className="fixed right-4 top-4 z-10 grid size-10 place-items-center rounded-md border border-border bg-card shadow-sm transition hover:bg-secondary"
+        title={darkMode ? "Ativar modo claro" : "Ativar modo escuro"}
+        className="absolute right-5 top-5 z-10 grid size-10 place-items-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm transition hover:border-primary/40 hover:text-primary"
       >
-        {darkMode ? <Sun className="size-5" /> : <Moon className="size-5" />}
+        {darkMode ? <Sun className="size-[18px]" /> : <Moon className="size-[18px]" />}
       </button>
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center justify-center">
-        <div className="grid w-full overflow-hidden rounded-lg border border-border bg-card shadow-sm lg:grid-cols-[1fr_420px]">
-          <section className="hidden bg-secondary/70 p-10 lg:flex lg:flex-col lg:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="grid size-11 place-items-center rounded-lg bg-primary text-primary-foreground">
-                <PawPrint className="size-5" />
-              </div>
-              <div>
-                <div className="text-lg font-bold">Mundo Pet</div>
-                <div className="text-sm text-muted-foreground">CRM inteligente</div>
-              </div>
-            </div>
-            <div>
-              <p className="max-w-md text-3xl font-bold leading-tight">
-                Acesso restrito aos administradores do CRM.
-              </p>
-              <p className="mt-4 max-w-sm text-sm leading-6 text-muted-foreground">
-                Use um dos dois logins cadastrados no ambiente para visualizar vendas, clientes,
-                pedidos e automacoes.
-              </p>
-            </div>
-          </section>
+      <div className="relative grid w-full max-w-[980px] overflow-hidden rounded-[28px] border border-border bg-card shadow-[0_24px_80px_-36px_rgba(15,23,42,0.22)] lg:min-h-[600px] lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="relative hidden flex-col justify-between overflow-hidden bg-primary/20 p-10 text-foreground lg:flex xl:p-12">
+          <div
+            aria-hidden
+            className="absolute -right-20 top-20 size-80 rounded-full border border-foreground/10"
+          />
+          <div
+            aria-hidden
+            className="absolute -right-5 top-36 size-56 rounded-full border border-foreground/10"
+          />
+          <div
+            aria-hidden
+            className="absolute -bottom-36 -left-20 size-80 rounded-full bg-primary/15 blur-2xl"
+          />
+          <div className="relative flex items-center gap-3">
+            <span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lg">
+              <PawPrint className="size-6" />
+            </span>
+            <span>
+              <span className="block text-lg font-extrabold tracking-tight">Mundo Pet</span>
+              <span className="block text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                CRM inteligente
+              </span>
+            </span>
+          </div>
+          <div className="relative max-w-[410px]">
+            <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground/80">
+              <span className="size-1.5 rounded-full bg-success" /> Tudo em um só lugar
+            </span>
+            <h2 className="text-[39px] font-bold leading-[1.13] tracking-[-0.04em]">
+              Seu dia de trabalho, mais claro.
+            </h2>
+            <p className="mt-5 text-[15px] leading-7 text-muted-foreground">
+              Atendimento, clientes, pedidos e resultados organizados para você cuidar de cada
+              venda.
+            </p>
+          </div>
+          <div className="relative flex items-center gap-2 text-xs text-muted-foreground">
+            <ShieldCheck className="size-4 text-primary" /> Acesso protegido para a equipe Mundo Pet
+          </div>
+        </section>
 
-          <section className="p-6 sm:p-8">
-            <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground">
-                <PawPrint className="size-5" />
-              </div>
-              <div>
-                <div className="font-bold">Mundo Pet</div>
-                <div className="text-xs text-muted-foreground">CRM inteligente</div>
-              </div>
+        <section className="flex flex-col justify-center px-6 py-10 sm:px-10 lg:px-12">
+          <div className="mb-10 flex items-center gap-3 lg:hidden">
+            <span className="grid size-11 place-items-center rounded-2xl bg-primary text-primary-foreground">
+              <PawPrint className="size-5" />
+            </span>
+            <span>
+              <span className="block font-extrabold tracking-tight">Mundo Pet</span>
+              <span className="block text-[11px] text-muted-foreground">CRM inteligente</span>
+            </span>
+          </div>
+          <div className="mb-8">
+            <span className="mb-5 grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
+              <LockKeyhole className="size-5" />
+            </span>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">
+              Bem-vindo de volta
+            </p>
+            <h1 className="mt-2 text-3xl font-bold tracking-[-0.04em]">Entre na sua conta</h1>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Acesse o espaço de trabalho da Mundo Pet.
+            </p>
+          </div>
+          <form className="space-y-5" onSubmit={handleSubmit}>
+            <div className="space-y-2">
+              <Label htmlFor="login" className="text-xs font-semibold">
+                Login
+              </Label>
+              <Input
+                id="login"
+                autoComplete="username"
+                value={login}
+                onChange={(event) => setLogin(event.target.value)}
+                placeholder="Seu e-mail de acesso"
+                required
+                className="h-12 rounded-xl border-border bg-secondary/60 px-4 focus-visible:ring-primary/20"
+              />
             </div>
-
-            <div className="mb-7">
-              <div className="mb-4 grid size-11 place-items-center rounded-lg bg-secondary">
-                <LockKeyhole className="size-5 text-primary" />
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight">Entrar no CRM</h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Informe seu login de administrador para continuar.
-              </p>
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-xs font-semibold">
+                Senha
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Digite sua senha"
+                required
+                className="h-12 rounded-xl border-border bg-secondary/60 px-4 focus-visible:ring-primary/20"
+              />
             </div>
-
-            <form className="space-y-5" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <Label htmlFor="login">Login</Label>
-                <Input
-                  id="login"
-                  autoComplete="username"
-                  value={login}
-                  onChange={(event) => setLogin(event.target.value)}
-                  placeholder="admin@mundopet.com"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Senha</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Sua senha"
-                  required
-                />
-              </div>
-              <Button type="submit" className="h-10 w-full" disabled={loading}>
-                {loading ? "Entrando..." : "Entrar"}
-              </Button>
-            </form>
-          </section>
-        </div>
+            <Button
+              type="submit"
+              className="mt-2 h-12 w-full rounded-xl text-sm font-bold shadow-sm"
+              disabled={loading}
+            >
+              {loading ? (
+                "Entrando..."
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  Entrar no CRM <ArrowRight className="size-4" />
+                </span>
+              )}
+            </Button>
+          </form>
+          <p className="mt-10 text-center text-xs text-muted-foreground">
+            Acesso exclusivo para administradores cadastrados.
+          </p>
+        </section>
       </div>
     </main>
   );

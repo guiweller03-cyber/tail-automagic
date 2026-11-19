@@ -1,3 +1,4 @@
+import { lojaAtual } from "@/lib/loja-context";
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 import { extrairPerfilClienteDaConversa, gerarResposta, limparRespostaCliente } from "@/lib/openai";
@@ -14,6 +15,7 @@ import {
   buscarIaStatus,
   buscarKanbanConfig,
   buscarClientePorTelefone,
+  buscarProdutosDisponiveisPorTexto,
   definirIaGlobalDesativada,
   definirConversaBloqueada,
   listarConversasBloqueadas,
@@ -41,8 +43,8 @@ import { removerLeadTotal } from "@/lib/leads-totais-supabase";
 import type { PetDetalhe } from "@/lib/crm-types";
 import { intervaloDoMes, type ContatoDoDia } from "@/lib/calendario-contatos";
 import type { PerfilClienteExtraido } from "@/lib/openai";
-import { salvarDadosObservadosCliente } from "@/lib/recompra-supabase";
-import { BASE_SYSTEM_PROMPT, type IaRegraCustomizada } from "@/lib/openai";
+import { buscarFatosObservadosCliente, salvarDadosObservadosCliente } from "@/lib/recompra-supabase";
+import { promptBaseDaLoja, type IaRegraCustomizada } from "@/lib/openai";
 import {
   buscarMensagensChatWhatsApp,
   enviarMensagemLonga,
@@ -571,7 +573,9 @@ async function sincronizarWhatsapp({
     payloads.push({
       telefone,
       historico,
-      nome_cliente: nomeCliente,
+      // null e nao undefined: o upsert em lote exige as mesmas chaves em todas as
+      // linhas (PGRST102), e JSON.stringify descarta chaves undefined.
+      nome_cliente: nomeCliente ?? null,
       aguardando_humano: existente?.aguardando_humano ?? false,
       ia_ativa: existente?.ia_ativa ?? null,
       estagio: existente?.estagio ?? "novo",
@@ -756,6 +760,7 @@ const CALENDARIO_CACHE_MS = 30_000;
 const calendarioCache = new Map<string, { expiresAt: number; payload: ContatoDoDia[] }>();
 
 async function contatosDoMesCache(mes: string, inicio: string, fim: string) {
+  mes = `${lojaAtual()}:${mes}`;
   const cached = calendarioCache.get(mes);
   if (cached && cached.expiresAt > Date.now()) return cached.payload;
   const payload = await listarContatosPorDia(inicio, fim);
@@ -764,14 +769,16 @@ async function contatosDoMesCache(mes: string, inicio: string, fim: string) {
 }
 
 const CONVERSAS_CACHE_MS = 15_000;
-let conversasCache: { expiresAt: number; payload: unknown[] } | null = null;
-let conversasRequestInFlight: Promise<unknown[]> | null = null;
+const conversasCache = new Map<string, { expiresAt: number; payload: unknown[] }>();
+const conversasRequestInFlight = new Map<string, Promise<unknown[]>>();
 
 async function listarConversasComResumoCache(): Promise<unknown[]> {
-  if (conversasCache && conversasCache.expiresAt > Date.now()) return conversasCache.payload;
-  if (conversasRequestInFlight) return conversasRequestInFlight;
+  const loja = lojaAtual();
+  const cached = conversasCache.get(loja);
+  if (cached && cached.expiresAt > Date.now()) return cached.payload;
+  if (conversasRequestInFlight.has(loja)) return conversasRequestInFlight.get(loja)!;
 
-  conversasRequestInFlight = (async () => {
+  const promise = (async () => {
     const conversas = await listarConversasResumo();
 
     return conversas.map((conversa) => {
@@ -783,13 +790,14 @@ async function listarConversasComResumoCache(): Promise<unknown[]> {
       };
     });
   })();
+  conversasRequestInFlight.set(loja, promise);
 
   try {
-    const payload = await conversasRequestInFlight;
-    conversasCache = { expiresAt: Date.now() + CONVERSAS_CACHE_MS, payload };
+    const payload = await promise;
+    conversasCache.set(loja, { expiresAt: Date.now() + CONVERSAS_CACHE_MS, payload });
     return payload;
   } finally {
-    conversasRequestInFlight = null;
+    conversasRequestInFlight.delete(loja);
   }
 }
 
@@ -809,7 +817,7 @@ export const Route = createFileRoute("/api/crm/conversas")({
               buscarIaAprendizadoResumo(),
             ]);
 
-            return json({ ...config, baseSystemPrompt: BASE_SYSTEM_PROMPT, aprendizado });
+            return json({ ...config, baseSystemPrompt: promptBaseDaLoja(), aprendizado });
           }
 
           if (url.searchParams.get("kanban") === "config") {
@@ -980,6 +988,7 @@ export const Route = createFileRoute("/api/crm/conversas")({
                 tipo: "sugestao_ia";
                 historico: Array<{ role: "user" | "assistant"; content: string }>;
                 texto: string;
+                telefone?: string | null;
               }
             | {
                 tipo: "perfil_cliente_ia";
@@ -991,11 +1000,33 @@ export const Route = createFileRoute("/api/crm/conversas")({
             | { tipo: "sincronizar_whatsapp"; chatsLimite?: number; mensagensLimite?: number };
 
           if (body.tipo === "sugestao_ia") {
-            const [aprendizados, config] = await Promise.all([
+            const telefoneSugestao = body.telefone?.replace(/\D/g, "") || "";
+            const textoBusca = [...body.historico.slice(-8).map((m) => m.content), body.texto]
+              .join("\n")
+              .slice(-3000);
+            const [aprendizados, config, produtos, cliente, fatos] = await Promise.all([
               buscarAprendizados(10),
               buscarIaPromptConfig(),
+              buscarProdutosDisponiveisPorTexto(textoBusca, 8).catch(() => []),
+              telefoneSugestao
+                ? buscarClientePorTelefone(telefoneSugestao).catch(() => null)
+                : Promise.resolve(null),
+              telefoneSugestao
+                ? buscarFatosObservadosCliente({ telefone: telefoneSugestao }).catch(() => null)
+                : Promise.resolve(null),
             ]);
-            const resposta = await gerarResposta(body.historico, body.texto, aprendizados, config);
+            const resposta = await gerarResposta(body.historico, body.texto, aprendizados, config, {
+              cliente: cliente
+                ? {
+                    nome: cliente.nome,
+                    bairro: cliente.bairro,
+                    endereco: cliente.endereco,
+                    pets: cliente.pets,
+                  }
+                : null,
+              fatos_conhecidos_cliente: fatos,
+              produtos_relevantes: produtos.map(({ precoCompra: _precoCompra, ...produto }) => produto),
+            });
 
             return json({
               resposta: limparRespostaCliente(

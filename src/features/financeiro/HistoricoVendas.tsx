@@ -1,3 +1,4 @@
+import { correspondeBusca } from "@/lib/crm-search";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { onCrmReload } from "@/lib/crm-refresh";
@@ -211,7 +212,7 @@ export function HistoricoVendas() {
           .filter(Boolean)
           .join(" "),
       );
-      return conteudo.includes(busca);
+      return correspondeBusca(filtros.busca, [conteudo], [venda.telefone]);
     });
   }, [filtros, vendas]);
 

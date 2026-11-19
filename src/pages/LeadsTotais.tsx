@@ -1,3 +1,4 @@
+import { clienteCorrespondeBusca } from "@/lib/crm-search";
 import type { Cliente } from "@/lib/crm-types";
 import { MessageCircle, PawPrint, Search, ShoppingBag, Tag, Users, Wallet } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -20,13 +21,7 @@ export function LeadsTotais({ clientes }: { clientes: Cliente[] }) {
       if (!matchesPerfil) return false;
       if (!termo) return true;
 
-      return (
-        cliente.nome.toLowerCase().includes(termo) ||
-        cliente.telefone.includes(termo.replace(/\D/g, "")) ||
-        cliente.origem.toLowerCase().includes(termo) ||
-        cliente.bairro.toLowerCase().includes(termo) ||
-        cliente.pets.some((pet) => pet.toLowerCase().includes(termo))
-      );
+      return clienteCorrespondeBusca(cliente, search);
     });
   }, [clientes, filter, search]);
 

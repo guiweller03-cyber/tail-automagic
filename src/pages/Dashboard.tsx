@@ -6,7 +6,6 @@ import {
   PackageSearch,
   Crown,
   AlertTriangle,
-  ArrowUpRight,
   Sparkles,
   Target,
   Users,
@@ -33,6 +32,7 @@ import { toast } from "sonner";
 import { VelocidadeOperacional } from "@/features/velocidade/VelocidadeOperacional";
 import type { DashboardData } from "@/lib/crm-supabase";
 import { onCrmReload } from "@/lib/crm-refresh";
+import { LembretesDashboard } from "@/features/whatsapp-crm/components/Lembretes";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -72,6 +72,7 @@ const emptyDashboard: DashboardData = {
 export function Dashboard({ data }: { data: DashboardData | null }) {
   const [dashboard, setDashboard] = useState<DashboardData | null>(data);
   const [greeting, setGreeting] = useState("Bom dia");
+  const [nomeUsuario, setNomeUsuario] = useState("Guilherme");
   const {
     kpis,
     vendasSemana,
@@ -126,6 +127,15 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
   }, []);
 
   useEffect(() => {
+    void fetch("/api/auth/session", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { admin?: { login?: string } | null } | null) => {
+        setNomeUsuario(nomePorLogin(data?.admin?.login));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     const updateGreeting = () => setGreeting(getGreetingByHour(new Date()));
 
     updateGreeting();
@@ -157,32 +167,37 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="space-y-7">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border/80 pb-6">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">
-            {greeting}, Guilherme 👋
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-primary">
+            Visão geral
+          </p>
+          <h1 className="text-2xl font-bold tracking-[-0.04em] sm:text-3xl">
+            {greeting}, {nomeUsuario} 👋
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Painel de crescimento — Mundo Pet em tempo real
+          <p className="mt-2 text-sm text-muted-foreground">
+            Acompanhe os números e o ritmo da operação.
           </p>
         </div>
-        <div className="flex gap-2">
-          <button className="h-10 px-4 rounded-xl border border-border bg-card text-sm font-medium hover:bg-secondary transition">
-            Hoje
-          </button>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-10 items-center rounded-xl border border-border bg-card px-4 text-xs font-semibold text-muted-foreground">
+            Visão do momento
+          </span>
           <button
             onClick={() => setShowRelatorio(true)}
-            className="h-10 px-4 rounded-xl bg-foreground text-background text-sm font-semibold inline-flex items-center gap-2"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"
           >
             <Sparkles className="size-4" /> Relatório IA
           </button>
         </div>
       </div>
 
+      <LembretesDashboard />
+
       {/* LINHA 1 — Receita */}
       <Section title="Receita" subtitle="visão financeira do período">
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
           <Kpi
             icon={<Wallet />}
             label="Faturamento hoje"
@@ -201,21 +216,21 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
             icon={<TrendingUp />}
             label="Faturamento semana"
             value={brl(kpis.faturamentoSemana)}
-            delta="+9%"
+            delta="7 dias"
             tone="primary"
           />
           <Kpi
             icon={<TrendingUp />}
             label="Faturamento mês"
             value={brl(kpis.faturamentoMes)}
-            delta="+12%"
+            delta="este mês"
             tone="primary"
           />
           <Kpi
             icon={<Crown />}
             label="Lucro líquido mês"
             value={brl(kpis.lucroMes)}
-            delta="+14%"
+            delta="este mês"
             tone="success"
           />
         </div>
@@ -223,7 +238,7 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
 
       {/* LINHA 2 — Aquisição & Conversão */}
       <Section title="Aquisição & Conversão" subtitle="leads novos, total e taxas">
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
           <Kpi
             icon={<Users />}
             label="Leads totais"
@@ -236,35 +251,35 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
             icon={<Users />}
             label="Leads hoje"
             value={String(kpis.leadsHoje)}
-            delta="+5"
+            delta="hoje"
             tone="accent"
           />
           <Kpi
             icon={<Users />}
             label="Leads semana"
             value={String(kpis.leadsSemana)}
-            delta="+22"
+            delta="7 dias"
             tone="accent"
           />
           <Kpi
             icon={<Target />}
             label="Conversão hoje"
             value={`${kpis.conversaoHoje}%`}
-            delta="+3pp"
+            delta="hoje"
             tone="success"
           />
           <Kpi
             icon={<Target />}
             label="Conversão semana"
             value={`${kpis.conversaoSemana}%`}
-            delta="+1pp"
+            delta="7 dias"
             tone="success"
           />
           <Kpi
             icon={<Target />}
             label="Conversão mês"
             value={`${kpis.conversaoMes}%`}
-            delta="-1pp"
+            delta="este mês"
             tone="warning"
           />
         </div>
@@ -272,7 +287,7 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
 
       {/* LINHA 3 — Operação */}
       <Section title="Operação" subtitle="pedidos, recompra e risco">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Kpi
             icon={<ShoppingBag />}
             label="Pedidos hoje"
@@ -301,7 +316,7 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
             icon={<Zap />}
             label="Taxa upsell"
             value={`${kpis.taxaUpsell}%`}
-            delta="+1 item"
+            delta="atual"
             tone="accent"
           />
         </div>
@@ -313,7 +328,7 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
           title="Itens vendidos hoje"
           subtitle={`${kpis.pedidosHoje} pedido${kpis.pedidosHoje === 1 ? "" : "s"} pago${kpis.pedidosHoje === 1 ? "" : "s"}`}
           empty="Nenhum item vendido hoje ainda."
-          items={itensVendidosHoje.slice(0, 8)}
+          items={itensVendidosHoje}
         />
         <RankingPanel
           icon={<PackageSearch className="size-4" />}
@@ -330,16 +345,13 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
       <VelocidadeOperacional />
 
       {/* GRÁFICOS */}
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="card-soft p-5 lg:col-span-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-3">
+        <div className="card-soft min-w-0 p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold">Crescimento mensal · 8 meses</h3>
               <p className="text-xs text-muted-foreground mt-0.5">Faturamento consolidado</p>
             </div>
-            <span className="text-xs font-semibold text-success bg-success/10 px-2 py-1 rounded-md inline-flex items-center gap-1">
-              <ArrowUpRight className="size-3" /> +68% YTD
-            </span>
           </div>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
@@ -459,8 +471,8 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
       </div>
 
       {/* ALERTAS IA + WHATSAPP */}
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="card-soft p-5 lg:col-span-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-3">
+        <div className="card-soft min-w-0 p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
             <div>
               <h3 className="font-semibold inline-flex items-center gap-2">
@@ -476,7 +488,7 @@ export function Dashboard({ data }: { data: DashboardData | null }) {
           </div>
         </div>
 
-        <div className="card-soft p-5">
+        <div className="card-soft min-w-0 p-5">
           <h3 className="font-semibold mb-3 inline-flex items-center gap-2">
             WhatsApp · ao vivo
             <span className="size-2 rounded-full bg-success animate-pulse" />
@@ -573,11 +585,9 @@ function Section({
 }) {
   return (
     <section>
-      <div className="flex items-baseline gap-3 mb-2.5 px-1">
-        <h2 className="text-xs uppercase font-bold tracking-wider text-muted-foreground">
-          {title}
-        </h2>
-        {subtitle && <span className="text-[10px] text-muted-foreground/70">· {subtitle}</span>}
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-base font-bold tracking-tight text-foreground">{title}</h2>
+        {subtitle && <span className="text-xs text-muted-foreground">{subtitle}</span>}
       </div>
       {children}
     </section>
@@ -602,24 +612,28 @@ function Kpi({
   onClick?: () => void;
 }) {
   const tones = {
-    primary: { bg: "bg-primary/10", fg: "text-primary", delta: "text-success" },
-    success: { bg: "bg-success/10", fg: "text-success", delta: "text-success" },
-    accent: { bg: "bg-accent/10", fg: "text-accent", delta: "text-success" },
+    primary: { bg: "bg-primary/10", fg: "text-primary", delta: "text-muted-foreground" },
+    success: { bg: "bg-success/10", fg: "text-success", delta: "text-muted-foreground" },
+    accent: { bg: "bg-accent/10", fg: "text-accent", delta: "text-muted-foreground" },
     warning: { bg: "bg-accent/10", fg: "text-accent", delta: "text-accent" },
     destructive: { bg: "bg-destructive/10", fg: "text-destructive", delta: "text-destructive" },
   }[tone];
   const content = (
     <>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div
-          className={`size-8 rounded-lg grid place-items-center ${tones.bg} ${tones.fg} [&_svg]:size-4`}
+          className={`grid size-10 place-items-center rounded-xl ${tones.bg} ${tones.fg} [&_svg]:size-5`}
         >
           {icon}
         </div>
-        <span className={`text-[10px] font-bold ${tones.delta}`}>{delta}</span>
+        <span
+          className={`rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold ${tones.delta}`}
+        >
+          {delta}
+        </span>
       </div>
-      <div className="mt-3 text-[11px] text-muted-foreground leading-tight">{label}</div>
-      <div className="text-xl lg:text-2xl font-bold mt-0.5 tracking-tight tabular-nums">
+      <div className="mt-5 text-xs font-medium leading-tight text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words text-lg font-bold leading-tight tracking-tight tabular-nums lg:text-xl">
         {value}
       </div>
     </>
@@ -627,7 +641,10 @@ function Kpi({
 
   if (href) {
     return (
-      <a href={href} className="card-soft p-4 hover:shadow-md transition block">
+      <a
+        href={href}
+        className="card-soft block min-w-0 p-4 transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md sm:p-5"
+      >
         {content}
       </a>
     );
@@ -638,14 +655,14 @@ function Kpi({
       <button
         type="button"
         onClick={onClick}
-        className="card-soft p-4 hover:shadow-md transition text-left"
+        className="card-soft min-w-0 p-4 text-left transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md sm:p-5"
       >
         {content}
       </button>
     );
   }
 
-  return <div className="card-soft p-4 hover:shadow-md transition">{content}</div>;
+  return <div className="card-soft min-w-0 p-4 sm:p-5">{content}</div>;
 }
 
 function RankingPanel({
@@ -728,6 +745,14 @@ function RankingPanel({
       )}
     </div>
   );
+}
+
+const NOMES_POR_LOGIN: Record<string, string> = {
+  "petzap.ia@gmail.com": "Luiza",
+};
+
+function nomePorLogin(login: string | undefined): string {
+  return NOMES_POR_LOGIN[(login ?? "").trim().toLowerCase()] ?? "Guilherme";
 }
 
 function getGreetingByHour(date: Date): "Bom dia" | "Boa tarde" | "Boa noite" {

@@ -1,3 +1,4 @@
+import { lojaStorage } from "@/lib/loja-storage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -121,7 +122,7 @@ export function useMessageNotifications() {
     }
     setPermission(Notification.permission);
     try {
-      setEnabled(window.localStorage.getItem(STORAGE_KEY) === "1");
+      setEnabled(lojaStorage.getItem(STORAGE_KEY) === "1");
     } catch {
       /* localStorage indisponivel */
     }
@@ -173,7 +174,7 @@ export function useMessageNotifications() {
     if (enabledRef.current) {
       setEnabled(false);
       try {
-        window.localStorage.setItem(STORAGE_KEY, "0");
+        lojaStorage.setItem(STORAGE_KEY, "0");
       } catch {
         /* ignore */
       }
@@ -195,7 +196,7 @@ export function useMessageNotifications() {
 
     setEnabled(true);
     try {
-      window.localStorage.setItem(STORAGE_KEY, "1");
+      lojaStorage.setItem(STORAGE_KEY, "1");
     } catch {
       /* ignore */
     }

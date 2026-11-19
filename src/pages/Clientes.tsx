@@ -1,3 +1,6 @@
+import { lojaStorage } from "@/lib/loja-storage";
+import { petsDoCadastro } from "@/lib/crm-pets";
+import { clienteCorrespondeBusca } from "@/lib/crm-search";
 import type { Cliente, Cupom, CupomTipo, PetDetalhe } from "@/lib/crm-types";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
@@ -133,9 +136,7 @@ function petFormFromDetalhe(pet: PetDetalhe): ClientePetForm {
 }
 
 function petFormsFromCliente(cliente: Cliente): ClientePetForm[] {
-  const detalhes = cliente.petsDetalhes?.length
-    ? cliente.petsDetalhes.map(petFormFromDetalhe)
-    : cliente.pets.map((nome) => ({ ...petFormVazio(), nome }));
+  const detalhes = petsDoCadastro(cliente).map(petFormFromDetalhe);
 
   return detalhes.length ? detalhes : [petFormVazio()];
 }
@@ -197,8 +198,7 @@ function pesoBaseValue(raca: RacaPesoBase): string {
 }
 
 function petsResumoCliente(cliente: Cliente): PetDetalhe[] {
-  if (cliente.petsDetalhes?.length) return cliente.petsDetalhes;
-  return cliente.pets.map((nome) => ({ nome }));
+  return petsDoCadastro(cliente);
 }
 
 function petLinhaResumo(pet: PetDetalhe): string {
@@ -249,11 +249,20 @@ function buscaConversaCliente(cliente: Cliente) {
   };
 }
 
-export function Clientes({ clientes }: { clientes: Cliente[] }) {
+export function Clientes({
+  clientes,
+  buscaInicial = "",
+}: {
+  clientes: Cliente[];
+  buscaInicial?: string;
+}) {
   const navigate = useNavigate();
   const [clientesAtuais, setClientesAtuais] = useState<Cliente[]>(clientes);
   const [filter, setFilter] = useState("Todos");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(buscaInicial);
+  useEffect(() => {
+    setSearch(buscaInicial);
+  }, [buscaInicial]);
   const [active, setActive] = useState<Cliente | null>(null);
   const [tab, setTab] = useState<"perfil" | "manual" | "historico" | "cupons">("perfil");
   const [cupons, setCupons] = useState<Cupom[]>([]);
@@ -304,7 +313,7 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
       if (!response.ok) throw new Error((data as { erro?: string }).erro || "Falha ao sincronizar");
 
       await recarregarClientes();
-      localStorage.setItem(WHATSAPP_SYNC_KEY, String(Date.now()));
+      lojaStorage.setItem(WHATSAPP_SYNC_KEY, String(Date.now()));
       toast.success(
         `WhatsApp sincronizado: ${(data as { importados?: number }).importados ?? 0} conversas`,
       );
@@ -316,7 +325,7 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
   }, [recarregarClientes, sincronizandoWhatsapp]);
 
   useEffect(() => {
-    const lastSyncRaw = localStorage.getItem(WHATSAPP_SYNC_KEY);
+    const lastSyncRaw = lojaStorage.getItem(WHATSAPP_SYNC_KEY);
     const lastSync = lastSyncRaw ? Number(lastSyncRaw) : 0;
     const dayMs = 24 * 60 * 60 * 1000;
 
@@ -327,14 +336,7 @@ export function Clientes({ clientes }: { clientes: Cliente[] }) {
 
   const list = clientesAtuais.filter((c) => {
     const ok = filter === "Todos" || c.perfil === filter;
-    const s = search.toLowerCase();
-    return (
-      ok &&
-      (!s ||
-        c.nome.toLowerCase().includes(s) ||
-        c.telefone.includes(s) ||
-        c.pets.some((p) => p.toLowerCase().includes(s)))
-    );
+    return ok && clienteCorrespondeBusca(c, search);
   });
 
   const cuponsAtivosPorCliente = useMemo(() => {

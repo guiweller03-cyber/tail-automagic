@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 import { gerarPixPedido } from "@/lib/mercadopago";
+import { lojaAtual } from "@/lib/loja-context";
 import {
   extrairComprovantePagamento,
   extrairCompraDaConversa,
+  extrairPerfilClienteDaConversa,
   gerarRespostaWhatsapp,
   limparRespostaCliente,
   preAtendimentoConcluido,
@@ -226,16 +228,23 @@ function mensagemValida(message?: UazapiMessage): message is UazapiMessage & {
   return Boolean(message?.chatid && !message?.isGroup && tipo !== "status" && texto?.trim());
 }
 
-function textoMensagem(message?: UazapiMessage): string | undefined {
+function temTexto(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export function textoMensagem(message?: UazapiMessage): string | undefined {
   if (!message) return undefined;
-  if (typeof message.text === "string") return message.text;
-  if (typeof message.text?.message === "string") return message.text.message;
-  if (typeof message.text?.body === "string") return message.text.body;
-  if (typeof message.body === "string") return message.body;
-  if (typeof message.message === "string") return message.message;
-  if (typeof message.message?.text === "string") return message.message.text;
-  if (typeof message.message?.conversation === "string") return message.message.conversation;
-  if (typeof message.message?.extendedTextMessage?.text === "string") {
+  // A UazAPI manda `text: ""` em audio/imagem sem legenda. String vazia nao pode
+  // encerrar a busca: senao o fallback por tipo ("[Audio recebido]") nunca roda e
+  // a mensagem e descartada como "texto_ausente", sumindo do historico.
+  if (temTexto(message.text)) return message.text;
+  if (temTexto(message.text?.message)) return message.text.message;
+  if (temTexto(message.text?.body)) return message.text.body;
+  if (temTexto(message.body)) return message.body;
+  if (temTexto(message.message)) return message.message;
+  if (temTexto(message.message?.text)) return message.message.text;
+  if (temTexto(message.message?.conversation)) return message.message.conversation;
+  if (temTexto(message.message?.extendedTextMessage?.text)) {
     return message.message.extendedTextMessage.text;
   }
   if (typeof message.message?.imageMessage?.caption === "string") {
@@ -252,8 +261,8 @@ function textoMensagem(message?: UazapiMessage): string | undefined {
   if (typeof message.message?.documentMessage?.fileName === "string") {
     return `[Documento recebido] ${message.message.documentMessage.fileName}`;
   }
-  if (typeof message.caption === "string") return message.caption;
-  if (typeof message.content === "string") return message.content;
+  if (temTexto(message.caption)) return message.caption;
+  if (temTexto(message.content)) return message.content;
   if (message.content && typeof message.content === "object") {
     const content = message.content as {
       text?: string;
@@ -261,10 +270,10 @@ function textoMensagem(message?: UazapiMessage): string | undefined {
       caption?: string;
       conversation?: string;
     };
-    if (typeof content.text === "string") return content.text;
-    if (typeof content.body === "string") return content.body;
-    if (typeof content.caption === "string") return content.caption;
-    if (typeof content.conversation === "string") return content.conversation;
+    if (temTexto(content.text)) return content.text;
+    if (temTexto(content.body)) return content.body;
+    if (temTexto(content.caption)) return content.caption;
+    if (temTexto(content.conversation)) return content.conversation;
   }
   if (message.message?.audioMessage) return "[Audio recebido]";
   if (message.message?.stickerMessage) return "[Figurinha recebida]";
@@ -788,15 +797,134 @@ async function registrarMensagemCliente(
 function agendarTrackingPedidosWhatsapp(conversa: Conversa): void {
   if (!historicoTemSinalDePedido(conversa.historico)) return;
 
-  void registrarPedidoAutomaticoDaConversa(conversa)
-    .then((registrou) => {
-      if (registrou) {
-        invalidarDashboardCache();
-      }
-    })
-    .catch((error) => {
-      console.error("[whatsapp] erro_tracking_pedidos", erroLog(error));
+  emSegundoPlano(
+    registrarPedidoAutomaticoDaConversa(conversa)
+      .then((registrou) => {
+        if (registrou) {
+          invalidarDashboardCache();
+        }
+      })
+      .catch((error) => {
+        console.error("[whatsapp] erro_tracking_pedidos", erroLog(error));
+      }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cadastro automatico do cliente pela IA
+// A cada mensagem do cliente que pareca conter dado pessoal (nome, endereco,
+// bairro, pets...), a IA le o trecho recente da conversa e cadastra/atualiza o
+// cliente sozinha -- inclusive quando a IA de atendimento esta desligada ou a
+// conversa esta com humano. Grava so o que mudou (economiza egress).
+// ---------------------------------------------------------------------------
+
+const SINAL_DADO_CLIENTE =
+  /(?:\b(?:rua|r\.|av\.?|avenida|travessa|tv\.|rodovia|estrada|servid[aã]o|alameda|bairro|cep|apto|apartamento|ap\.?\s*\d|bloco|casa\s+\d|condom[ií]nio|edif[ií]cio|n[º°o]\.?\s*\d|n[uú]mero\s*\d|perto\s+d[eoa]|em\s+frente|refer[eê]ncia|moro|endere[cç]o)\b|\b(?:meu\s+nome|me\s+chamo|aqui\s+[eé]\s+[oa]|sou\s+[oa]\s+[A-ZÀ-Ú]|nome\s+d[eoa])\b|\b(?:cachorr|cadel|gat[oa]|gatinh|filhote|pet|castrad|ra[cç]a|porte|pesa|quilos|kg|anos|meses|ra[cç][aã]o|areia)|\d{5}-?\d{3})/i;
+
+function mensagemTemSinalDeDadoCliente(texto: string): boolean {
+  return SINAL_DADO_CLIENTE.test(texto);
+}
+
+function nomeClienteGenerico(nome: string | null | undefined, nomeWhatsapp?: string | null): boolean {
+  const atual = nome?.trim();
+  if (!atual) return true;
+  if (/^cliente\s*\d*$/i.test(atual)) return true;
+  if (/^\+?\d[\d\s()-]+$/.test(atual)) return true;
+  // Nome que veio so do perfil do WhatsApp pode ser trocado pelo nome que o
+  // cliente informou na conversa.
+  if (nomeWhatsapp && atual.toLowerCase() === nomeWhatsapp.trim().toLowerCase()) return true;
+  return false;
+}
+
+function mesmoTexto(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+}
+
+async function atualizarCadastroClientePelaIa(conversa: Conversa): Promise<void> {
+  const telefone = normalizarTelefone(conversa.telefone);
+  if (!telefone) return;
+
+  const perfil = await extrairPerfilClienteDaConversa(conversa.historico.slice(-30));
+  const atual = await buscarClientePorTelefone(telefone);
+
+  const nomeNovo =
+    perfil.nome && nomeClienteGenerico(atual?.nome, conversa.nome_cliente) && !mesmoTexto(perfil.nome, atual?.nome)
+      ? perfil.nome.slice(0, 120)
+      : undefined;
+  const enderecoNovo =
+    perfil.endereco && !mesmoTexto(perfil.endereco, atual?.endereco)
+      ? perfil.endereco.slice(0, 250)
+      : undefined;
+  const bairroNovo =
+    perfil.bairro && !mesmoTexto(perfil.bairro, atual?.bairro) ? perfil.bairro.slice(0, 120) : undefined;
+  const petsAtuais = new Set((atual?.pets ?? []).map((pet) => pet.trim().toLowerCase()));
+  const petsNovos = (perfil.pets ?? [])
+    .map((pet) => pet.trim())
+    .filter((pet) => pet && !petsAtuais.has(pet.toLowerCase()));
+
+  let clienteId = atual?.id;
+  const mudouCadastro = Boolean(nomeNovo || enderecoNovo || bairroNovo || petsNovos.length || !atual);
+
+  if (mudouCadastro) {
+    const salvo = await salvarCadastroCliente({
+      telefone,
+      nome: nomeNovo ?? (atual ? undefined : nomeClienteSeguro(conversa.nome_cliente)),
+      endereco: enderecoNovo,
+      bairro: bairroNovo,
+      pets: petsNovos,
+      origem: "WhatsApp IA",
     });
+    clienteId = salvo.id;
+    console.info("[whatsapp] cadastro_ia_atualizado", {
+      telefone: telefoneLog(telefone),
+      novo: !atual,
+      nome: Boolean(nomeNovo),
+      endereco: Boolean(enderecoNovo),
+      bairro: Boolean(bairroNovo),
+      pets: petsNovos.length,
+    });
+  }
+
+  if (perfil.dadosObservados) {
+    await salvarDadosObservadosCliente({
+      clienteId,
+      telefone,
+      dados: perfil.dadosObservados,
+      resumo: perfil.observacoes,
+      confianca: 0.75,
+    }).catch((error) => {
+      console.error("[whatsapp] erro_cadastro_ia_dados_observados", erroLog(error));
+    });
+  }
+}
+
+// No Cloudflare Workers, promessa solta morre quando a resposta sai; waitUntil
+// mantem o trabalho vivo depois do 200 pro webhook. Fora do Workers (VPS/tsx)
+// o import falha e a promessa segue normalmente no processo Node.
+function emSegundoPlano(tarefa: Promise<unknown>): void {
+  void import("cloudflare:workers")
+    .then((mod) => mod.waitUntil?.(tarefa))
+    .catch(() => undefined);
+}
+
+function agendarCadastroClientePelaIa(conversa: Conversa, textoMensagem: string): void {
+  const telefone = normalizarTelefone(conversa.telefone);
+  if (!telefone) return;
+
+  // Cliente costuma mandar o endereco picotado ("Rua X" / "123" / "ap 2"):
+  // basta a mensagem atual OU uma das 2 anteriores do cliente ter sinal.
+  const ultimasDoCliente = conversa.historico
+    .filter((mensagem) => mensagem.role === "user")
+    .slice(-3)
+    .map((mensagem) => mensagem.content ?? "");
+  const temSinal = [textoMensagem, ...ultimasDoCliente].some(mensagemTemSinalDeDadoCliente);
+  if (!temSinal) return;
+
+  emSegundoPlano(
+    atualizarCadastroClientePelaIa(conversa).catch((error) => {
+      console.error("[whatsapp] erro_cadastro_ia", erroLog(error));
+    }),
+  );
 }
 
 function historicoTemSinalDePedido(historico: Conversa["historico"]): boolean {
@@ -1133,6 +1261,9 @@ async function tentarGerarPix({
   cliente: ClienteCadastro | null;
   pedidos: PedidoParaPix[];
 }): Promise<ResultadoPix> {
+  if (lojaAtual() === "loja2") {
+    return { ok: false, erro: "pix_indisponivel", mensagem: "Pix indisponível nesta loja.", pix_gerado: false };
+  }
   const telefoneMascara = telefoneLog(telefone);
   const pedidoPendente = pedidos.find(
     (pedido) => pedido.statusPagamento !== "pago" && pedido.total > 0,
@@ -1443,6 +1574,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
   }
 
   const conversa = await registrarMensagemCliente(conversaInicial, texto, metadataFinal);
+  agendarCadastroClientePelaIa(conversa, texto);
   const cupomMensagemAtual = extrairCupomTexto(texto);
   const solicitouPix = solicitouPixNaMensagem || pixSolicitadoRecentemente(conversa);
   const iaStatus = await buscarIaStatus();
@@ -1489,6 +1621,14 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
 
   if (comprovanteConfirmado) {
     return json({ received: true, responded: true, pagamento_confirmado: true });
+  }
+
+  // Audio/imagem/etc. sem legenda agora entram no historico, mas a IA nao tem
+  // o conteudo (sem transcricao): responder a "[Audio recebido]" seria chute.
+  // Mantem o comportamento anterior de nao gerar resposta automatica.
+  if (/^\[(?:audio|imagem|video|documento|figurinha|localizacao|contato) recebid[oa]\]/i.test(texto)) {
+    agendarTrackingPedidosWhatsapp(conversa);
+    return json({ received: true, ignored: true, reason: "midia_sem_texto_registrada" });
   }
 
   const [cliente, pedidos, produtos, aprendizados, iaConfig, fatosObservados] = await Promise.all([
@@ -1565,14 +1705,16 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
   const handoffSolicitado = /\[HANDOFF\]/i.test(respostaIa);
   const termoProcurado = extrairProdutoProcurado(respostaIa);
   if (termoProcurado) {
-    registrarProdutoProcurado({
-      termo: termoProcurado,
-      telefone,
-      nomeCliente: cliente?.nome ?? nomeClienteSeguro(message.senderName ?? message.pushName),
-      contexto: texto,
-    }).catch((error) => {
-      console.error("[whatsapp] erro_registrar_produto_procurado", erroLog(error));
-    });
+    emSegundoPlano(
+      registrarProdutoProcurado({
+        termo: termoProcurado,
+        telefone,
+        nomeCliente: cliente?.nome ?? nomeClienteSeguro(message.senderName ?? message.pushName),
+        contexto: texto,
+      }).catch((error) => {
+        console.error("[whatsapp] erro_registrar_produto_procurado", erroLog(error));
+      }),
+    );
   }
   const cadastroIa = extrairCadastroCliente(respostaIa);
   const cadastroTexto = solicitouPix ? extrairEnderecoDoHistorico(conversa, texto) : null;
@@ -1594,7 +1736,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
     : (cliente ?? clienteWhatsappInicial);
   const dadosObservados = extrairDadosObservados(respostaIa);
   if (dadosObservados) {
-    void salvarDadosObservadosCliente({
+    const salvarObservados = salvarDadosObservadosCliente({
       clienteId: clienteSalvo?.id,
       telefone,
       dados: {
@@ -1624,6 +1766,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
     }).catch((error) => {
       console.error("[whatsapp] erro_salvar_dados_observados", erroLog(error));
     });
+    emSegundoPlano(salvarObservados);
   }
 
   const respostaPreAtendimento = limparRespostaTecnica(respostaIa);
@@ -1668,12 +1811,7 @@ export async function processarWebhookWhatsapp(event: UazapiWebhook): Promise<Re
 export const Route = createFileRoute("/api/webhook/whatsapp")({
   server: {
     handlers: {
-      GET: async () =>
-        json({
-          ok: true,
-          webhook: "uazapi_whatsapp",
-          message: "Webhook ativo. A UazAPI deve enviar POST para esta URL.",
-        }),
+      GET: async () => json({ ok: false }, { status: 404 }),
       POST: async ({ request }) => {
         try {
           return await processarWebhookWhatsapp((await request.json()) as UazapiWebhook);

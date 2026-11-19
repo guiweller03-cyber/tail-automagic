@@ -1,3 +1,4 @@
+import { configuracaoLoja } from "./loja-context";
 import { requireSupabaseServerKey } from "./server-env";
 
 type InfluenciadorStatus = "ativo" | "pausado" | "encerrado";
@@ -134,7 +135,7 @@ type InfluencerRow = {
 };
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
   if (!value) throw new Error(`Missing environment variable: ${name}`);
   return value;
 }
@@ -145,7 +146,7 @@ function supabaseUrl(path: string): string {
 }
 
 function supabaseHeaders(prefer?: string): HeadersInit {
-  const anonKey = requireEnv("SUPABASE_ANON_KEY");
+  const anonKey = requireSupabaseServerKey();
   return {
     apikey: anonKey,
     authorization: `Bearer ${anonKey}`,

@@ -1,3 +1,6 @@
+import { lojaStorage } from "@/lib/loja-storage";
+import { useLoja } from "@/lib/loja-ui";
+import { correspondeBusca } from "@/lib/crm-search";
 import type {
   Cliente,
   Conversa,
@@ -67,6 +70,16 @@ import { useMessageNotifications } from "@/features/whatsapp-crm/hooks/useMessag
 import { toast } from "sonner";
 
 const PDV = lazy(() => import("@/pages/PDV").then((m) => ({ default: m.PDV })));
+
+const CIDADES_ATENDIDAS = [
+  "Tijucas",
+  "Nova Trento",
+  "São João Batista",
+  "Itapema",
+  "Canelinha",
+  "Porto Belo",
+  "Bombinhas",
+];
 import {
   DEFAULT_KANBAN_COLUMNS,
   defaultKanbanColumnId,
@@ -347,7 +360,7 @@ function carregarConjuntosEstoqueStorage(): EstoqueConjunto[] {
   if (typeof window === "undefined") return [];
 
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(ESTOQUE_CONJUNTOS_STORAGE_KEY) ?? "[]");
+    const parsed = JSON.parse(lojaStorage.getItem(ESTOQUE_CONJUNTOS_STORAGE_KEY) ?? "[]");
     if (!Array.isArray(parsed)) return [];
 
     return parsed
@@ -382,7 +395,7 @@ function carregarConjuntosEstoqueStorage(): EstoqueConjunto[] {
 function salvarConjuntosEstoqueStorage(conjuntos: EstoqueConjunto[]) {
   if (typeof window === "undefined") return;
 
-  window.localStorage.setItem(
+  lojaStorage.setItem(
     ESTOQUE_CONJUNTOS_STORAGE_KEY,
     JSON.stringify(conjuntos.slice(0, MAX_ESTOQUE_CONJUNTOS)),
   );
@@ -545,7 +558,7 @@ function carregarQuickTemplatesStorage(): QuickMessageTemplate[] {
 
   try {
     return sanitizeQuickTemplates(
-      JSON.parse(window.localStorage.getItem(QUICK_MESSAGE_TEMPLATES_STORAGE_KEY) ?? "[]"),
+      JSON.parse(lojaStorage.getItem(QUICK_MESSAGE_TEMPLATES_STORAGE_KEY) ?? "[]"),
     );
   } catch {
     return DEFAULT_QUICK_MESSAGE_TEMPLATES;
@@ -555,7 +568,7 @@ function carregarQuickTemplatesStorage(): QuickMessageTemplate[] {
 function salvarQuickTemplatesStorage(templates: QuickMessageTemplate[]) {
   if (typeof window === "undefined") return;
 
-  window.localStorage.setItem(
+  lojaStorage.setItem(
     QUICK_MESSAGE_TEMPLATES_STORAGE_KEY,
     JSON.stringify(sanitizeQuickTemplates(templates)),
   );
@@ -784,7 +797,9 @@ export function Conversas({
   const telefoneLink = onlyDigits(conversaSearch.telefone);
   const clienteIdLink = conversaSearch.clienteId;
   const clienteNomeLink = conversaSearch.cliente;
-  const [view, setView] = useState<"chat" | "kanban" | "calendario" | "regras">("chat");
+  const [view, setView] = useState<"chat" | "kanban" | "calendario" | "regras">(
+    conversaSearch.aba === "calendario" ? "calendario" : "chat",
+  );
   const [active, setActive] = useState<ConversaView | null>(conversasIniciais[0] ?? null);
   const [items, setItems] = useState<ConversaView[]>(conversasIniciais);
   const [kanbanColumns, setKanbanColumns] = useState<KanbanColumn[]>(
@@ -938,11 +953,19 @@ export function Conversas({
     [clienteIdLink, clienteNomeLink, clientesAtuais, telefoneLink],
   );
 
+  const linkAplicadoRef = useRef("");
   useEffect(() => {
-    if (!telefoneLink && !clienteIdLink) return;
+    const chave = `${telefoneLink}:${clienteIdLink ?? ""}:${clienteNomeLink ?? ""}`;
+    if (!telefoneLink && !clienteIdLink) {
+      linkAplicadoRef.current = "";
+      return;
+    }
+    if (linkAplicadoRef.current === chave) return;
 
     const next = findLinkedConversation(items);
 
+    if (!next) return;
+    linkAplicadoRef.current = chave;
     setView("chat");
     const nextBusca = next?.telefone || clienteNomeLink || telefoneLink;
     if (nextBusca && busca !== nextBusca) setBusca(nextBusca);
@@ -1858,6 +1881,20 @@ export function Conversas({
       ) : view === "calendario" ? (
         <CalendarioContatos
           conversas={items}
+          contatosLembretes={Array.from(
+            new Map(
+              [
+                ...clientesAtuais.map((cliente) => ({
+                  id: cliente.id,
+                  cliente: cliente.nome,
+                  telefone: cliente.telefone,
+                })),
+                ...items,
+              ]
+                .filter((contato) => contato.telefone)
+                .map((contato) => [contato.telefone.replace(/\D/g, ""), contato]),
+            ).values(),
+          )}
           onOpenConversation={(conversaId, telefone) =>
             void openConversationFromCalendar(conversaId, telefone)
           }
@@ -2163,7 +2200,12 @@ function ChatView({
       const response = await fetch("/api/crm/conversas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo: "sugestao_ia", historico: mensagens, texto }),
+        body: JSON.stringify({
+          tipo: "sugestao_ia",
+          historico: mensagens,
+          texto,
+          telefone: active?.telefone,
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.erro || "Falha ao gerar sugestao");
@@ -2278,8 +2320,8 @@ function ChatView({
               type="search"
               value={busca}
               onChange={(event) => setBusca(event.target.value)}
-              placeholder="Buscar por nome ou telefone"
-              aria-label="Buscar conversa por nome ou telefone"
+              placeholder="Buscar por nome, pet ou telefone"
+              aria-label="Buscar conversa por nome, pet ou telefone"
               className="h-11 w-full rounded-lg bg-secondary pl-9 pr-9 text-sm outline-none ring-primary/25 placeholder:text-muted-foreground focus:bg-card focus:ring-2"
             />
             {busca && (
@@ -2961,6 +3003,34 @@ function CrmPanel({
   onOpenHistory: () => void;
   mobileOpen?: boolean;
 }) {
+  const loja = useLoja();
+  const [savingCidade, setSavingCidade] = useState(false);
+
+  async function salvarCidade(cidade: string) {
+    if (cidade === (cli.cidade ?? "")) return;
+    setSavingCidade(true);
+    try {
+      const isFallback = cli.id === active.id;
+      const response = await fetch("/api/crm/clientes", {
+        method: isFallback ? "POST" : "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          isFallback
+            ? { nome: cli.nome, telefone: cli.telefone, cidade, origem: "WhatsApp IA" }
+            : { id: cli.id, cidade, somenteCidade: true },
+        ),
+      });
+      const data = (await response.json()) as Cliente | { erro?: string };
+      if (!response.ok) throw new Error("erro" in data ? data.erro : "Nao foi possivel salvar");
+      onClienteSaved(data as Cliente);
+      toast.success(cidade ? `Cidade: ${cidade}` : "Cidade removida");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar cidade");
+    } finally {
+      setSavingCidade(false);
+    }
+  }
+
   const cacRoi = cli.totalGasto > 0 && cli.cac > 0 ? (cli.totalGasto / cli.cac).toFixed(1) : "∞";
   const textoCliente = mensagens
     .filter((mensagem) => mensagem.role === "user")
@@ -3306,15 +3376,13 @@ function CrmPanel({
     const termo = normalizarTextoBusca(buscaEstoque);
     return produtosEstoque.filter((produto) => {
       if (!termo) return true;
-      return normalizarTextoBusca(
-        [
-          produto.nome,
-          produto.sku,
-          produto.categoria,
-          produto.fornecedor,
-          ...Object.values(produto.detalhesTecnicos ?? {}),
-        ].join(" "),
-      ).includes(termo);
+      return correspondeBusca(buscaEstoque, [
+        produto.nome,
+        produto.sku,
+        produto.categoria,
+        produto.fornecedor,
+        ...Object.values(produto.detalhesTecnicos ?? {}),
+      ]);
     });
   }, [produtosEstoque, buscaEstoque]);
 
@@ -3546,33 +3614,35 @@ function CrmPanel({
           onDraftMessage("Vou abrir seu pedido por aqui e ja confirmo os itens, valores e entrega.")
         }
       />
-      <ActionBtn
-        icon={<Banknote className="size-3.5" />}
-        label="Gerar Pix"
-        primary
-        onClick={async () => {
-          const handler = async () => {
-            const res = await fetch("/api/crm/pix", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                telefone: cli.telefone,
-                enviarMensagem: true,
-              }),
+      {loja === "loja1" && (
+        <ActionBtn
+          icon={<Banknote className="size-3.5" />}
+          label="Gerar Pix"
+          primary
+          onClick={async () => {
+            const handler = async () => {
+              const res = await fetch("/api/crm/pix", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  telefone: cli.telefone,
+                  enviarMensagem: true,
+                }),
+              });
+
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.mensagem || data.erro || "Falha ao gerar Pix");
+              return data;
+            };
+
+            toast.promise(handler(), {
+              loading: "Gerando Pix...",
+              success: "Pix enviado para o WhatsApp do cliente!",
+              error: (err) => (err instanceof Error ? err.message : "Erro ao gerar Pix"),
             });
-
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.mensagem || data.erro || "Falha ao gerar Pix");
-            return data;
-          };
-
-          toast.promise(handler(), {
-            loading: "Gerando Pix...",
-            success: "Pix enviado para o WhatsApp do cliente!",
-            error: (err) => (err instanceof Error ? err.message : "Erro ao gerar Pix"),
-          });
-        }}
-      />
+          }}
+        />
+      )}
       <ActionBtn
         icon={<Tag className="size-3.5" />}
         label="Aplicar desconto"
@@ -3740,10 +3810,41 @@ function CrmPanel({
           </div>
           {/* Etiquetas visuais: cidade + espécie */}
           <div className="mt-3 flex items-center gap-1.5 flex-wrap">
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border bg-card text-foreground">
-              <MapPin className="size-3" />{" "}
-              {[cli.cidade, cli.bairro].filter(Boolean).join(" - ") || "Endereco nao identificado"}
-            </span>
+            {loja !== "loja2" ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border bg-card text-foreground">
+                <MapPin className="size-3" />{" "}
+                {[cli.cidade, cli.bairro].filter(Boolean).join(" - ") ||
+                  "Endereco nao identificado"}
+              </span>
+            ) : (
+              <label
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold ${
+                  cli.cidade
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border bg-card text-foreground"
+                } ${savingCidade ? "opacity-60" : ""}`}
+                title="Cidade do cliente"
+              >
+                <MapPin className="size-3 shrink-0" />
+                <select
+                  value={cli.cidade ?? ""}
+                  disabled={savingCidade}
+                  onChange={(event) => void salvarCidade(event.target.value)}
+                  className="cursor-pointer bg-transparent pr-1 text-[10px] font-semibold outline-none"
+                >
+                  <option value="">Selecionar cidade</option>
+                  {CIDADES_ATENDIDAS.map((cidade) => (
+                    <option key={cidade} value={cidade}>
+                      {cidade}
+                    </option>
+                  ))}
+                  {cli.cidade && !CIDADES_ATENDIDAS.includes(cli.cidade) && (
+                    <option value={cli.cidade}>{cli.cidade}</option>
+                  )}
+                </select>
+                {cli.bairro && <span className="text-muted-foreground">- {cli.bairro}</span>}
+              </label>
+            )}
             {especiesContexto.map((e) => (
               <SpeciePill key={e} especie={e} />
             ))}
@@ -5890,6 +5991,7 @@ function KanbanPdvModal<T extends Conversa & { telefone?: string }>({
               }
             >
               <PDV
+                contextoConversas
                 initialCliente={conversation.cliente}
                 initialTelefone={(conversation.telefone ?? "").replace(/\D/g, "")}
                 conversaAberta={conversaAberta}

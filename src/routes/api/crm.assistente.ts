@@ -1,3 +1,4 @@
+import { configuracaoLoja } from "@/lib/loja-context";
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 import {
@@ -35,6 +36,7 @@ import {
   type PedidoProcesso,
 } from "@/lib/supabase";
 import { type MensagemAssistenteAdmin } from "@/lib/openai";
+import { parametrosChat } from "@/lib/openai-modelos";
 
 type AssistenteRequest = {
   message?: string;
@@ -178,7 +180,7 @@ async function parseAssistenteRequest(request: Request): Promise<AssistenteParse
 }
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
 
   if (!value) {
     throw new Error(`Missing environment variable: ${name}`);
@@ -390,9 +392,11 @@ ${JSON.stringify(catalogo)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_ASSISTANT_MODEL || "gpt-4o-mini",
-      temperature: 0,
-      max_tokens: 900,
+      ...parametrosChat({
+        modelo: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_ASSISTANT_MODEL,
+        maxTokens: 900,
+        temperature: 0,
+      }),
       response_format: { type: "json_object" },
       messages: [
         {
@@ -1596,8 +1600,7 @@ async function chamarOpenAi(messages: ChatMessage[]) {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_ASSISTANT_MODEL || "gpt-4o-mini",
-      max_tokens: 700,
+      ...parametrosChat({ modelo: process.env.OPENAI_ASSISTANT_MODEL, maxTokens: 900 }),
       tools: ASSISTENTE_TOOLS,
       tool_choice: "auto",
       messages,

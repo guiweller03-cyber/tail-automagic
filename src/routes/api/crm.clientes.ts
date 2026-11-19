@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 import {
+  atualizarCidadeCliente,
   atualizarClienteCrm,
   criarClienteCrm,
   excluirClienteCrm,
@@ -141,6 +142,7 @@ function clienteInput(body: Record<string, unknown>): ClienteCrmInput | null {
     telefone,
     endereco: typeof body.endereco === "string" ? body.endereco : undefined,
     bairro: typeof body.bairro === "string" ? body.bairro : undefined,
+    cidade: typeof body.cidade === "string" ? body.cidade : undefined,
     pets,
     petsDetalhes: parsePetsDetalhes(body.petsDetalhes),
     perfil:
@@ -303,6 +305,12 @@ export const Route = createFileRoute("/api/crm/clientes")({
       PATCH: async ({ request }) => {
         try {
           const body = (await request.json()) as Record<string, unknown>;
+          if (body.somenteCidade === true) {
+            if (typeof body.id !== "string" || typeof body.cidade !== "string") {
+              return json({ ok: false, erro: "Cliente e cidade obrigatorios" }, { status: 400 });
+            }
+            return json(await atualizarCidadeCliente(body.id, body.cidade));
+          }
           const input = clienteInput(body);
           if (typeof body.id !== "string" || !input) {
             return json(

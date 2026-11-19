@@ -1,3 +1,4 @@
+import { correspondeBusca } from "@/lib/crm-search";
 import { Search, MessageCircle, Flame, Package2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -18,10 +19,8 @@ export function ProdutosProcurados() {
   const [produtos, setProdutos] = useState<ProdutoProcurado[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const navigate = useNavigate();
-  const list = produtos.filter(
-    (produto) =>
-      produto.termo.toLowerCase().includes(busca.toLowerCase()) ||
-      produto.nome_cliente?.toLowerCase().includes(busca.toLowerCase()),
+  const list = produtos.filter((produto) =>
+    correspondeBusca(busca, [produto.termo, produto.nome_cliente], [produto.telefone]),
   );
 
   useEffect(() => {

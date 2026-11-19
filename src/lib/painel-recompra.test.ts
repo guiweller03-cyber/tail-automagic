@@ -79,11 +79,11 @@ test("explica de onde saiu o ciclo, inclusive o ajuste manual", () => {
   );
   assert.match(
     explicacaoCiclo(recompra({ origemCiclo: "historico", historicoDias: [28, 32] })),
-    /média dos intervalos reais.*28, 32 dias/,
+    /média dos dias entre as compras.*28, 32 dias/,
   );
   assert.match(
     explicacaoCiclo(recompra()),
-    /10 kg de ração ÷ 200 g\/dia = aproximadamente 30 dias/,
+    /10 kg de ração × 1.000.*200 g\/dia = aproximadamente 30 dias/,
   );
 });
 

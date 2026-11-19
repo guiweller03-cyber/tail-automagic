@@ -1,3 +1,4 @@
+import { correspondeBusca } from "@/lib/crm-search";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
@@ -109,11 +110,9 @@ export function Cupons() {
   const cupons = useMemo(() => summary?.cupons ?? [], [summary?.cupons]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return cupons.filter((item) => {
       const influencer = item.influenciadores?.nome ?? "";
-      const matchesQuery =
-        !q || item.codigo.toLowerCase().includes(q) || influencer.toLowerCase().includes(q);
+      const matchesQuery = correspondeBusca(query, [item.codigo, influencer]);
       const matchesStatus = statusFilter === "all" || item.status === statusFilter;
       return matchesQuery && matchesStatus;
     });

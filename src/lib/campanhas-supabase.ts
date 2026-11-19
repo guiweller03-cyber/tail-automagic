@@ -1,3 +1,4 @@
+import { configuracaoLoja } from "./loja-context";
 import { requireSupabaseServerKey } from "./server-env";
 
 export type CampanhaStatus = "rascunho" | "ativa" | "pausada" | "encerrada";
@@ -39,7 +40,7 @@ type CampanhaRow = {
 };
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
 
   if (!value) {
     throw new Error(`Missing environment variable: ${name}`);

@@ -12,6 +12,7 @@ import {
   salvarModeloRecompraRacao,
 } from "@/lib/recompra-supabase";
 import type { PetDetalhe } from "@/lib/crm-types";
+import { auditarRecomprasComIA, listarAuditoriasRecompra } from "@/lib/recompra-auditoria-ia";
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
@@ -73,7 +74,11 @@ export const Route = createFileRoute("/api/crm/recompra-prevista")({
     handlers: {
       GET: async ({ request }) => {
         try {
-          const historico = new URL(request.url).searchParams.get("historico");
+          const params = new URL(request.url).searchParams;
+          if (params.get("auditoria") === "1") {
+            return json({ ok: true, auditorias: await listarAuditoriasRecompra() });
+          }
+          const historico = params.get("historico");
           if (historico) return json({ ok: true, ...(await historicoVendasRecompra(historico)) });
           return json(await listarRecompraPrevista());
         } catch (error) {
@@ -116,8 +121,18 @@ export const Route = createFileRoute("/api/crm/recompra-prevista")({
           return json({ ok: false, erro: message }, { status: 500 });
         }
       },
-      POST: async () => {
+      POST: async ({ request }) => {
         try {
+          const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          if (body.tipo === "auditoria_ia") {
+            const ids = Array.isArray(body.ids)
+              ? body.ids.filter((id): id is string => typeof id === "string")
+              : [];
+            if (ids.length === 0) {
+              return json({ ok: false, erro: "Nenhuma previsão para auditar" }, { status: 400 });
+            }
+            return json({ ok: true, ...(await auditarRecomprasComIA(ids)) });
+          }
           return json({ ok: true, ...(await recalcularTodasRecompras()) });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Erro desconhecido";
@@ -149,6 +164,7 @@ export const Route = createFileRoute("/api/crm/recompra-prevista")({
               : undefined;
             return json(
               await registrarRecompraManual({
+                requisicaoId: typeof body.requisicaoId === "string" ? body.requisicaoId : undefined,
                 clienteId: String(body.clienteId ?? ""),
                 sku: String(body.sku ?? ""),
                 petNome: String(body.petNome ?? ""),
@@ -157,6 +173,7 @@ export const Route = createFileRoute("/api/crm/recompra-prevista")({
                 modoDistribuicao: body.modoDistribuicao === "por_pet" ? "por_pet" : "compartilhada",
                 compraEm: String(body.compraEm ?? ""),
                 diasRecompra: Number(body.diasRecompra),
+                cicloConfirmado: body.cicloConfirmado === true,
                 quantidade:
                   body.quantidade === undefined || body.quantidade === ""
                     ? undefined

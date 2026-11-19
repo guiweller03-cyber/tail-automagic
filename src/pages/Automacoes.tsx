@@ -1,3 +1,4 @@
+import { lojaStorage } from "@/lib/loja-storage";
 import { Zap, Play, Pause, Shield, MessageCircle, Plus, Trash2, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -45,7 +46,7 @@ const POSVENDA_DEFAULT: PosVendaCfg[] = [];
 function loadJSON<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
-    const r = window.localStorage.getItem(key);
+    const r = lojaStorage.getItem(key);
     return r ? JSON.parse(r) : fallback;
   } catch {
     return fallback;
@@ -142,7 +143,7 @@ function FluxoVermifugo() {
   const [ativo, setAtivo] = useState(true);
   useEffect(() => {
     try {
-      window.localStorage.setItem(VERM_KEY, JSON.stringify(cfg));
+      lojaStorage.setItem(VERM_KEY, JSON.stringify(cfg));
     } catch {
       /* noop */
     }
@@ -282,7 +283,7 @@ function PosVendaConfig() {
   const [cfgs, setCfgs] = useState<PosVendaCfg[]>(() => loadJSON(POSVENDA_KEY, POSVENDA_DEFAULT));
   useEffect(() => {
     try {
-      window.localStorage.setItem(POSVENDA_KEY, JSON.stringify(cfgs));
+      lojaStorage.setItem(POSVENDA_KEY, JSON.stringify(cfgs));
     } catch {
       /* noop */
     }

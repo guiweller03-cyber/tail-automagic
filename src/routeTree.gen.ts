@@ -47,6 +47,7 @@ import { Route as ApiCrmPixRouteImport } from './routes/api/crm.pix'
 import { Route as ApiCrmPedidosRouteImport } from './routes/api/crm.pedidos'
 import { Route as ApiCrmNotasRouteImport } from './routes/api/crm.notas'
 import { Route as ApiCrmMediaRouteImport } from './routes/api/crm.media'
+import { Route as ApiCrmLembretesRouteImport } from './routes/api/crm.lembretes'
 import { Route as ApiCrmIndicacoesRouteImport } from './routes/api/crm.indicacoes'
 import { Route as ApiCrmFollowupsRouteImport } from './routes/api/crm.followups'
 import { Route as ApiCrmDisparosRouteImport } from './routes/api/crm.disparos'
@@ -59,6 +60,7 @@ import { Route as ApiCreditsBalanceRouteImport } from './routes/api/credits.bala
 import { Route as ApiCouponsValidateRouteImport } from './routes/api/coupons.validate'
 import { Route as ApiCouponsApplyRouteImport } from './routes/api/coupons.apply'
 import { Route as ApiAuthSessionRouteImport } from './routes/api/auth.session'
+import { Route as ApiAuthLojaRouteImport } from './routes/api/auth.loja'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth.logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth.login'
 import { Route as ApiCrmProdutosFotoRouteImport } from './routes/api/crm.produtos.foto'
@@ -261,6 +263,11 @@ const ApiCrmMediaRoute = ApiCrmMediaRouteImport.update({
   path: '/api/crm/media',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCrmLembretesRoute = ApiCrmLembretesRouteImport.update({
+  id: '/api/crm/lembretes',
+  path: '/api/crm/lembretes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCrmIndicacoesRoute = ApiCrmIndicacoesRouteImport.update({
   id: '/api/crm/indicacoes',
   path: '/api/crm/indicacoes',
@@ -319,6 +326,11 @@ const ApiCouponsApplyRoute = ApiCouponsApplyRouteImport.update({
 const ApiAuthSessionRoute = ApiAuthSessionRouteImport.update({
   id: '/api/auth/session',
   path: '/api/auth/session',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLojaRoute = ApiAuthLojaRouteImport.update({
+  id: '/api/auth/loja',
+  path: '/api/auth/loja',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
@@ -397,6 +409,7 @@ export interface FileRoutesByFullPath {
   '/admin/coupons': typeof AdminCouponsRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/loja': typeof ApiAuthLojaRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/coupons/apply': typeof ApiCouponsApplyRoute
   '/api/coupons/validate': typeof ApiCouponsValidateRoute
@@ -409,6 +422,7 @@ export interface FileRoutesByFullPath {
   '/api/crm/disparos': typeof ApiCrmDisparosRoute
   '/api/crm/followups': typeof ApiCrmFollowupsRoute
   '/api/crm/indicacoes': typeof ApiCrmIndicacoesRoute
+  '/api/crm/lembretes': typeof ApiCrmLembretesRoute
   '/api/crm/media': typeof ApiCrmMediaRoute
   '/api/crm/notas': typeof ApiCrmNotasRoute
   '/api/crm/pedidos': typeof ApiCrmPedidosRoute
@@ -458,6 +472,7 @@ export interface FileRoutesByTo {
   '/admin/coupons': typeof AdminCouponsRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/loja': typeof ApiAuthLojaRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/coupons/apply': typeof ApiCouponsApplyRoute
   '/api/coupons/validate': typeof ApiCouponsValidateRoute
@@ -470,6 +485,7 @@ export interface FileRoutesByTo {
   '/api/crm/disparos': typeof ApiCrmDisparosRoute
   '/api/crm/followups': typeof ApiCrmFollowupsRoute
   '/api/crm/indicacoes': typeof ApiCrmIndicacoesRoute
+  '/api/crm/lembretes': typeof ApiCrmLembretesRoute
   '/api/crm/media': typeof ApiCrmMediaRoute
   '/api/crm/notas': typeof ApiCrmNotasRoute
   '/api/crm/pedidos': typeof ApiCrmPedidosRoute
@@ -520,6 +536,7 @@ export interface FileRoutesById {
   '/admin/coupons': typeof AdminCouponsRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/loja': typeof ApiAuthLojaRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/coupons/apply': typeof ApiCouponsApplyRoute
   '/api/coupons/validate': typeof ApiCouponsValidateRoute
@@ -532,6 +549,7 @@ export interface FileRoutesById {
   '/api/crm/disparos': typeof ApiCrmDisparosRoute
   '/api/crm/followups': typeof ApiCrmFollowupsRoute
   '/api/crm/indicacoes': typeof ApiCrmIndicacoesRoute
+  '/api/crm/lembretes': typeof ApiCrmLembretesRoute
   '/api/crm/media': typeof ApiCrmMediaRoute
   '/api/crm/notas': typeof ApiCrmNotasRoute
   '/api/crm/pedidos': typeof ApiCrmPedidosRoute
@@ -583,6 +601,7 @@ export interface FileRouteTypes {
     | '/admin/coupons'
     | '/api/auth/login'
     | '/api/auth/logout'
+    | '/api/auth/loja'
     | '/api/auth/session'
     | '/api/coupons/apply'
     | '/api/coupons/validate'
@@ -595,6 +614,7 @@ export interface FileRouteTypes {
     | '/api/crm/disparos'
     | '/api/crm/followups'
     | '/api/crm/indicacoes'
+    | '/api/crm/lembretes'
     | '/api/crm/media'
     | '/api/crm/notas'
     | '/api/crm/pedidos'
@@ -644,6 +664,7 @@ export interface FileRouteTypes {
     | '/admin/coupons'
     | '/api/auth/login'
     | '/api/auth/logout'
+    | '/api/auth/loja'
     | '/api/auth/session'
     | '/api/coupons/apply'
     | '/api/coupons/validate'
@@ -656,6 +677,7 @@ export interface FileRouteTypes {
     | '/api/crm/disparos'
     | '/api/crm/followups'
     | '/api/crm/indicacoes'
+    | '/api/crm/lembretes'
     | '/api/crm/media'
     | '/api/crm/notas'
     | '/api/crm/pedidos'
@@ -705,6 +727,7 @@ export interface FileRouteTypes {
     | '/admin/coupons'
     | '/api/auth/login'
     | '/api/auth/logout'
+    | '/api/auth/loja'
     | '/api/auth/session'
     | '/api/coupons/apply'
     | '/api/coupons/validate'
@@ -717,6 +740,7 @@ export interface FileRouteTypes {
     | '/api/crm/disparos'
     | '/api/crm/followups'
     | '/api/crm/indicacoes'
+    | '/api/crm/lembretes'
     | '/api/crm/media'
     | '/api/crm/notas'
     | '/api/crm/pedidos'
@@ -767,6 +791,7 @@ export interface RootRouteChildren {
   AdminCouponsRoute: typeof AdminCouponsRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
+  ApiAuthLojaRoute: typeof ApiAuthLojaRoute
   ApiAuthSessionRoute: typeof ApiAuthSessionRoute
   ApiCouponsApplyRoute: typeof ApiCouponsApplyRoute
   ApiCouponsValidateRoute: typeof ApiCouponsValidateRoute
@@ -779,6 +804,7 @@ export interface RootRouteChildren {
   ApiCrmDisparosRoute: typeof ApiCrmDisparosRoute
   ApiCrmFollowupsRoute: typeof ApiCrmFollowupsRoute
   ApiCrmIndicacoesRoute: typeof ApiCrmIndicacoesRoute
+  ApiCrmLembretesRoute: typeof ApiCrmLembretesRoute
   ApiCrmMediaRoute: typeof ApiCrmMediaRoute
   ApiCrmNotasRoute: typeof ApiCrmNotasRoute
   ApiCrmPedidosRoute: typeof ApiCrmPedidosRoute
@@ -1069,6 +1095,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmMediaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crm/lembretes': {
+      id: '/api/crm/lembretes'
+      path: '/api/crm/lembretes'
+      fullPath: '/api/crm/lembretes'
+      preLoaderRoute: typeof ApiCrmLembretesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/crm/indicacoes': {
       id: '/api/crm/indicacoes'
       path: '/api/crm/indicacoes'
@@ -1151,6 +1184,13 @@ declare module '@tanstack/react-router' {
       path: '/api/auth/session'
       fullPath: '/api/auth/session'
       preLoaderRoute: typeof ApiAuthSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/loja': {
+      id: '/api/auth/loja'
+      path: '/api/auth/loja'
+      fullPath: '/api/auth/loja'
+      preLoaderRoute: typeof ApiAuthLojaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/logout': {
@@ -1259,6 +1299,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminCouponsRoute: AdminCouponsRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
+  ApiAuthLojaRoute: ApiAuthLojaRoute,
   ApiAuthSessionRoute: ApiAuthSessionRoute,
   ApiCouponsApplyRoute: ApiCouponsApplyRoute,
   ApiCouponsValidateRoute: ApiCouponsValidateRoute,
@@ -1271,6 +1312,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCrmDisparosRoute: ApiCrmDisparosRoute,
   ApiCrmFollowupsRoute: ApiCrmFollowupsRoute,
   ApiCrmIndicacoesRoute: ApiCrmIndicacoesRoute,
+  ApiCrmLembretesRoute: ApiCrmLembretesRoute,
   ApiCrmMediaRoute: ApiCrmMediaRoute,
   ApiCrmNotasRoute: ApiCrmNotasRoute,
   ApiCrmPedidosRoute: ApiCrmPedidosRoute,

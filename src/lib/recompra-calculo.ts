@@ -518,27 +518,32 @@ export function listarRacasPesoBase(): RacaPesoBase[] {
   return [...caes, ...gatos];
 }
 
-const CONSUMO_G_POR_KG_DIA: Record<
+/**
+ * Gramas por kg^0,75 por dia (peso metabólico). Consumo não é linear ao peso:
+ * um cão de 2,5 kg come ~55 g e um de 30 kg ~380 g, como nas tabelas das embalagens.
+ * Aproximações por linha/fase, não tabelas nutricionais verificadas por SKU.
+ */
+const CONSUMO_G_POR_KG075_DIA: Record<
   RacaoLinhaRecompra,
-  Record<RacaoFaseRecompra, Record<RacaoPorteRecompra, number>>
+  Record<RacaoFaseRecompra, { cachorro: number; gato: number }>
 > = {
   fresh_meat: {
-    filhote: { toy: 19, pequeno: 19, medio: 18, grande: 17, gigante: 17, gato: 21 },
-    adulto: { toy: 15, pequeno: 15, medio: 14, grande: 13, gigante: 13, gato: 14 },
-    senior: { toy: 14, pequeno: 14, medio: 13, grande: 12, gigante: 12, gato: 13 },
-    castrado: { toy: 15, pequeno: 15, medio: 14, grande: 13, gigante: 13, gato: 12 },
+    filhote: { cachorro: 36, gato: 28 },
+    adulto: { cachorro: 28, gato: 19 },
+    senior: { cachorro: 26, gato: 18 },
+    castrado: { cachorro: 26, gato: 17 },
   },
   pro_life: {
-    filhote: { toy: 20, pequeno: 20, medio: 19, grande: 18, gigante: 18, gato: 22 },
-    adulto: { toy: 16, pequeno: 16, medio: 15, grande: 14, gigante: 14, gato: 15 },
-    senior: { toy: 15, pequeno: 15, medio: 14, grande: 13, gigante: 13, gato: 14 },
-    castrado: { toy: 16, pequeno: 16, medio: 15, grande: 14, gigante: 14, gato: 13 },
+    filhote: { cachorro: 38, gato: 30 },
+    adulto: { cachorro: 30, gato: 20 },
+    senior: { cachorro: 27, gato: 19 },
+    castrado: { cachorro: 27, gato: 18 },
   },
   generica: {
-    filhote: { toy: 20, pequeno: 20, medio: 19, grande: 18, gigante: 18, gato: 22 },
-    adulto: { toy: 16, pequeno: 16, medio: 15, grande: 14, gigante: 14, gato: 15 },
-    senior: { toy: 15, pequeno: 15, medio: 14, grande: 13, gigante: 13, gato: 14 },
-    castrado: { toy: 16, pequeno: 16, medio: 15, grande: 14, gigante: 14, gato: 13 },
+    filhote: { cachorro: 38, gato: 30 },
+    adulto: { cachorro: 30, gato: 20 },
+    senior: { cachorro: 27, gato: 19 },
+    castrado: { cachorro: 27, gato: 18 },
   },
 };
 
@@ -601,7 +606,9 @@ export function ehRacaoParaRecompra(produto?: ProdutoRecompraInfo | null): boole
       .join(" "),
   );
 
-  if (/\b(snack|petisco|biscoito|bifinho|osso|mordedor)\b/.test(text)) return false;
+  if (/\b(snack|petisco|biscoito|bifinho|osso|mordedor|brindes?|pegador|comedouro)\b/.test(text)) {
+    return false;
+  }
 
   return /\bracao\b|\bracoes\b|premier|golden|formula natural|n&d|gran ?(plus|nature)|special dog|special cat|bino|bionatural|bob dog|catsy/.test(
     text,
@@ -711,7 +718,12 @@ export function normalizarPorteRacao(
 ): RacaoPorteRecompra {
   if (especie === "gato") return "gato";
 
-  const text = normalizarTextoRecompra(porte ?? "");
+  const text = normalizarTextoRecompra(porte ?? "").trim();
+  if (text === "pp") return "toy";
+  if (text === "p") return "pequeno";
+  if (text === "m") return "medio";
+  if (text === "g") return "grande";
+  if (text === "gg") return "gigante";
   if (text.includes("toy")) return "toy";
   if (text.includes("mini") || text.includes("pequeno") || text.includes("peq")) return "pequeno";
   if (text.includes("medio") || text.includes("med")) return "medio";
@@ -737,8 +749,8 @@ export function inferirPesoRacaoKg(produto?: ProdutoRecompraInfo | null, quantid
 }
 
 export function calcularDiasRecompraRacao(pesoRacaoKg: number, consumoDiarioG: number): number {
-  if (!Number.isFinite(pesoRacaoKg) || pesoRacaoKg <= 0) return 30;
-  if (!Number.isFinite(consumoDiarioG) || consumoDiarioG <= 0) return 30;
+  if (!Number.isFinite(pesoRacaoKg) || pesoRacaoKg <= 0) return 0;
+  if (!Number.isFinite(consumoDiarioG) || consumoDiarioG <= 0) return 0;
   return Math.max(1, Math.round((pesoRacaoKg * 1000) / consumoDiarioG));
 }
 
@@ -826,18 +838,21 @@ export function pesoAtualKg(
         }
       : null);
 
-  if (pesoInformado && (pet.idadeAdultaConfirmada || !nascimento)) {
-    return { pesoKg: pesoInformado, porte: pesoRaca?.porte, origem: "informado" };
-  }
-
+  const referencia = typeof hoje === "string" ? new Date(hoje) : hoje;
   const medidoEm = parseDateOnly(pet.pesoKgMedidoEm);
-  if (pesoInformado && medidoEm && nascimento && medidoEm >= nascimento) {
-    return { pesoKg: pesoInformado, porte: pesoRaca?.porte, origem: "medido" };
+  // Uma pesagem posterior à compra não descreve o animal naquela compra.
+  // Sem data de pesagem, o peso informado continua sendo melhor que a média da raça.
+  if (pesoInformado && (!medidoEm || medidoEm <= referencia)) {
+    return {
+      pesoKg: pesoInformado,
+      porte: pesoRaca?.porte,
+      origem: medidoEm ? "medido" : "informado",
+    };
   }
 
   if (!nascimento) {
     if (pesoRaca) return { pesoKg: pesoRaca.pesoKg, porte: pesoRaca.porte, origem: "raca" };
-    return pesoInformado ? { pesoKg: pesoInformado, origem: "informado" } : {};
+    return {};
   }
 
   const idadeMeses = mesesEntreDatas(nascimento, typeof hoje === "string" ? new Date(hoje) : hoje);
@@ -894,7 +909,7 @@ export function consumoDiarioPetRacao(params: {
   const pesoOrigem = pesoCalculado.origem ?? (pesoRaca ? "raca" : "porte");
   const linha = classificarLinhaRacao(params.produto);
   const fase = classificarFaseRacao(params.produto);
-  const consumoPorKg = CONSUMO_G_POR_KG_DIA[linha][fase][porte];
+  const consumoPorKg075 = CONSUMO_G_POR_KG075_DIA[linha][fase][porte === "gato" ? "gato" : "cachorro"];
 
   return {
     nome: params.pet.nome.trim() || "Pet",
@@ -904,7 +919,7 @@ export function consumoDiarioPetRacao(params: {
     pesoInformado,
     pesoOrigem,
     raca,
-    consumoDiaG: Math.round(pesoKg * consumoPorKg),
+    consumoDiaG: Math.round(Math.pow(pesoKg, 0.75) * consumoPorKg075),
     linha,
     fase,
   };
@@ -924,6 +939,7 @@ export type CicloHistoricoRecompra = {
   intervalos: number[];
   /** Consumo real observado (g/dia), quando todas as compras usadas têm peso. */
   consumoRealG: number | null;
+  intervalosDescartados: number[];
 };
 
 const JANELA_MESMA_COMPRA_DIAS = 3;
@@ -931,11 +947,45 @@ const INTERVALO_MIN_DIAS = 3;
 const INTERVALO_MAX_DIAS = 180;
 const MAX_INTERVALOS_HISTORICO = 3;
 const PESOS_RECENCIA = [3, 2, 1];
+/** Teto do ciclo automático: além disso vale mais contatar o cliente do que esperar. */
+export const CICLO_MAX_AUTOMATICO_DIAS = 120;
 
-function diasEntre(inicio: string, fim: string): number {
+export function diasEntreCompras(inicio: string, fim: string): number {
   const a = new Date(`${inicio.slice(0, 10)}T00:00:00.000Z`).getTime();
   const b = new Date(`${fim.slice(0, 10)}T00:00:00.000Z`).getTime();
   return Math.round((b - a) / 86_400_000);
+}
+const diasEntre = diasEntreCompras;
+
+export function agruparComprasRecompra(compras: CompraHistoricoRecompra[]) {
+  const ordenadas = compras
+    .filter(
+      (compra) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(compra.data) && Number.isFinite(new Date(compra.data).getTime()),
+    )
+    .map((compra) => ({
+      ...compra,
+      pesoKg: Number.isFinite(compra.pesoKg) ? Math.max(0, compra.pesoKg) : 0,
+    }))
+    .sort((a, b) => a.data.localeCompare(b.data));
+  const eventos: Array<{ inicio: string; fim: string; pesoKg: number; semPeso: boolean }> = [];
+  for (const compra of ordenadas) {
+    const ultimo = eventos.at(-1);
+    // Janela fixa a partir do início; não encadeia indefinidamente pedidos próximos.
+    if (ultimo && diasEntre(ultimo.inicio, compra.data) <= JANELA_MESMA_COMPRA_DIAS) {
+      ultimo.fim = compra.data;
+      ultimo.pesoKg += compra.pesoKg;
+      ultimo.semPeso ||= compra.pesoKg <= 0;
+    } else {
+      eventos.push({
+        inicio: compra.data,
+        fim: compra.data,
+        pesoKg: compra.pesoKg,
+        semPeso: compra.pesoKg <= 0,
+      });
+    }
+  }
+  return eventos;
 }
 
 function mediaPonderada(valores: number[]): number {
@@ -951,85 +1001,149 @@ function mediana(valores: number[]): number {
 }
 
 /**
- * Ciclo a partir do comportamento real do cliente (a partir da 2ª compra).
+ * Ciclo a partir do histórico (da 2ª compra em diante): média simples dos dias entre
+ * uma compra e a seguinte. Compras com até 3 dias de diferença contam como uma só
+ * (pacote extra, pedido dividido, lançamento repetido).
  *
- * - Compras com até 3 dias de diferença contam como uma só (pacote extra, pedido dividido).
- * - Cada intervalo vira um consumo real: kg da compra anterior ÷ dias até a seguinte.
- *   Assim, se o cliente comprou 1 pacote e agora levou 2, o ciclo dobra; trocar de
- *   marca/tamanho não zera o histórico.
- * - Usa os 3 intervalos mais recentes com peso 3/2/1 e descarta outliers (> 2,5× a mediana).
- * - Sem peso em alguma compra, cai na média ponderada dos dias.
+ * - Intervalos fora de 3–180 dias não entram (lançamento errado / cliente sumido).
+ * - Retorno após mais de 180 dias reinicia pela estimativa dos pets.
+ * - O consumo inferido (kg ÷ dias) é só informativo; não altera o ciclo.
  *
  * Retorna null quando ainda não há intervalo válido (1ª compra): aí vale o cálculo por métricas.
  */
 export function calcularCicloPorHistorico(
   compras: CompraHistoricoRecompra[],
 ): CicloHistoricoRecompra | null {
-  const ordenadas = compras
-    .filter((compra) => /^\d{4}-\d{2}-\d{2}/.test(compra.data))
-    .map((compra) => ({ data: compra.data.slice(0, 10), pesoKg: Math.max(0, compra.pesoKg || 0) }))
-    .sort((a, b) => a.data.localeCompare(b.data));
-  if (ordenadas.length < 2) return null;
-
-  // Agrupa compras muito próximas: o evento começa na 1ª data e soma os kg.
-  const eventos: Array<{ inicio: string; fim: string; pesoKg: number; semPeso: boolean }> = [];
-  for (const compra of ordenadas) {
-    const ultimo = eventos[eventos.length - 1];
-    if (ultimo && diasEntre(ultimo.fim, compra.data) <= JANELA_MESMA_COMPRA_DIAS) {
-      ultimo.fim = compra.data;
-      ultimo.pesoKg += compra.pesoKg;
-      ultimo.semPeso ||= compra.pesoKg <= 0;
-    } else {
-      eventos.push({
-        inicio: compra.data,
-        fim: compra.data,
-        pesoKg: compra.pesoKg,
-        semPeso: compra.pesoKg <= 0,
-      });
-    }
-  }
+  const eventos = agruparComprasRecompra(compras);
   if (eventos.length < 2) return null;
+  if (diasEntre(eventos.at(-2)!.inicio, eventos.at(-1)!.inicio) > INTERVALO_MAX_DIAS) return null;
 
-  let intervalos: Array<{ dias: number; consumoG: number | null }> = [];
+  const intervalos: number[] = [];
+  const intervalosDescartados: number[] = [];
+  const consumos: number[] = [];
   for (let i = eventos.length - 1; i > 0; i--) {
     const anterior = eventos[i - 1];
     const dias = diasEntre(anterior.inicio, eventos[i].inicio);
-    if (dias < INTERVALO_MIN_DIAS || dias > INTERVALO_MAX_DIAS) continue;
-    intervalos.push({
-      dias,
-      consumoG: anterior.semPeso ? null : (anterior.pesoKg * 1000) / dias,
-    });
-    if (intervalos.length >= MAX_INTERVALOS_HISTORICO + 1) break;
+    if (dias < INTERVALO_MIN_DIAS || dias > INTERVALO_MAX_DIAS) {
+      intervalosDescartados.push(dias);
+      continue;
+    }
+    intervalos.push(dias);
+    if (!anterior.semPeso && anterior.pesoKg > 0) consumos.push((anterior.pesoKg * 1000) / dias);
   }
   if (intervalos.length === 0) return null;
 
-  if (intervalos.length >= 3) {
-    const base = intervalos.every((item) => item.consumoG)
-      ? intervalos.map((item) => item.consumoG as number)
-      : intervalos.map((item) => item.dias);
-    const centro = mediana(base);
-    const filtrados = intervalos.filter((_, i) => {
-      const razao = base[i] / centro;
-      return razao <= 2.5 && razao >= 1 / 2.5;
-    });
-    if (filtrados.length > 0) intervalos = filtrados;
-  }
-  intervalos = intervalos.slice(0, MAX_INTERVALOS_HISTORICO);
-
-  const atual = eventos[eventos.length - 1];
-  const todosComPeso = !atual.semPeso && intervalos.every((item) => item.consumoG);
-  const consumoRealG = todosComPeso
-    ? Math.round(mediaPonderada(intervalos.map((item) => item.consumoG as number)))
-    : null;
-  const cicloEvento = consumoRealG
-    ? (atual.pesoKg * 1000) / consumoRealG
-    : mediaPonderada(intervalos.map((item) => item.dias));
-  // Se a compra atual é um pacote extra dentro do mesmo evento, desconta os dias já passados.
-  const dias = Math.round(cicloEvento) - diasEntre(atual.inicio, atual.fim);
-
+  const media = intervalos.reduce((soma, dias) => soma + dias, 0) / intervalos.length;
   return {
-    dias: Math.max(1, Math.min(365, dias)),
-    intervalos: intervalos.map((item) => item.dias),
-    consumoRealG,
+    dias: Math.max(1, Math.min(CICLO_MAX_AUTOMATICO_DIAS, Math.round(media))),
+    intervalos,
+    consumoRealG:
+      consumos.length === intervalos.length
+        ? Math.round(consumos.reduce((soma, g) => soma + g, 0) / consumos.length)
+        : null,
+    intervalosDescartados,
   };
+}
+
+export type MemoriaCalculoRecompra = {
+  versao: 2;
+  grupo: string;
+  compraId: string;
+  produtoSku?: string;
+  consumoEstimadoG: number;
+  consumoHistoricoG: number | null;
+  pesoEventoKg: number;
+  inicioEvento: string;
+  diasTranscorridos: number;
+  intervalosDescartados: number[];
+  pendencia: string | null;
+};
+
+/** Primeira previsão integra o consumo por dia; histórico passa a valer no segundo abastecimento. */
+export function preverRecompra(params: {
+  compras: CompraHistoricoRecompra[];
+  consumoNaData: (data: string) => number;
+}) {
+  const eventos = agruparComprasRecompra(params.compras);
+  const evento = eventos.at(-1);
+  const historico = calcularCicloPorHistorico(params.compras);
+  if (historico) return { dias: historico.dias, historico, evento, pendencia: null };
+  if (!evento || evento.semPeso || evento.pesoKg <= 0) {
+    return { dias: 0, historico, evento, pendencia: "Informe o peso total da ração comprada." };
+  }
+  let saldo = evento.pesoKg * 1000;
+  const data = new Date(`${evento.inicio}T00:00:00.000Z`);
+  const passados = diasEntre(evento.inicio, evento.fim);
+  // Ração que "dura" mais que o teto (pacote grande, venda duplicada) volta a ser
+  // contatada no teto em vez de sumir por meses.
+  for (let dia = 0; dia < CICLO_MAX_AUTOMATICO_DIAS + passados; dia++) {
+    const consumo = params.consumoNaData(data.toISOString().slice(0, 10));
+    if (!Number.isFinite(consumo) || consumo <= 0) {
+      return {
+        dias: 0,
+        historico,
+        evento,
+        pendencia: "Informe os pets ou o consumo diário dessa ração.",
+      };
+    }
+    if (saldo <= consumo)
+      return {
+        dias: Math.max(
+          1,
+          Math.min(CICLO_MAX_AUTOMATICO_DIAS, Math.round(dia + saldo / consumo) - passados),
+        ),
+        historico,
+        evento,
+        pendencia: null,
+      };
+    saldo -= consumo;
+    data.setUTCDate(data.getUTCDate() + 1);
+  }
+  return { dias: CICLO_MAX_AUTOMATICO_DIAS, historico, evento, pendencia: null };
+}
+
+/**
+ * Espécie que o produto declara no nome/categoria/detalhes. Retorna null quando o
+ * produto não diz (aí a espécie vem do cadastro do cliente).
+ */
+export function especieExplicitaProduto(
+  produto?: ProdutoRecompraInfo | null,
+): "cachorro" | "gato" | null {
+  const text = normalizarTextoRecompra(
+    [produto?.nome, produto?.categoria, detalhesTecnicos(produto)?.especie]
+      .filter(Boolean)
+      .join(" "),
+  );
+  if (/\bgatos?\b|felin|catsy|special cat|\bcat\b/.test(text)) return "gato";
+  if (/\bcaes\b|\bcao\b|cachorro|canin|\bdogs?\b|special dog|bob dog/.test(text)) {
+    return "cachorro";
+  }
+  return null;
+}
+
+/** Porte indicado pelo produto (ex.: "Raças Pequenas", "Mini Bits", "Small Breed"). */
+export function portePadraoProdutoRecompra(
+  produto?: ProdutoRecompraInfo | null,
+  observacoes?: string | null,
+): "pequeno" | "medio" | "grande" {
+  const text = normalizarTextoRecompra(
+    [produto?.nome, detalhesTecnicos(produto)?.porte, observacoes].filter(Boolean).join(" "),
+  );
+  if (/pequen|\bpeq\b|\bmini\b|\bsmall\b|\btoy\b/.test(text)) return "pequeno";
+  if (/grande|gigante|\blarge\b|\bmaxi\b|\bgiant\b/.test(text)) return "grande";
+  return "medio";
+}
+
+/**
+ * Sem pet informado na venda, considera só os pets da espécie do produto: ração de
+ * cachorro não soma o consumo do gato. Pets sem espécie cadastrada continuam valendo.
+ */
+export function filtrarPetsPorEspecieProduto<T extends { especie?: "cachorro" | "gato" | null }>(
+  pets: T[],
+  produto?: ProdutoRecompraInfo | null,
+): T[] {
+  const especie = especieExplicitaProduto(produto);
+  if (!especie) return pets;
+  const filtrados = pets.filter((pet) => !pet.especie || pet.especie === especie);
+  return filtrados.length > 0 ? filtrados : pets;
 }

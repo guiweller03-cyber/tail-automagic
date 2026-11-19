@@ -1,3 +1,4 @@
+import { correspondeBusca } from "@/lib/crm-search";
 import { Copy, Edit3, Megaphone, Plus, Search, Trash2, TrendingUp, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -117,14 +118,13 @@ export function Campanhas() {
   }, []);
 
   const filteredCampanhas = useMemo(() => {
-    const term = query.trim().toLowerCase();
     return campanhas.filter((campanha) => {
       const matchesStatus = statusFilter === "todas" || campanha.status === statusFilter;
-      const matchesQuery =
-        !term ||
-        campanha.nome.toLowerCase().includes(term) ||
-        campanha.origem.toLowerCase().includes(term) ||
-        campanha.objetivo.toLowerCase().includes(term);
+      const matchesQuery = correspondeBusca(query, [
+        campanha.nome,
+        campanha.origem,
+        campanha.objetivo,
+      ]);
       return matchesStatus && matchesQuery;
     });
   }, [campanhas, query, statusFilter]);

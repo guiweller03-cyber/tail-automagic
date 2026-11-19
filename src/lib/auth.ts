@@ -1,5 +1,6 @@
 const SESSION_COOKIE = "crm_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
+import type { LojaId } from "./loja-context";
 
 type AdminUser = {
   login: string;
@@ -9,10 +10,12 @@ type AdminUser = {
 const ADMIN_SLOTS = [
   { index: 1, label: "Admin 1" },
   { index: 2, label: "Admin 2" },
+  { index: 3, label: "Admin 3" },
 ] as const;
 
 type SessionPayload = AdminUser & {
   exp: number;
+  loja?: LojaId;
 };
 
 function getEnv(name: string): string {
@@ -35,7 +38,7 @@ export function hasConfiguredAdmins(): boolean {
   return getConfiguredAdmins().length > 0;
 }
 
-function getAdminPassword(index: 1 | 2): string {
+function getAdminPassword(index: (typeof ADMIN_SLOTS)[number]["index"]): string {
   return getEnv(`CRM_ADMIN_${index}_PASSWORD`);
 }
 
@@ -43,12 +46,10 @@ function getSessionSecret(): string {
   const explicitSecret = getEnv("CRM_AUTH_SECRET");
   if (explicitSecret) return explicitSecret;
 
-  return [
-    getEnv("CRM_ADMIN_1_LOGIN"),
-    getAdminPassword(1),
-    getEnv("CRM_ADMIN_2_LOGIN"),
-    getAdminPassword(2),
-  ].join(":");
+  return ADMIN_SLOTS.flatMap(({ index }) => [
+    getEnv(`CRM_ADMIN_${index}_LOGIN`),
+    getAdminPassword(index),
+  ]).join(":");
 }
 
 function parseCookies(cookieHeader: string | null): Record<string, string> {
@@ -119,6 +120,7 @@ async function verifySignedValue(value: string): Promise<SessionPayload | null> 
   try {
     const parsed = JSON.parse(base64UrlDecodeText(payload)) as SessionPayload;
     if (!parsed.login || !parsed.exp || parsed.exp <= Date.now()) return null;
+    if (parsed.loja && parsed.loja !== "loja1" && parsed.loja !== "loja2") return null;
 
     return parsed;
   } catch {
@@ -126,10 +128,11 @@ async function verifySignedValue(value: string): Promise<SessionPayload | null> 
   }
 }
 
-export async function createSessionCookie(admin: AdminUser, request: Request): Promise<string> {
+export async function createSessionCookie(admin: AdminUser, request: Request, loja: LojaId = "loja1"): Promise<string> {
   const payload: SessionPayload = {
     login: admin.login,
     label: admin.label,
+    loja,
     exp: Date.now() + SESSION_MAX_AGE_SECONDS * 1000,
   };
   const encodedPayload = base64UrlEncodeText(JSON.stringify(payload));
@@ -155,6 +158,10 @@ export function createLogoutCookie(): string {
 }
 
 export async function getCurrentAdmin(request: Request): Promise<AdminUser | null> {
+  return (await getCurrentSession(request))?.admin ?? null;
+}
+
+export async function getCurrentSession(request: Request): Promise<{ admin: AdminUser; loja: LojaId } | null> {
   const cookies = parseCookies(request.headers.get("cookie"));
   const session = cookies[SESSION_COOKIE];
   if (!session) return null;
@@ -165,7 +172,7 @@ export async function getCurrentAdmin(request: Request): Promise<AdminUser | nul
   const admin = getConfiguredAdmins().find((item) => item.login === payload.login);
   if (!admin) return null;
 
-  return admin;
+  return { admin, loja: payload.loja ?? "loja1" };
 }
 
 export function verifyAdminCredentials(login: string, password: string): AdminUser | null {

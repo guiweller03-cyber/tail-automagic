@@ -1,3 +1,4 @@
+import { lojaStorage } from "@/lib/loja-storage";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import {
   TrendingUp,
@@ -180,14 +181,14 @@ function AbaVendas() {
   }, []);
 
   useEffect(() => {
-    const v = typeof window !== "undefined" ? localStorage.getItem(META_KEY) : null;
+    const v = typeof window !== "undefined" ? lojaStorage.getItem(META_KEY) : null;
     if (v) setMeta(Number(v) || META_DEFAULT);
   }, []);
 
   function salvarMeta() {
     const n = Math.max(0, Number(draftMeta.replace(/[^\d]/g, "")) || META_DEFAULT);
     setMeta(n);
-    if (typeof window !== "undefined") localStorage.setItem(META_KEY, String(n));
+    if (typeof window !== "undefined") lojaStorage.setItem(META_KEY, String(n));
     setEditingMeta(false);
   }
 

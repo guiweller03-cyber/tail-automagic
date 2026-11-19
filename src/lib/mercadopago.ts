@@ -1,4 +1,5 @@
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
+import { lojaAtual } from "./loja-context";
 
 type PedidoPix = {
   id: string;
@@ -48,6 +49,7 @@ export async function gerarPixPedido(pedido: PedidoPix): Promise<{
   id: string;
   status: string;
 }> {
+  if (lojaAtual() !== "loja1") throw new Error("Pix automático indisponível na Loja Tijucas");
   try {
     const payment = paymentClient();
     const response = await payment.create({

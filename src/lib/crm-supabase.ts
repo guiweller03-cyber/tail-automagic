@@ -1,3 +1,5 @@
+import { lojaAtual } from "./loja-context";
+import { configuracaoLoja } from "./loja-context";
 import type { Cliente, PetDetalhe, Produto, ProdutoDetalhesTecnicos } from "@/lib/crm-types";
 import {
   type LeadTotalInput,
@@ -162,12 +164,12 @@ const COMPROVANTE_MIME_EXT: Record<string, string> = {
   "image/gif": "gif",
   "application/pdf": "pdf",
 };
-let dashboardCache: { expiresAt: number; data: DashboardData } | null = null;
-let dashboardPromise: Promise<DashboardData> | null = null;
+const dashboardCache = new Map<string, { expiresAt: number; data: DashboardData }>();
+const dashboardPromise = new Map<string, Promise<DashboardData>>();
 const PESO_PADRAO_GATO_KG = 3.5;
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
 
   if (!value) {
     throw new Error(`Missing environment variable: ${name}`);
@@ -270,7 +272,7 @@ async function listarVendasDashboard(inicioHistorico: Date): Promise<VendaRow[]>
   });
 
   try {
-    return await selectFromSupabase<VendaRow>(`/vendas?${params}`);
+    return await selectAllFromSupabase<VendaRow>(`/vendas?${params}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes("faturado_em")) {
@@ -285,7 +287,12 @@ async function listarVendasDashboard(inicioHistorico: Date): Promise<VendaRow[]>
     order: "criado_em.desc",
   });
 
-  return selectOptional<VendaRow>(`/vendas?${fallbackParams}`);
+  try {
+    return await selectAllFromSupabase<VendaRow>(`/vendas?${fallbackParams}`);
+  } catch (error) {
+    console.error("[dashboard] erro_vendas", error);
+    return [];
+  }
 }
 
 function parsePesoPetKg(value: unknown): number | undefined {
@@ -463,6 +470,7 @@ export type ClienteCrmInput = {
   telefone: string;
   endereco?: string;
   bairro?: string;
+  cidade?: string;
   pets?: string[];
   petsDetalhes?: PetDetalhe[];
   perfil?: Cliente["perfil"];
@@ -477,6 +485,7 @@ function clientePayload(input: ClienteCrmInput): Record<string, unknown> {
     telefone: input.telefone.replace(/\D/g, ""),
     endereco: input.endereco?.trim() || null,
     bairro: input.bairro?.trim() || null,
+    ...(input.cidade !== undefined ? { cidade: input.cidade.trim() || null } : {}),
     pets: input.pets?.map((pet) => pet.trim()).filter(Boolean) ?? [],
     perfil: input.perfil ?? "Novo",
     origem: input.origem?.trim() || "CRM manual",
@@ -563,7 +572,18 @@ export async function atualizarClienteCrm(id: string, input: ClienteCrmInput): P
 
   await registrarLeadTotal(cliente, { ativo: true });
 
+  const { recalcularRecompraCliente } = await import("./recompra-supabase");
+  await recalcularRecompraCliente(id);
+
   return cliente;
+}
+
+/** Atualiza só a cidade, sem mexer nos demais campos do cadastro. */
+export async function atualizarCidadeCliente(id: string, cidade: string): Promise<Cliente> {
+  return writeCliente(`/clientes?id=eq.${encodeURIComponent(id)}`, "PATCH", {
+    cidade: cidade.trim() || null,
+    atualizado_em: new Date().toISOString(),
+  });
 }
 
 export async function excluirClienteCrm(id: string): Promise<void> {
@@ -974,7 +994,9 @@ export async function uploadComprovanteStorage({
     throw new Error(`Supabase comprovante upload failed (${response.status}): ${errorBody}`);
   }
 
-  return supabasePublicObjectUrl(COMPROVANTES_BUCKET, path);
+  return lojaAtual() === "loja2"
+    ? supabaseStorageUrl(`/object/${COMPROVANTES_BUCKET}/${encodeStoragePath(path)}`)
+    : supabasePublicObjectUrl(COMPROVANTES_BUCKET, path);
 }
 
 export function comprovanteStoragePath(
@@ -996,15 +1018,22 @@ async function listarClientesDashboard(): Promise<ClienteDashboardRow[]> {
 }
 
 async function listarProdutosDashboard(): Promise<ProdutoDashboardRow[]> {
-  return selectFromSupabase<ProdutoDashboardRow>(
+  return selectAllFromSupabase<ProdutoDashboardRow>(
     "/produtos?select=sku,nome,categoria,fornecedor,estoque,minimo",
   );
 }
 
+// O Supabase devolve no maximo 1000 linhas por consulta: sem paginar, os itens
+// novos sumiam do dashboard depois que a loja passava de 1000 itens vendidos.
 async function listarVendaItensDashboard(): Promise<VendaItemDashboardRow[]> {
-  return selectOptional<VendaItemDashboardRow>(
-    "/venda_itens?select=venda_id,sku,nome,quantidade,preco",
-  );
+  try {
+    return await selectAllFromSupabase<VendaItemDashboardRow>(
+      "/venda_itens?select=venda_id,sku,nome,quantidade,preco&order=criado_em.desc",
+    );
+  } catch (error) {
+    console.error("[dashboard] erro_venda_itens", error);
+    return [];
+  }
 }
 
 function dataLocalSaoPaulo(date: Date): string {
@@ -1028,8 +1057,10 @@ function inicioMesLocalSaoPaulo(date: Date, monthOffset = 0): string {
   return dataLocalSaoPaulo(new Date(Date.UTC(year, month - 1 + monthOffset, 1, 15)));
 }
 
+// Sem faturado_em usa a data da venda: atualizado_em muda a cada edicao e jogava
+// vendas antigas editadas para o faturamento de hoje.
 function dataContabilVenda(venda: VendaRow): Date {
-  return new Date(venda.faturado_em ?? venda.atualizado_em ?? venda.criado_em);
+  return new Date(venda.faturado_em ?? venda.criado_em);
 }
 
 function dataContabilLocalVenda(venda: VendaRow): string {
@@ -1199,32 +1230,34 @@ function mapConversa(row: ConversaDashboardRow): DashboardData["conversas"][numb
 }
 
 export async function carregarDashboard(): Promise<DashboardData> {
-  const cached = dashboardCache;
+  const loja = lojaAtual();
+  const cached = dashboardCache.get(loja);
   const now = Date.now();
 
   if (cached && cached.expiresAt > now) {
     return cached.data;
   }
 
-  if (dashboardPromise) {
-    return dashboardPromise;
+  if (dashboardPromise.has(loja)) {
+    return dashboardPromise.get(loja)!;
   }
 
-  dashboardPromise = carregarDashboardSemCache()
+  const promise = carregarDashboardSemCache()
     .then((data) => {
-      dashboardCache = { data, expiresAt: Date.now() + DASHBOARD_CACHE_MS };
+      dashboardCache.set(loja, { data, expiresAt: Date.now() + DASHBOARD_CACHE_MS });
       return data;
     })
     .finally(() => {
-      dashboardPromise = null;
+      dashboardPromise.delete(loja);
     });
 
-  return dashboardPromise;
+  dashboardPromise.set(loja, promise);
+  return promise;
 }
 
 export function invalidarDashboardCache(): void {
-  dashboardCache = null;
-  dashboardPromise = null;
+  dashboardCache.delete(lojaAtual());
+  dashboardPromise.delete(lojaAtual());
 }
 
 async function carregarDashboardSemCache(): Promise<DashboardData> {

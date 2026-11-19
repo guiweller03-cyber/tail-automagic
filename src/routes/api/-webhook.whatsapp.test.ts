@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { motivoIgnorarAutomacoesIa } from "./webhook.whatsapp.ts";
+import { motivoIgnorarAutomacoesIa, textoMensagem } from "./webhook.whatsapp.ts";
 
 test("ignora automacoes quando IA global esta desligada e conversa nao tem override", () => {
   assert.equal(
@@ -29,5 +29,25 @@ test("permite automacoes quando conversa tem IA ligada como override", () => {
       { globalDesativada: true },
     ),
     null,
+  );
+});
+
+test("audio e imagem com text vazio da UazAPI nao sao descartados", () => {
+  assert.equal(
+    textoMensagem({ chatid: "1@s.whatsapp.net", text: "", messageType: "AudioMessage" }),
+    "[Audio recebido]",
+  );
+  assert.equal(
+    textoMensagem({
+      chatid: "1@s.whatsapp.net",
+      text: "",
+      messageType: "ImageMessage",
+      fromMe: true,
+    }),
+    "[Imagem enviada]",
+  );
+  assert.equal(
+    textoMensagem({ chatid: "1@s.whatsapp.net", text: "oi", messageType: "Conversation" }),
+    "oi",
   );
 });

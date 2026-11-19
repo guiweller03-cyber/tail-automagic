@@ -1,3 +1,4 @@
+import { correspondeBusca } from "@/lib/crm-search";
 import type { OrigemCicloRecompra, RecompraPetCalculo, RecompraPrevista } from "@/lib/crm-types";
 import {
   dataRecompra,
@@ -11,6 +12,7 @@ import {
   type PainelSituacao,
 } from "@/lib/painel-recompra";
 import { onCrmReload } from "@/lib/crm-refresh";
+import type { AuditoriaRecompraIa } from "@/lib/recompra-auditoria-ia";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,12 +64,52 @@ import {
   Send,
   ShoppingBag,
   Sparkles,
+  Wand2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type RecompraApiData = {
   recompras: RecompraPrevista[];
+};
+
+type MapaAuditorias = Record<string, AuditoriaRecompraIa>;
+
+const LOTE_AUDITORIA = 5;
+const MAX_AUDITORIA_POR_CLIQUE = 40;
+const REAUDITAR_APOS_MS = 24 * 60 * 60 * 1000;
+
+/** Auditoria so vale para a mesma compra; compra nova invalida a sugestao. */
+function auditoriaValida(item: RecompraPrevista, mapa: MapaAuditorias) {
+  const auditoria = mapa[item.id];
+  if (!auditoria) return null;
+  return (auditoria.ultimaCompraIso ?? null) === (item.ultimaCompraIso ?? null) ? auditoria : null;
+}
+
+/** Sugestao que ainda pede acao (nao e "ok" e o ciclo atual ainda e outro). */
+function auditoriaPendente(item: RecompraPrevista, auditoria: AuditoriaRecompraIa | null) {
+  return Boolean(
+    auditoria && auditoria.veredito !== "ok" && item.previsaoBase !== auditoria.cicloSugeridoDias,
+  );
+}
+
+/** O que vale a IA revisar: vencendo, atrasado, pendente ou ciclo longo suspeito. */
+function candidatoAuditoria(item: RecompraPrevista, mapa: MapaAuditorias) {
+  if (item.contatado) return false;
+  const auditoria = auditoriaValida(item, mapa);
+  if (auditoria && Date.now() - new Date(auditoria.auditadoEm).getTime() < REAUDITAR_APOS_MS) {
+    return false;
+  }
+  return Boolean(item.pendenciaCalculo) || item.diasRestantes <= 21 || item.previsaoBase >= 90;
+}
+
+const VEREDITO_META: Record<AuditoriaRecompraIa["veredito"], { titulo: string; chip: string }> = {
+  ok: { titulo: "IA: ciclo ok", chip: "border-success/25 bg-success/10 text-success" },
+  ajustar: { titulo: "IA: ajustar", chip: "border-primary/30 bg-primary/10 text-primary" },
+  verificar: {
+    titulo: "IA: verificar",
+    chip: "border-warning/30 bg-warning/10 text-amber-700 dark:text-amber-300",
+  },
 };
 
 type ConversaMensagem = {
@@ -86,12 +128,19 @@ type ConversaApi = {
   historico?: ConversaMensagem[];
 };
 
-const COLUNAS: PainelSituacao[] = ["atrasado", "urgente", "normal"];
+const COLUNAS: PainelSituacao[] = ["atrasado", "urgente", "normal", "pendente"];
 
 const SITUACAO_META: Record<
   PainelSituacao,
   { titulo: string; descricao: string; dot: string; chip: string; bar: string }
 > = {
+  pendente: {
+    titulo: "Dados pendentes",
+    descricao: "Complete os dados para calcular",
+    dot: "bg-muted-foreground",
+    chip: "border-border bg-secondary text-muted-foreground",
+    bar: "bg-muted-foreground",
+  },
   atrasado: {
     titulo: "Atrasado",
     descricao: "A previsão já passou",
@@ -158,6 +207,7 @@ function rotuloDias(dias: number) {
 }
 
 function progressoCiclo(item: RecompraPrevista) {
+  if (item.pendenciaCalculo) return 0;
   const ciclo = Math.max(1, item.previsaoBase);
   const consumido = ciclo - item.diasRestantes;
   return Math.max(0, Math.min(100, (consumido / ciclo) * 100));
@@ -181,10 +231,28 @@ export function PainelRecompra() {
   const [busca, setBusca] = useState("");
   const [metodologiaAberta, setMetodologiaAberta] = useState(false);
   const [abertoId, setAbertoId] = useState<string | null>(null);
+  const [auditorias, setAuditorias] = useState<MapaAuditorias>({});
+  const [auditoriaProgresso, setAuditoriaProgresso] = useState<{
+    feitos: number;
+    total: number;
+  } | null>(null);
+
+  const carregarAuditorias = useCallback(async () => {
+    try {
+      const response = await fetch("/api/crm/recompra-prevista?auditoria=1", {
+        cache: "no-store",
+      });
+      const data = (await response.json()) as { auditorias?: MapaAuditorias };
+      if (response.ok && data.auditorias) setAuditorias(data.auditorias);
+    } catch {
+      // Sem auditoria o painel continua funcionando normalmente.
+    }
+  }, []);
 
   const carregar = useCallback(async () => {
     setLoading(true);
     setError("");
+    void carregarAuditorias();
     try {
       const response = await fetch("/api/crm/recompra-prevista", { cache: "no-store" });
       const data = (await response.json()) as RecompraApiData | { erro?: string };
@@ -200,7 +268,7 @@ export function PainelRecompra() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [carregarAuditorias]);
 
   useEffect(() => {
     void carregar();
@@ -227,20 +295,88 @@ export function PainelRecompra() {
     }
   }
 
+  async function auditarComIA(ids: string[]) {
+    if (auditoriaProgresso || ids.length === 0) return;
+    const fila = ids.slice(0, MAX_AUDITORIA_POR_CLIQUE);
+    const novas: AuditoriaRecompraIa[] = [];
+    let falhas = 0;
+    setAuditoriaProgresso({ feitos: 0, total: fila.length });
+    try {
+      for (let inicio = 0; inicio < fila.length; inicio += LOTE_AUDITORIA) {
+        const lote = fila.slice(inicio, inicio + LOTE_AUDITORIA);
+        const response = await fetch("/api/crm/recompra-prevista", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tipo: "auditoria_ia", ids: lote }),
+        });
+        const data = (await response.json().catch(() => ({}))) as {
+          auditorias?: AuditoriaRecompraIa[];
+          erros?: unknown[];
+          erro?: string;
+        };
+        if (!response.ok) throw new Error(data.erro ?? "Falha ao auditar com IA");
+        novas.push(...(data.auditorias ?? []));
+        falhas += data.erros?.length ?? 0;
+        setAuditorias((atual) => {
+          const proximo = { ...atual };
+          for (const auditoria of data.auditorias ?? []) proximo[auditoria.previsaoId] = auditoria;
+          return proximo;
+        });
+        setAuditoriaProgresso({
+          feitos: Math.min(fila.length, inicio + lote.length),
+          total: fila.length,
+        });
+      }
+      const ajustar = novas.filter((a) => a.veredito === "ajustar").length;
+      const verificar = novas.filter((a) => a.veredito === "verificar").length;
+      toast.success(
+        `IA revisou ${novas.length} previsões: ${ajustar} para ajustar, ${verificar} para verificar${
+          falhas ? `, ${falhas} com falha` : ""
+        }`,
+      );
+    } catch (auditError) {
+      toast.error(auditError instanceof Error ? auditError.message : "Falha ao auditar com IA");
+    } finally {
+      setAuditoriaProgresso(null);
+    }
+  }
+
+  const candidatosAuditoria = useMemo(
+    () =>
+      items
+        .filter((item) => candidatoAuditoria(item, auditorias))
+        // Primeiro quem esta mais perto de recomprar; pendencias (sem ciclo) por ultimo.
+        .sort(
+          (a, b) =>
+            Number(Boolean(a.pendenciaCalculo)) - Number(Boolean(b.pendenciaCalculo)) ||
+            a.diasRestantes - b.diasRestantes,
+        )
+        .map((item) => item.id),
+    [items, auditorias],
+  );
+  const revisarIa = useMemo(
+    () =>
+      items.flatMap((item) => {
+        const auditoria = auditoriaValida(item, auditorias);
+        return auditoria && auditoriaPendente(item, auditoria) ? [{ item, auditoria }] : [];
+      }),
+    [items, auditorias],
+  );
+
   const filtrados = useMemo(() => {
     const query = busca.trim().toLocaleLowerCase("pt-BR");
     if (!query) return items;
     return items.filter((item) =>
-      `${item.cliente} ${item.pet} ${item.racao} ${item.sku}`
-        .toLocaleLowerCase("pt-BR")
-        .includes(query),
+      correspondeBusca(busca, [item.cliente, item.pet, item.racao, item.sku], [item.telefone]),
     );
   }, [busca, items]);
 
   const selecionado = items.find((item) => item.id === abertoId) ?? null;
-  const totalPrevisto = items.reduce((sum, item) => sum + item.valorEstimado, 0);
-  const comTabela = items.filter((item) => fonteCalculo(item) === "tabela").length;
-  const noPrazo = items.filter((item) => item.diasRestantes >= 0).length;
+  const totalPrevisto = items
+    .filter((item) => !item.pendenciaCalculo)
+    .reduce((sum, item) => sum + item.valorEstimado, 0);
+  const comHistorico = items.filter((item) => item.origemCiclo === "historico").length;
+  const noPrazo = items.filter((item) => !item.pendenciaCalculo && item.diasRestantes >= 0).length;
   const multiPet = items.filter((item) => nomesPets(item).length > 1).length;
   const serie = useMemo(() => previsaoPorMes(items), [items]);
   const pesosInferidos = useMemo(
@@ -308,8 +444,64 @@ export function PainelRecompra() {
             )}
             Recalcular
           </Button>
+          <Button
+            type="button"
+            onClick={() => void auditarComIA(candidatosAuditoria)}
+            disabled={Boolean(auditoriaProgresso) || candidatosAuditoria.length === 0}
+            className="w-full sm:w-auto"
+            title={
+              candidatosAuditoria.length === 0
+                ? "Nada novo para auditar: as previsões próximas já foram revisadas nas últimas 24 h"
+                : "A IA revisa as previsões vencendo, atrasadas, pendentes ou com ciclo longo"
+            }
+          >
+            {auditoriaProgresso ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Wand2 className="size-4" />
+            )}
+            {auditoriaProgresso
+              ? `Auditando ${auditoriaProgresso.feitos}/${auditoriaProgresso.total}`
+              : candidatosAuditoria.length
+                ? `Auditar com IA (${Math.min(candidatosAuditoria.length, MAX_AUDITORIA_POR_CLIQUE)})`
+                : "Auditar com IA"}
+          </Button>
         </div>
       </header>
+
+      {revisarIa.length > 0 && (
+        <section className="rounded-lg border border-primary/25 bg-primary/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <Wand2 className="size-4 text-primary" /> A IA sugere revisar {revisarIa.length}{" "}
+              {revisarIa.length === 1 ? "previsão" : "previsões"}
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Nada muda sozinho: abra e clique em aplicar se concordar.
+            </p>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {revisarIa.slice(0, 8).map(({ item, auditoria }) => (
+              <button
+                type="button"
+                key={item.id}
+                onClick={() => setAbertoId(item.id)}
+                className="min-w-0 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs hover:border-primary/40"
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <strong className="truncate text-sm">
+                    {nomesPets(item).join(" + ") || item.pet} · {item.cliente}
+                  </strong>
+                  <AuditoriaChip auditoria={auditoria} />
+                </span>
+                <span className="mt-1 line-clamp-2 block text-muted-foreground">
+                  {auditoria.justificativa}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {error && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -352,8 +544,9 @@ export function PainelRecompra() {
                 de vida e peso cadastrado ou estimado.
               </li>
               <li>
-                <strong className="text-foreground">4.</strong> Compara o ciclo calculado com o
-                histórico real de compras quando ele existe.
+                <strong className="text-foreground">4.</strong> A partir do segundo abastecimento, o
+                ciclo é a média de dias entre uma compra e outra do histórico (compras com até 3
+                dias de diferença contam como uma só).
               </li>
               <li>
                 <strong className="text-foreground">5.</strong> Recalcula a data prevista e ordena a
@@ -391,10 +584,10 @@ export function PainelRecompra() {
 
       <section className="grid gap-3 md:grid-cols-3">
         <RingStat
-          percent={percentual(comTabela, items.length)}
+          percent={percentual(comHistorico, items.length)}
           tone="primary"
-          label="Com tabela de consumo"
-          sublabel="Linha identificada no cadastro técnico do produto."
+          label="Com histórico de compras"
+          sublabel="Consumo inferido por quantidade e intervalo entre abastecimentos."
         />
         <RingStat
           percent={percentual(noPrazo, items.length)}
@@ -476,7 +669,7 @@ export function PainelRecompra() {
         </div>
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-3">
+      <section className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
         {COLUNAS.map((coluna) => {
           const meta = SITUACAO_META[coluna];
           const colunaItems = filtrados.filter((item) => situacaoPainel(item) === coluna);
@@ -507,7 +700,12 @@ export function PainelRecompra() {
                   </p>
                 ) : (
                   colunaItems.map((item) => (
-                    <RecompraCard key={item.id} item={item} onOpen={() => setAbertoId(item.id)} />
+                    <RecompraCard
+                      key={item.id}
+                      item={item}
+                      auditoria={auditoriaValida(item, auditorias)}
+                      onOpen={() => setAbertoId(item.id)}
+                    />
                   ))
                 )}
               </div>
@@ -560,7 +758,7 @@ export function PainelRecompra() {
                       {formatarData(item.dataPrevistaIso, item.dataPrevista)}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {rotuloDias(item.diasRestantes)}
+                      {item.pendenciaCalculo ? "Complete os dados" : rotuloDias(item.diasRestantes)}
                       {item.cicloManual ? " · ciclo ajustado" : ""}
                     </p>
                   </td>
@@ -601,6 +799,9 @@ export function PainelRecompra() {
               onContatado={() => marcarContatado(selecionado.id)}
               onAtualizado={atualizarItem}
               onItensAtualizados={atualizarItens}
+              auditoria={auditoriaValida(selecionado, auditorias)}
+              auditando={Boolean(auditoriaProgresso)}
+              onAuditar={() => void auditarComIA([selecionado.id])}
             />
           )}
         </DialogContent>
@@ -609,7 +810,34 @@ export function PainelRecompra() {
   );
 }
 
-function RecompraCard({ item, onOpen }: { item: RecompraPrevista; onOpen: () => void }) {
+function AuditoriaChip({ auditoria }: { auditoria: AuditoriaRecompraIa }) {
+  const meta = VEREDITO_META[auditoria.veredito];
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+        meta.chip,
+      )}
+      title={auditoria.justificativa}
+    >
+      <Wand2 className="size-3" />
+      {meta.titulo}
+      {auditoria.veredito === "ajustar" && auditoria.cicloSugeridoDias
+        ? ` → ${auditoria.cicloSugeridoDias} d`
+        : ""}
+    </span>
+  );
+}
+
+function RecompraCard({
+  item,
+  auditoria,
+  onOpen,
+}: {
+  item: RecompraPrevista;
+  auditoria: AuditoriaRecompraIa | null;
+  onOpen: () => void;
+}) {
   return (
     <button
       type="button"
@@ -629,9 +857,15 @@ function RecompraCard({ item, onOpen }: { item: RecompraPrevista; onOpen: () => 
         )}
       </div>
       <p className="mt-2 truncate text-xs text-muted-foreground">{item.racao}</p>
+      {auditoria && auditoriaPendente(item, auditoria) && (
+        <div className="mt-2">
+          <AuditoriaChip auditoria={auditoria} />
+        </div>
+      )}
       <div className="mt-2 flex items-center justify-between gap-2 text-xs">
         <span className="text-muted-foreground">
-          {item.dataPrevista} · {rotuloDias(item.diasRestantes)}
+          {item.dataPrevista} ·{" "}
+          {item.pendenciaCalculo ? "Complete os dados" : rotuloDias(item.diasRestantes)}
           {item.cicloManual ? " · ajustado" : ""}
         </span>
         <span className="font-semibold">{brl(item.valorEstimado)}</span>
@@ -740,11 +974,17 @@ function RecompraDetalhe({
   onContatado,
   onAtualizado,
   onItensAtualizados,
+  auditoria,
+  auditando,
+  onAuditar,
 }: {
   item: RecompraPrevista;
   onContatado: () => void;
   onAtualizado: (item: RecompraPrevista) => void;
   onItensAtualizados: (items: RecompraPrevista[]) => void;
+  auditoria: AuditoriaRecompraIa | null;
+  auditando: boolean;
+  onAuditar: () => void;
 }) {
   const pets = item.petsCalculo ?? [];
   const situacao = situacaoPainel(item);
@@ -787,12 +1027,15 @@ function RecompraDetalhe({
             value={
               item.intervaloPedidos
                 ? `${item.intervaloPedidos} dias${
-                    item.origemCiclo === "historico" ? " · usado na previsão" : ""
+                    item.origemCiclo === "historico" ? " · média dos intervalos" : ""
                   }`
                 : "Sem compras anteriores suficientes"
             }
           />
-          <DetailField label="Ciclo usado na previsão" value={`${item.previsaoBase} dias`} />
+          <DetailField
+            label="Ciclo usado na previsão"
+            value={item.pendenciaCalculo ? "Pendente" : `${item.previsaoBase} dias`}
+          />
           <DetailField
             label="Pacote"
             value={`${item.quantidade} un. · ${item.pesoKg.toLocaleString("pt-BR")} kg`}
@@ -801,13 +1044,33 @@ function RecompraDetalhe({
             label="Consumo diário"
             value={`${Math.round(item.consumoDiaKg * 1000)} g/dia`}
           />
+          <DetailField
+            label="Consumo estimado pelos pets"
+            value={`${Math.round(item.consumoEstimadoG ?? item.consumoDiaKg * 1000)} g/dia`}
+          />
+          <DetailField
+            label="Consumo inferido pelas compras"
+            value={
+              item.consumoHistoricoG
+                ? `${Math.round(item.consumoHistoricoG)} g/dia`
+                : "Sem histórico com peso suficiente"
+            }
+          />
           <DetailField label="Valor estimado" value={brl(item.valorEstimado)} />
           <DetailField
             label="Recompra prevista"
-            value={`${formatarData(item.dataPrevistaIso, item.dataPrevista)} (${rotuloDias(item.diasRestantes)})`}
+            value={`${formatarData(item.dataPrevistaIso, item.dataPrevista)} (${item.pendenciaCalculo ? "Complete os dados" : rotuloDias(item.diasRestantes)})`}
             className="sm:col-span-2"
           />
         </dl>
+
+        <AuditoriaIaBox
+          item={item}
+          auditoria={auditoria}
+          auditando={auditando}
+          onAuditar={onAuditar}
+          onAtualizado={onAtualizado}
+        />
 
         <div className="grid gap-3 md:grid-cols-2">
           <DataCompraEditor item={item} onAtualizados={onItensAtualizados} />
@@ -853,6 +1116,101 @@ function RecompraDetalhe({
         </Dialog>
       </div>
     </>
+  );
+}
+
+async function salvarCicloManual(id: string, dias: number | null): Promise<RecompraPrevista> {
+  const response = await fetch("/api/crm/recompra-prevista", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tipo: "ciclo_manual", id, dias }),
+  });
+  const data = (await response.json()) as { recompra?: RecompraPrevista; erro?: string };
+  if (!response.ok || !data.recompra) {
+    throw new Error(data.erro ?? "Não foi possível salvar o ciclo");
+  }
+  return data.recompra;
+}
+
+function AuditoriaIaBox({
+  item,
+  auditoria,
+  auditando,
+  onAuditar,
+  onAtualizado,
+}: {
+  item: RecompraPrevista;
+  auditoria: AuditoriaRecompraIa | null;
+  auditando: boolean;
+  onAuditar: () => void;
+  onAtualizado: (item: RecompraPrevista) => void;
+}) {
+  const [aplicando, setAplicando] = useState(false);
+  const sugestao = auditoria?.cicloSugeridoDias ?? null;
+  const podeAplicar = sugestao !== null && sugestao !== item.previsaoBase;
+  const novaData = sugestao !== null ? somarDias(item.ultimaCompraIso, sugestao) : null;
+
+  async function aplicar() {
+    if (sugestao === null || aplicando) return;
+    setAplicando(true);
+    try {
+      onAtualizado(await salvarCicloManual(item.id, sugestao));
+      toast.success(`Ciclo ajustado para ${sugestao} dias pela sugestão da IA`);
+    } catch (applyError) {
+      toast.error(applyError instanceof Error ? applyError.message : "Não foi possível aplicar");
+    } finally {
+      setAplicando(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-primary/25 bg-primary/5 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase text-primary">
+          <Wand2 className="size-4" /> Auditoria da IA
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {auditoria && <AuditoriaChip auditoria={auditoria} />}
+          <Button type="button" size="sm" variant="outline" disabled={auditando} onClick={onAuditar}>
+            {auditando ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
+            {auditoria ? "Auditar de novo" : "Auditar agora"}
+          </Button>
+        </div>
+      </div>
+      {auditoria ? (
+        <div className="mt-2 space-y-2 text-xs">
+          <p className="leading-relaxed text-foreground">{auditoria.justificativa}</p>
+          {auditoria.alertas.length > 0 && (
+            <ul className="space-y-1 text-amber-700 dark:text-amber-300">
+              {auditoria.alertas.map((alerta) => (
+                <li key={alerta} className="flex gap-1.5">
+                  <AlertTriangle className="mt-0.5 size-3 shrink-0" /> {alerta}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-muted-foreground">
+            Confiança {auditoria.confianca} · ciclo na revisão: {auditoria.cicloNaAuditoria} d ·{" "}
+            {new Date(auditoria.auditadoEm).toLocaleString("pt-BR")}
+          </p>
+          {podeAplicar && (
+            <Button type="button" size="sm" disabled={aplicando} onClick={() => void aplicar()}>
+              {aplicando ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+              Aplicar {sugestao} dias{novaData ? ` (recompra em ${novaData})` : ""}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">
+          A IA ainda não revisou esta previsão. Ela compara o ciclo com o histórico de compras, os
+          pets e o que o cliente contou na conversa, e sugere um ajuste se fizer sentido.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -906,7 +1264,9 @@ function CicloEditor({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-xs font-semibold uppercase text-muted-foreground">Ciclo de recompra</p>
-          <p className="mt-1 text-lg font-bold">{item.previsaoBase} dias</p>
+          <p className="mt-1 text-lg font-bold">
+            {item.pendenciaCalculo ? "Pendente" : `${item.previsaoBase} dias`}
+          </p>
         </div>
         <span
           className={cn(

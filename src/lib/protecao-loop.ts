@@ -1,5 +1,6 @@
 import { cloudflareBindings } from "./cloudflare-env";
 import { enviarMensagem } from "./uazapi";
+import { lojaAtual } from "./loja-context";
 
 /*
  * Protecao contra loop de requisicoes no CRM. Entre 07 e 09/09/2026 uma aba do
@@ -17,7 +18,7 @@ export async function bloquearLoopApi(login: string, pathname: string): Promise<
   const { CRM_API_RATE_LIMIT } = await cloudflareBindings();
   if (!CRM_API_RATE_LIMIT) return null;
 
-  const chave = `${login}:${pathname}`;
+  const chave = `${lojaAtual()}:${login}:${pathname}`;
   try {
     const { success } = await CRM_API_RATE_LIMIT.limit({ key: chave });
     if (success) return null;

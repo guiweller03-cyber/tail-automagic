@@ -38,6 +38,13 @@ export const DEFAULT_KANBAN_COLUMNS: KanbanColumn[] = [
     estagioInterno: "vendendo",
   },
   {
+    id: "aprovada",
+    nome: "Aprovada",
+    descricao: "Vendas com pagamento confirmado",
+    cor: "emerald",
+    estagioInterno: "pos_venda",
+  },
+  {
     id: "upsell",
     nome: "Upsell",
     descricao: "Oportunidades de venda complementar",
@@ -104,7 +111,11 @@ export function sanitizeKanbanColumns(value: unknown): KanbanColumn[] {
     ];
   });
 
-  return columns.length > 0 ? columns : DEFAULT_KANBAN_COLUMNS.map((column) => ({ ...column }));
+  if (columns.length === 0) return DEFAULT_KANBAN_COLUMNS.map((column) => ({ ...column }));
+  if (!colunaVendaAprovada(columns)) {
+    columns.push({ ...DEFAULT_KANBAN_COLUMNS.find((column) => column.id === "aprovada")! });
+  }
+  return columns;
 }
 
 export function defaultKanbanColumnId(estagio: unknown): string {
@@ -118,4 +129,11 @@ export function defaultKanbanColumnId(estagio: unknown): string {
     default:
       return "hoje";
   }
+}
+
+export function colunaVendaAprovada(columns: KanbanColumn[]): KanbanColumn | undefined {
+  return columns.find((column) => {
+    const nome = column.nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    return /\baprovad[ao]s?\b/.test(nome) || /\baprovad[ao]s?\b/.test(column.id.replace(/-/g, " "));
+  });
 }

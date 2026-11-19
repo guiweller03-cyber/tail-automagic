@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   inferirOrigemVenda,
+  listarVendasFinanceiras,
   mapVendaFinanceira,
   type VendaFinanceiraItem,
 } from "./financeiro-supabase";
@@ -101,5 +102,54 @@ describe("histórico financeiro", () => {
 
     assert.equal(venda.custoProdutos, 50);
     assert.equal(venda.lucro, 30);
+  });
+});
+
+describe("listarVendasFinanceiras em banco com migrations atrasadas", () => {
+  it("ignora colunas opcionais ausentes em vez de falhar", async () => {
+    process.env.SUPABASE_URL = "https://exemplo.supabase.co";
+    process.env.SUPABASE_ANON_KEY = "chave-teste";
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??= "chave-teste";
+    const ausentes = new Set(["venda_origem", "pet_nome"]);
+    const urls: string[] = [];
+    const fetchOriginal = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      const select = new URL(url).searchParams.get("select") ?? "";
+      const faltando = [...ausentes].find((coluna) => select.split(",").includes(coluna));
+      if (faltando) {
+        const tabela = url.includes("/venda_itens") ? "venda_itens" : "vendas";
+        return new Response(
+          JSON.stringify({
+            code: "42703",
+            message: `column ${tabela}.${faltando} does not exist`,
+          }),
+          { status: 400 },
+        );
+      }
+      if (url.includes("/venda_itens")) return Response.json([]);
+      return Response.json([
+        {
+          id: "v1",
+          total: 99.9,
+          lucro: 28.9,
+          observacao: "Venda rápida pelo PDV",
+          criado_em: "2026-11-18T12:00:00Z",
+        },
+      ]);
+    }) as typeof fetch;
+
+    try {
+      const vendas = await listarVendasFinanceiras();
+      assert.equal(vendas.length, 1);
+      assert.equal(vendas[0].total, 99.9);
+      assert.equal(vendas[0].origem, "PDV");
+      const ultimaVendas = urls.filter((u) => u.includes("/vendas?")).at(-1) ?? "";
+      assert.ok(!ultimaVendas.includes("venda_origem"));
+      assert.ok(!ultimaVendas.includes("pet_nome"));
+    } finally {
+      globalThis.fetch = fetchOriginal;
+    }
   });
 });

@@ -47,22 +47,22 @@ loadEnvFile();
 
 const POLL_MS = Number(process.env.FOLLOWUP_POLL_MS ?? 60_000);
 
-function env(name) {
-  const v = process.env[name]?.trim();
+function env(name, loja = "loja1") {
+  const v = process.env[loja === "loja2" ? `LOJA2_${name}` : name]?.trim();
   if (!v) throw new Error(`Variável de ambiente ausente: ${name}`);
   return v;
 }
 
-function supaKey() {
-  return process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || env("SUPABASE_ANON_KEY");
+function supaKey(loja) {
+  return env("SUPABASE_SERVICE_ROLE_KEY", loja);
 }
 
-function supaUrl(path) {
-  return `${env("SUPABASE_URL").replace(/\/$/, "")}/rest/v1${path}`;
+function supaUrl(path, loja) {
+  return `${env("SUPABASE_URL", loja).replace(/\/$/, "")}/rest/v1${path}`;
 }
 
-function supaHeaders(prefer) {
-  const k = supaKey();
+function supaHeaders(prefer, loja) {
+  const k = supaKey(loja);
   return {
     apikey: k,
     authorization: `Bearer ${k}`,
@@ -77,24 +77,24 @@ function normPhone(v) {
     .replace(/\D/g, "");
 }
 
-async function listarVencidos() {
+async function listarVencidos(loja) {
   const params = new URLSearchParams({
     select: "*",
     status: "eq.pendente",
     agendado_para: `lte.${new Date().toISOString()}`,
     order: "agendado_para.asc",
   });
-  const r = await fetch(supaUrl(`/crm_followups?${params.toString()}`), {
-    headers: supaHeaders(),
+  const r = await fetch(supaUrl(`/crm_followups?${params.toString()}`, loja), {
+    headers: supaHeaders(undefined, loja),
   });
   if (!r.ok) throw new Error(`supabase select ${r.status}: ${await r.text()}`);
   return r.json();
 }
 
-async function atualizar(id, campos) {
-  const r = await fetch(supaUrl(`/crm_followups?id=eq.${encodeURIComponent(id)}`), {
+async function atualizar(id, campos, loja) {
+  const r = await fetch(supaUrl(`/crm_followups?id=eq.${encodeURIComponent(id)}`, loja), {
     method: "PATCH",
-    headers: supaHeaders("return=representation"),
+    headers: supaHeaders("return=representation", loja),
     body: JSON.stringify({ ...campos, atualizado_em: new Date().toISOString() }),
   });
   if (!r.ok) throw new Error(`supabase update ${r.status}: ${await r.text()}`);
@@ -116,9 +116,9 @@ async function gerarTextoIA(fu) {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
-      max_tokens: 180,
-      temperature: 0.7,
+      model: process.env.OPENAI_FAST_MODEL?.trim() || "gpt-5.4-mini",
+      reasoning_effort: "low",
+      max_completion_tokens: 2200,
       messages: [
         {
           role: "system",
@@ -138,10 +138,10 @@ async function gerarTextoIA(fu) {
   return (j.choices?.[0]?.message?.content || "").trim();
 }
 
-async function enviarWhatsapp(telefone, text) {
-  const r = await fetch(`${env("UAZAPI_URL").replace(/\/$/, "")}/send/text`, {
+async function enviarWhatsapp(telefone, text, loja) {
+  const r = await fetch(`${env("UAZAPI_URL", loja).replace(/\/$/, "")}/send/text`, {
     method: "POST",
-    headers: { "content-type": "application/json", token: env("UAZAPI_TOKEN") },
+    headers: { "content-type": "application/json", token: env("UAZAPI_TOKEN", loja) },
     body: JSON.stringify({ number: normPhone(telefone), text }),
   });
   if (!r.ok) throw new Error(`uazapi ${r.status}: ${await r.text()}`);
@@ -154,8 +154,8 @@ async function resolverMensagem(fu) {
   return "";
 }
 
-async function processar() {
-  const vencidos = await listarVencidos();
+async function processar(loja) {
+  const vencidos = await listarVencidos(loja);
   let enviados = 0;
   let aguardando = 0;
   let erros = 0;
@@ -165,23 +165,23 @@ async function processar() {
       if (fu.disparo === "automatico") {
         const msg = await resolverMensagem(fu);
         if (!msg) throw new Error("follow-up sem mensagem para enviar");
-        await enviarWhatsapp(fu.telefone, msg);
+        await enviarWhatsapp(fu.telefone, msg, loja);
         await atualizar(fu.id, {
           status: "enviado",
           mensagem: msg,
           enviado_em: new Date().toISOString(),
           erro: null,
-        });
+        }, loja);
         enviados += 1;
       } else {
         const msg = await resolverMensagem(fu);
-        await atualizar(fu.id, { status: "aguardando_confirmacao", mensagem: msg, erro: null });
+        await atualizar(fu.id, { status: "aguardando_confirmacao", mensagem: msg, erro: null }, loja);
         aguardando += 1;
       }
     } catch (e) {
       erros += 1;
       try {
-        await atualizar(fu.id, { status: "erro", erro: String(e?.message || e) });
+        await atualizar(fu.id, { status: "erro", erro: String(e?.message || e) }, loja);
       } catch {
         // ignora falha ao registrar erro
       }
@@ -190,7 +190,7 @@ async function processar() {
 
   if (vencidos.length) {
     console.log(
-      `[followups] ${vencidos.length} vencidos: ${enviados} enviados, ` +
+      `[followups:${loja}] ${vencidos.length} vencidos: ${enviados} enviados, ` +
         `${aguardando} aguardando confirmacao, ${erros} erros`,
     );
   }
@@ -201,7 +201,13 @@ async function tick() {
   if (rodando) return;
   rodando = true;
   try {
-    await processar();
+    await processar("loja1");
+    if (process.env.LOJA2_ATIVA === "1" &&
+        process.env.LOJA2_SUPABASE_URL && process.env.LOJA2_SUPABASE_SERVICE_ROLE_KEY &&
+        process.env.LOJA2_UAZAPI_URL && process.env.LOJA2_UAZAPI_TOKEN &&
+        process.env.LOJA2_UAZAPI_WEBHOOK_SECRET) {
+      await processar("loja2");
+    }
   } catch (e) {
     console.error("[followups] erro no ciclo:", e?.message || e);
   } finally {

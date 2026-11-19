@@ -1,3 +1,4 @@
+import { configuracaoLoja } from "./loja-context";
 import type {
   DemandaBairro,
   ModeloRecompraRacao,
@@ -8,7 +9,6 @@ import type {
   RecompraStatus,
 } from "@/lib/crm-types";
 import {
-  calcularCicloPorHistorico,
   calcularDiasRecompraRacao,
   type CompraHistoricoRecompra,
   cicloEfetivoRecompra,
@@ -20,6 +20,10 @@ import {
   inferirPesoRacaoKg,
   normalizarDataCompraRecompra,
   normalizarTextoRecompra,
+  portePadraoProdutoRecompra,
+  preverRecompra,
+  diasEntreCompras,
+  type MemoriaCalculoRecompra,
 } from "@/lib/recompra-calculo";
 import {
   calcularDuracoesHistorico,
@@ -61,6 +65,7 @@ type ProdutoRow = {
 };
 
 type VendaItemComVendaRow = {
+  manual?: CompraManualRow;
   id: string;
   venda_id: string;
   sku: string;
@@ -82,6 +87,8 @@ type VendaItemComVendaRow = {
 };
 
 type PrevisaoRow = {
+  calculo?: MemoriaCalculoRecompra | null;
+  atualizado_em: string;
   id: string;
   cliente_id: string;
   venda_id: string | null;
@@ -119,6 +126,21 @@ type PrevisaoRow = {
   dias_manual?: number | null;
   clientes: ClienteRow | null;
   produtos: ProdutoRow | null;
+};
+
+type CompraManualRow = {
+  id: string;
+  cliente_id: string;
+  sku: string;
+  produto_nome: string;
+  pet_nome: string;
+  especie: "cachorro" | "gato";
+  comprado_em: string;
+  quantidade: number;
+  peso_kg: number;
+  consumo_diario_g: number | null;
+  dias_manual: number | null;
+  pets_detalhes: PetDetalhe[];
 };
 
 type PetEstimado = {
@@ -159,7 +181,6 @@ export type RecompraData = {
   modelos: ModeloRecompraRacao[];
 };
 
-const DEFAULT_CONSUMO_G_DIA = 120;
 const ALERTA_DIAS_ANTES_POR_PORTE: Record<string, number> = {
   toy: 3,
   pequeno: 3,
@@ -170,7 +191,7 @@ const ALERTA_DIAS_ANTES_POR_PORTE: Record<string, number> = {
 };
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
   if (!value) throw new Error(`Missing environment variable: ${name}`);
   return value;
 }
@@ -232,8 +253,6 @@ async function writeRows<T>(
   return (await response.json()) as T[];
 }
 
-type PrevisaoSubstituivelRow = Pick<PrevisaoRow, "id" | "sku" | "pet_nome" | "venda_id">;
-
 function isMissingPetNomeColumn(errorBody: string): boolean {
   return /pet_nome|PGRST204/i.test(errorBody);
 }
@@ -270,9 +289,7 @@ function especiePadrao(
   )
     return "gato";
   if (
-    text.includes("cao") ||
-    text.includes("caes") ||
-    text.includes("cachorro") ||
+    /\b(cao|caes|cachorros?)\b/.test(text) ||
     MARCAS_SO_CACHORRO.some((marca) => text.includes(marca))
   )
     return "cachorro";
@@ -283,18 +300,14 @@ function portePadrao(
   produto?: ProdutoRow | null,
   observacoes?: string | null,
 ): "pequeno" | "medio" | "grande" {
-  const text = normalizeText(
-    `${produto?.nome ?? ""} ${produto?.detalhes_tecnicos?.porte ?? ""} ${observacoes ?? ""}`,
-  );
-  if (text.includes("pequeno") || text.includes("peq")) return "pequeno";
-  if (text.includes("grande") || text.includes("large")) return "grande";
-  return "medio";
+  return portePadraoProdutoRecompra(produto, observacoes);
 }
 
 function petsEstimados(
   cliente: ClienteRow | null | undefined,
   produto: ProdutoRow | null | undefined,
   petNome?: string | null,
+  dataCalculo?: string,
 ): PetEstimado[] {
   const especieDefault = especiePadrao(produto, cliente);
   const porteDefault = portePadrao(produto, cliente?.observacoes);
@@ -307,12 +320,13 @@ function petsEstimados(
         .filter(Boolean),
     ),
   );
-  if (petNomes.length > 1) return petsEstimadosPorNomes(cliente, produto, petNomes);
+  if (petNomes.length > 1)
+    return petsEstimadosPorNomes(cliente, produto, petNomes, undefined, dataCalculo);
 
   const petBusca = petNomes[0] ?? petNome?.trim();
   if (petBusca) {
     const petDetalhe = cliente?.pets_detalhes?.find(
-      (pet) => pet.nome.trim().toLowerCase() === petBusca.toLowerCase(),
+      (pet) => normalizeText(pet.nome).trim() === normalizeText(petBusca).trim(),
     );
     const consumo = consumoDiarioPetRacao({
       produto,
@@ -330,6 +344,7 @@ function petsEstimados(
       },
       especiePadrao: especieDefault,
       portePadrao: porteDefault,
+      hoje: dataCalculo,
     });
 
     return [
@@ -349,7 +364,9 @@ function petsEstimados(
   }
 
   const detalhes = cliente?.pets_detalhes?.length
-    ? cliente.pets_detalhes.filter((pet) => pet.nome?.trim())
+    ? cliente.pets_detalhes.filter(
+        (pet) => pet.nome?.trim() && (!pet.especie || pet.especie === especieDefault),
+      )
     : null;
   const pets =
     detalhes ??
@@ -361,6 +378,7 @@ function petsEstimados(
       pet,
       especiePadrao: especieDefault,
       portePadrao: porteDefault,
+      hoje: dataCalculo,
     });
 
     return {
@@ -383,18 +401,19 @@ function petsEstimadosPorNomes(
   produto: ProdutoRow | null | undefined,
   petNomes: string[],
   petsDetalhes?: PetDetalhe[],
+  dataCalculo?: string,
 ): PetEstimado[] {
   const nomes = Array.from(new Set(petNomes.map((nome) => nome.trim()).filter(Boolean)));
-  if (nomes.length === 0) return petsEstimados(cliente, produto);
+  if (nomes.length === 0) return petsEstimados(cliente, produto, undefined, dataCalculo);
   const especieDefault = especiePadrao(produto, cliente);
   const porteDefault = portePadrao(produto, cliente?.observacoes);
 
   return nomes.map((nome) => {
     const petDetalhe = cliente?.pets_detalhes?.find(
-      (pet) => pet.nome.trim().toLowerCase() === nome.toLowerCase(),
+      (pet) => normalizeText(pet.nome).trim() === normalizeText(nome).trim(),
     );
     const detalheManual = petsDetalhes?.find(
-      (pet) => pet.nome.trim().toLowerCase() === nome.toLowerCase(),
+      (pet) => normalizeText(pet.nome).trim() === normalizeText(nome).trim(),
     );
     const consumo = consumoDiarioPetRacao({
       produto,
@@ -414,6 +433,7 @@ function petsEstimadosPorNomes(
       },
       especiePadrao: especieDefault,
       portePadrao: porteDefault,
+      hoje: dataCalculo,
     });
 
     return {
@@ -489,61 +509,10 @@ function petTokens(value: string | null | undefined): string[] {
     new Set(
       (value ?? "")
         .split(",")
-        .map((item) => normalizeText(item))
+        .map((item) => normalizeText(item).trim().replace(/\s+/g, " "))
         .filter(Boolean),
     ),
   );
-}
-
-function previsaoPertenceAosPetsDaVenda(previsaoPetNome: string | null, vendaPetNome: string) {
-  const petsVenda = petTokens(vendaPetNome);
-  const petsPrevisao = petTokens(previsaoPetNome);
-
-  if (petsVenda.length === 0 || petsPrevisao.length === 0) return true;
-  return petsPrevisao.some((pet) => petsVenda.includes(pet));
-}
-
-async function removerRecomprasSubstituidasPorNovaRacao({
-  clienteId,
-  sku,
-  petNome,
-  vendaIdAtual,
-}: {
-  clienteId: string;
-  sku: string;
-  petNome: string;
-  vendaIdAtual?: string | null;
-}): Promise<void> {
-  const params = new URLSearchParams({
-    cliente_id: `eq.${clienteId}`,
-    select: "id,sku,pet_nome,venda_id",
-  });
-  const rows = await selectOptional<PrevisaoSubstituivelRow>(`/recompra_previsoes?${params}`);
-  const ids = rows
-    .filter(
-      (row) =>
-        row.venda_id !== vendaIdAtual &&
-        (row.sku === sku || previsaoPertenceAosPetsDaVenda(row.pet_nome, petNome)),
-    )
-    .map((row) => row.id);
-
-  if (ids.length === 0) return;
-
-  const deleteParams = new URLSearchParams({
-    id: `in.(${ids.join(",")})`,
-  });
-  const response = await fetch(supabaseUrl(`/recompra_previsoes?${deleteParams}`), {
-    method: "DELETE",
-    headers: supabaseHeaders(),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    if (/PGRST205|relation .* does not exist/i.test(errorBody)) return;
-    throw new Error(
-      `Supabase recompra substituida delete failed (${response.status}): ${errorBody}`,
-    );
-  }
 }
 
 function markerValue(line: string, key: string): string | null {
@@ -564,16 +533,22 @@ function numberMarker(line: string, key: string, min: number, max: number): numb
 function observacaoRecompraAuto(
   observacao: string | null | undefined,
   sku: string,
-): { dias?: number; consumoDiarioG?: number; pesoKg?: number } | null {
+  petNome?: string | null,
+): { dias?: number; consumoDiarioG?: number; pesoKg?: number; confirmado: boolean } | null {
   if (!observacao?.trim()) return null;
 
   const linhas = observacao
     .split("|")
     .map((line) => line.trim())
     .filter((line) => /recompra_auto/i.test(line));
+  const candidatas = linhas.filter((line) => markerValue(line, "sku") === sku);
+  const exatas = candidatas.filter((line) => mesmosPets(markerValue(line, "pet"), petNome));
   const linha =
-    linhas.find((line) => markerValue(line, "sku") === sku) ??
-    (linhas.length === 1 ? linhas[0] : null);
+    exatas.length === 1
+      ? exatas[0]
+      : candidatas.length === 1 && !markerValue(candidatas[0], "pet")
+        ? candidatas[0]
+        : null;
   if (!linha) return null;
 
   const dias = numberMarker(linha, "dias", 3, 180);
@@ -583,6 +558,7 @@ function observacaoRecompraAuto(
   if (!dias && !consumoDiarioG && !pesoKg) return null;
 
   return {
+    confirmado: markerValue(linha, "confirmado") === "true",
     ...(dias ? { dias: Math.round(dias) } : {}),
     ...(consumoDiarioG ? { consumoDiarioG } : {}),
     ...(pesoKg ? { pesoKg } : {}),
@@ -664,18 +640,99 @@ async function listarProdutosPorSku(skus: string[]): Promise<Map<string, Produto
   return new Map(rows.map((row) => [row.sku, row]));
 }
 
+async function selectAll<T>(path: string): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; ; ) {
+    const url = new URL(path, "https://local.invalid");
+    url.searchParams.set("limit", "300");
+    url.searchParams.set("offset", String(offset));
+    const page = await selectRows<T>(url.pathname + url.search);
+    rows.push(...page);
+    if (page.length < 300) return rows;
+    offset += page.length;
+  }
+}
+
+function itemCompraManual(row: CompraManualRow): VendaItemComVendaRow {
+  return {
+    id: "manual:" + row.id,
+    venda_id: "manual:" + row.id,
+    sku: row.sku,
+    nome: row.produto_nome,
+    pet_nome: row.pet_nome,
+    quantidade: Number(row.quantidade),
+    preco: null,
+    preco_compra: null,
+    manual: row,
+    vendas: {
+      id: "manual:" + row.id,
+      cliente_id: row.cliente_id,
+      cliente_nome: null,
+      telefone: null,
+      criado_em: row.comprado_em,
+      status: "concluida",
+    },
+  };
+}
+
+/** Data a que a venda se refere: "Venda retroativa (22/07)" aponta para 22/07. */
+function dataReferidaVenda(item: VendaItemComVendaRow): string {
+  const data = dataCompraVenda(item.vendas);
+  const retro = item.vendas?.observacao?.match(/venda retroativa \((\d{1,2})\/(\d{1,2})\)/i);
+  if (!retro) return data;
+  const [dia, mes] = [retro[1], retro[2]].map((v) => v.padStart(2, "0"));
+  const candidata = `${data.slice(0, 4)}-${mes}-${dia}`;
+  // Referência de dezembro lançada em janeiro pertence ao ano anterior.
+  return candidata > data ? `${Number(data.slice(0, 4)) - 1}-${mes}-${dia}` : candidata;
+}
+
+/**
+ * Lançamentos retroativos repetidos geravam a mesma venda várias vezes (6× o mesmo pacote
+ * de 10 kg virava 60 kg). Item idêntico (nome, pet, quantidade e preço) em outra venda
+ * referente ao mesmo dia é duplicata e não soma no abastecimento.
+ */
+function semVendasDuplicadas(itens: VendaItemComVendaRow[]): VendaItemComVendaRow[] {
+  const vendaPorChave = new Map<string, string>();
+  return itens.filter((item) => {
+    if (item.manual) return true;
+    const chave = [
+      dataReferidaVenda(item),
+      normalizarTextoRecompra(item.nome ?? item.sku).replace(/\s+/g, " ").trim(),
+      petTokens(item.pet_nome).sort().join(","),
+      Number(item.quantidade),
+      Number(item.preco ?? 0),
+    ].join("|");
+    const venda = vendaPorChave.get(chave);
+    if (!venda) vendaPorChave.set(chave, item.venda_id);
+    return !venda || venda === item.venda_id;
+  });
+}
+
 async function comprasCliente(clienteId: string): Promise<VendaItemComVendaRow[]> {
   const params = new URLSearchParams({
-    "vendas.cliente_id": `eq.${clienteId}`,
+    sku: "not.is.null",
+    "vendas.cliente_id": "eq." + clienteId,
     select:
       "id,venda_id,sku,nome,pet_nome,quantidade,preco,preco_compra,vendas!inner(id,cliente_id,cliente_nome,telefone,criado_em,faturado_em,status,observacao)",
-    order: "criado_em.desc",
-    limit: "300",
+    order: "id.asc",
   });
-  const rows = await selectRows<VendaItemComVendaRow>(`/venda_itens?${params}`);
-  return rows
-    .filter((row) => row.vendas?.cliente_id === clienteId && row.vendas.status !== "cancelada")
-    .sort((a, b) => dataCompraVenda(b.vendas).localeCompare(dataCompraVenda(a.vendas)));
+  const [vendas, manuais] = await Promise.all([
+    selectAll<VendaItemComVendaRow>("/venda_itens?" + params),
+    selectAll<CompraManualRow>(
+      "/recompra_compras_manuais?cliente_id=eq." +
+        encodeURIComponent(clienteId) +
+        "&select=*&order=id.asc",
+    ),
+  ]);
+  return semVendasDuplicadas(
+    [...vendas, ...manuais.map(itemCompraManual)]
+      .filter((row) => row.vendas?.cliente_id === clienteId && row.vendas.status !== "cancelada"),
+  ).sort(
+      (a, b) =>
+        dataCompraVenda(a.vendas).localeCompare(dataCompraVenda(b.vendas)) ||
+        (a.vendas?.criado_em ?? "").localeCompare(b.vendas?.criado_em ?? "") ||
+        a.id.localeCompare(b.id),
+    );
 }
 
 function mesmosPets(a: string | null | undefined, b: string | null | undefined): boolean {
@@ -685,236 +742,243 @@ function mesmosPets(a: string | null | undefined, b: string | null | undefined):
 }
 
 function produtoDoItem(item: VendaItemComVendaRow, produtos: Map<string, ProdutoRow>): ProdutoRow {
+  const catalogo = produtos.get(item.sku);
+  return {
+    sku: item.sku,
+    nome: item.nome || catalogo?.nome || item.sku,
+    categoria: catalogo?.categoria ?? (item.manual ? "Racao" : null),
+    preco: item.preco,
+    preco_compra: item.preco_compra,
+    estoque: null,
+    detalhes_tecnicos: {
+      ...catalogo?.detalhes_tecnicos,
+      ...(item.manual ? { especie: item.manual.especie } : {}),
+    },
+  };
+}
+
+function nomesDoGrupo(
+  item: VendaItemComVendaRow,
+  produto: ProdutoRow,
+  cliente: ClienteRow | null,
+): string {
+  const explicitos = petTokens(item.pet_nome);
+  if (explicitos.length) return explicitos.sort().join(", ");
+  const especie = especiePadrao(produto, cliente);
+  const pets = (cliente?.pets_detalhes ?? [])
+    .filter((p) => p.nome?.trim() && (!p.especie || p.especie === especie))
+    .map((p) => p.nome);
+  if (pets.length) return petTokens(pets.join(",")).sort().join(", ");
+  // Sem detalhes não é possível atribuir os nomes do cadastro a uma espécie com segurança.
+  return "pet (" + especie + ")";
+}
+
+function chaveGrupo(
+  item: VendaItemComVendaRow,
+  produtos: Map<string, ProdutoRow>,
+  cliente: ClienteRow | null,
+): string {
+  const produto = produtoDoItem(item, produtos);
+  return especiePadrao(produto, cliente) + "|" + nomesDoGrupo(item, produto, cliente);
+}
+
+function pesoDoItem(item: VendaItemComVendaRow, produtos: Map<string, ProdutoRow>): number {
+  if (item.manual) return Number(item.manual.peso_kg);
+  const produto = produtoDoItem(item, produtos);
+  const marcador = observacaoRecompraAuto(item.vendas?.observacao, item.sku, item.pet_nome);
+  // Nome gravado na venda preserva o tamanho comprado mesmo após editar o catálogo.
+  const pesoNome = inferirPesoRacaoKg({ nome: item.nome }, Number(item.quantidade));
   return (
-    produtos.get(item.sku) ?? {
-      sku: item.sku,
-      nome: item.nome,
-      categoria: null,
-      preco: item.preco,
-      preco_compra: item.preco_compra,
-      estoque: null,
-      detalhes_tecnicos: null,
-    }
+    (marcador?.confirmado ? marcador.pesoKg : undefined) ??
+    (pesoNome || inferirPesoKg(produto, Number(item.quantidade)) || marcador?.pesoKg || 0)
   );
 }
 
-/**
- * Historico usado no ciclo real: todas as compras de racao do mesmo cliente,
- * para os mesmos pets e mesma especie, ate a compra atual (inclusive). Nao
- * filtra por SKU: trocar de sabor/tamanho nao zera o comportamento do cliente.
- */
 function historicoRacaoDoItem(
   item: VendaItemComVendaRow,
-  comprasDoCliente: VendaItemComVendaRow[],
+  compras: VendaItemComVendaRow[],
   produtos: Map<string, ProdutoRow>,
   cliente: ClienteRow | null,
 ): CompraHistoricoRecompra[] {
-  const dataAtual = dataCompraVenda(item.vendas);
-  const especieAtual = especiePadrao(produtoDoItem(item, produtos), cliente);
-  const compras = comprasDoCliente.filter((compra) => {
-    if (compra.id === item.id) return true;
-    if (dataCompraVenda(compra.vendas) > dataAtual) return false;
-    if (!mesmosPets(compra.pet_nome, item.pet_nome)) return false;
-    const produto = produtoDoItem(compra, produtos);
-    return isRacao(produto) && especiePadrao(produto, cliente) === especieAtual;
-  });
-  if (!compras.some((compra) => compra.id === item.id)) compras.push(item);
-
-  return compras.map((compra) => {
-    const observacao = observacaoRecompraAuto(compra.vendas?.observacao, compra.sku);
-    return {
+  const chave = chaveGrupo(item, produtos, cliente);
+  return compras
+    .filter(
+      (compra) =>
+        isRacao(produtoDoItem(compra, produtos)) &&
+        chaveGrupo(compra, produtos, cliente) === chave &&
+        dataCompraVenda(compra.vendas) <= dataCompraVenda(item.vendas),
+    )
+    .map((compra) => ({
       data: dataCompraVenda(compra.vendas),
-      pesoKg:
-        observacao?.pesoKg ?? inferirPesoKg(produtoDoItem(compra, produtos), compra.quantidade),
-    };
-  });
+      pesoKg: pesoDoItem(compra, produtos),
+    }));
 }
 
-/**
- * O ajuste manual do ciclo vale para a compra em que foi feito: sobrevive ao
- * "Recalcular" e ao reprocessamento da mesma venda, mas uma compra nova volta
- * ao calculo automatico.
- */
-async function cicloManualDaVenda(
+/** Projeção completa e determinística: independe da ordem de lançamento das vendas. */
+export async function recalcularRecompraCliente(
   clienteId: string,
-  sku: string,
-  petNome: string,
-  vendaId: string,
-): Promise<number | null> {
-  const params = new URLSearchParams({
-    cliente_id: `eq.${clienteId}`,
-    sku: `eq.${sku}`,
-    pet_nome: `eq.${petNome}`,
-    select: "*",
-    limit: "1",
-  });
-  const [row] = await selectOptional<Pick<PrevisaoRow, "venda_id" | "dias_manual">>(
-    `/recompra_previsoes?${params}`,
-  );
-  if (!row || row.venda_id !== vendaId) return null;
-  return row.dias_manual ?? null;
+  simular = false,
+): Promise<PrevisaoRow[]> {
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    // A versão é lida ANTES dos fatos. A transação rejeita alterações concorrentes.
+    const anteriores = await selectRows<PrevisaoRow>(
+      "/recompra_previsoes?cliente_id=eq." + encodeURIComponent(clienteId) + "&select=*",
+    );
+    const [clientes, compras] = await Promise.all([
+      listarClientesPorId([clienteId]),
+      comprasCliente(clienteId),
+    ]);
+    const cliente = clientes.get(clienteId) ?? null;
+    const produtos = await listarProdutosPorSku([...new Set(compras.map((c) => c.sku))]);
+    const grupos = new Map<string, VendaItemComVendaRow[]>();
+    for (const compra of compras) {
+      if (!isRacao(produtoDoItem(compra, produtos))) continue;
+      const chave = chaveGrupo(compra, produtos, cliente);
+      grupos.set(chave, [...(grupos.get(chave) ?? []), compra]);
+    }
+    const payloads: PrevisaoRow[] = [];
+    const idsUsados = new Set<string>();
+    for (const [grupo, itens] of grupos) {
+      const item = itens.at(-1)!;
+      const produto = produtoDoItem(item, produtos);
+      const ultimaCompra = dataCompraVenda(item.vendas);
+      const petNome = nomesDoGrupo(item, produto, cliente);
+      const petBusca = petNome.startsWith("pet (") ? "" : petNome;
+      const petsNaData = (data: string) =>
+        item.manual
+          ? petsEstimadosPorNomes(
+              cliente,
+              produto,
+              petTokens(petBusca),
+              item.manual.pets_detalhes,
+              data,
+            )
+          : petsEstimados(cliente, produto, petBusca, data);
+      const pets = petsNaData(ultimaCompra);
+      const marcador = observacaoRecompraAuto(item.vendas?.observacao, item.sku, item.pet_nome);
+      const consumoInformado =
+        item.manual?.consumo_diario_g ??
+        (marcador?.confirmado ? marcador.consumoDiarioG : undefined);
+      const consumoNaData = (data: string) =>
+        consumoInformado ?? petsNaData(data).reduce((sum, pet) => sum + pet.consumoDiaG, 0);
+      const resultado = preverRecompra({
+        compras: historicoRacaoDoItem(item, compras, produtos, cliente),
+        consumoNaData,
+      });
+      const evento = resultado.evento!;
+      const comprasEvento = itens.filter((i) => dataCompraVenda(i.vendas) >= evento.inicio);
+      // Conserva o id da previsão e as decisões do operador quando o grupo não mudou.
+      const anterior =
+        anteriores.find((p) => !idsUsados.has(p.id) && p.calculo?.grupo === grupo) ??
+        anteriores.find(
+          (p) =>
+            !idsUsados.has(p.id) &&
+            !p.calculo &&
+            (p.venda_item_id === item.id || p.id === item.manual?.id),
+        ) ??
+        anteriores.find(
+          (p) =>
+            !idsUsados.has(p.id) &&
+            !p.calculo &&
+            mesmosPets(p.pet_nome || (p.pets ?? []).map((pet) => pet.nome).join(","), petNome) &&
+            (p.pets?.[0]?.especie ?? especiePadrao(p.produtos, cliente)) ===
+              especiePadrao(produto, cliente),
+        );
+      const id = anterior?.id ?? crypto.randomUUID();
+      idsUsados.add(id);
+      const mesmaCompra =
+        anterior?.calculo?.compraId === item.venda_id ||
+        (!anterior?.calculo &&
+          (anterior?.venda_id === item.venda_id || item.manual?.id === anterior?.id));
+      const diasManual = mesmaCompra
+        ? (anterior?.dias_manual ?? item.manual?.dias_manual ?? null)
+        : (item.manual?.dias_manual ?? null);
+      let diasCalculados = resultado.dias;
+      // Só informações confirmadas pelo tutor prevalecem sobre uma nova estimativa.
+      const diasConfirmados = marcador?.confirmado ? marcador.dias : null;
+      if (!resultado.historico && diasConfirmados) diasCalculados = diasConfirmados;
+      let pendencia = resultado.pendencia;
+      if (pets.some((p) => p.especie !== especiePadrao(produto, cliente))) {
+        pendencia = "O pet selecionado tem espécie diferente da ração.";
+      }
+      const dias = diasManual ?? (pendencia && !diasConfirmados ? 0 : diasCalculados);
+      const proxima = addDays(ultimaCompra, dias);
+      const memoria: MemoriaCalculoRecompra = {
+        versao: 2,
+        grupo,
+        compraId: item.venda_id,
+        produtoSku: item.sku,
+        consumoEstimadoG: consumoNaData(ultimaCompra),
+        consumoHistoricoG: resultado.historico?.consumoRealG ?? null,
+        pesoEventoKg: evento.pesoKg,
+        inicioEvento: evento.inicio,
+        diasTranscorridos: diasEntreCompras(evento.inicio, evento.fim),
+        intervalosDescartados: resultado.historico?.intervalosDescartados ?? [],
+        pendencia: diasManual || diasConfirmados ? null : pendencia,
+      };
+      payloads.push({
+        id,
+        cliente_id: clienteId,
+        venda_id: item.manual ? null : item.venda_id,
+        venda_item_id: item.manual ? null : item.id,
+        sku: produtos.has(item.sku) ? item.sku : null,
+        pet_nome: petNome,
+        produto_nome: [...new Set(comprasEvento.map((i) => i.nome))].join(" + "),
+        categoria: produto.categoria,
+        peso_kg: evento.pesoKg,
+        quantidade: comprasEvento.reduce((sum, i) => sum + Number(i.quantidade), 0),
+        pets,
+        consumo_diario_g: memoria.consumoHistoricoG ?? memoria.consumoEstimadoG,
+        dias_estimados: dias,
+        dias_calculados: diasCalculados,
+        dias_manual: diasManual,
+        media_dias_real: resultado.historico?.dias ?? null,
+        historico_dias: resultado.historico?.intervalos ?? [],
+        ultima_compra_em: ultimaCompra,
+        proxima_compra_em: proxima,
+        data_alerta: addDays(proxima, -diasAntecedenciaAviso(pets)),
+        status: memoria.pendencia ? "ok" : statusFromDias(signedDiffDaysFromToday(proxima)),
+        fonte: resultado.historico ? "historico" : diasConfirmados ? "observacao" : "estimativa",
+        contatado: mesmaCompra ? (anterior?.contatado ?? false) : false,
+        travado: anterior?.travado ?? false,
+        calculo: memoria,
+        atualizado_em: new Date().toISOString(),
+        clientes: null,
+        produtos: null,
+      });
+    }
+    if (simular) return payloads;
+    const response = await fetch(supabaseUrl("/rpc/salvar_previsoes_recompra"), {
+      method: "POST",
+      headers: supabaseHeaders(),
+      body: JSON.stringify({
+        p_cliente_id: clienteId,
+        p_versao: Object.fromEntries(anteriores.map((p) => [p.id, p.atualizado_em])),
+        p_previsoes: payloads.map(({ clientes: _c, produtos: _p, ...row }) => row),
+      }),
+    });
+    if (!response.ok)
+      throw new Error("Não foi possível atualizar a recompra: " + (await response.text()));
+    if (await response.json()) return payloads;
+  }
+  throw new Error("As compras foram alteradas durante o cálculo. Tente novamente.");
 }
 
 export async function recalcularRecompraVenda(vendaId: string): Promise<void> {
-  return recalcularRecompraVendaInterna(vendaId, new Set());
-}
-
-async function recalcularRecompraVendaInterna(
-  vendaId: string,
-  vendasVisitadas: Set<string>,
-): Promise<void> {
-  if (vendasVisitadas.has(vendaId)) return;
-  vendasVisitadas.add(vendaId);
-
-  const params = new URLSearchParams({
-    venda_id: `eq.${vendaId}`,
-    select:
-      "id,venda_id,sku,nome,pet_nome,quantidade,preco,preco_compra,vendas(id,cliente_id,cliente_nome,telefone,criado_em,faturado_em,status,observacao)",
-  });
-  const itens = await selectOptional<VendaItemComVendaRow>(`/venda_itens?${params}`);
-  const clienteIds = Array.from(
-    new Set(itens.map((item) => item.vendas?.cliente_id).filter(Boolean)),
-  ) as string[];
-  const [clientes, comprasPorCliente] = await Promise.all([
-    listarClientesPorId(clienteIds),
-    Promise.all(clienteIds.map(async (id) => [id, await comprasCliente(id)] as const)),
-  ]);
-  const comprasDoCliente = new Map(comprasPorCliente);
-  const skus = Array.from(
-    new Set(
-      [...itens, ...comprasPorCliente.flatMap(([, compras]) => compras)]
-        .map((item) => item.sku)
-        .filter(Boolean),
-    ),
+  const vendas = await selectRows<{ cliente_id: string | null }>(
+    "/vendas?id=eq." + encodeURIComponent(vendaId) + "&select=cliente_id",
   );
-  const produtos = await listarProdutosPorSku(skus);
-
-  for (const item of itens) {
-    const clienteId = item.vendas?.cliente_id;
-    if (!clienteId || item.vendas?.status === "cancelada") continue;
-
-    const produto = produtoDoItem(item, produtos);
-    if (!isRacao(produto)) continue;
-
-    const cliente = clientes.get(clienteId) ?? null;
-    const historicoCliente = comprasDoCliente.get(clienteId) ?? [];
-    const compraMaisRecente = historicoCliente.find(
-      (compra) => compra.sku === item.sku && mesmosPets(compra.pet_nome, item.pet_nome),
-    );
-    if (
-      compraMaisRecente?.id &&
-      compraMaisRecente.id !== item.id &&
-      dataCompraVenda(compraMaisRecente.vendas) >= dataCompraVenda(item.vendas)
-    ) {
-      // Uma venda antiga pode ser cadastrada depois da atual. Nesse caso,
-      // restaura/recalcula a previsao da compra cronologicamente mais recente.
-      await recalcularRecompraVendaInterna(compraMaisRecente.venda_id, vendasVisitadas);
-      continue;
-    }
-
-    // 1a compra: ciclo pelas metricas (racao + pet). A partir da 2a: comportamento real.
-    const cicloHistorico = calcularCicloPorHistorico(
-      historicoRacaoDoItem(item, historicoCliente, produtos, cliente),
-    );
-    const historicoDias = cicloHistorico?.intervalos ?? [];
-    const mediaReal = cicloHistorico?.dias ?? null;
-    const observacaoAuto = observacaoRecompraAuto(item.vendas?.observacao, item.sku);
-    const pesoKg = observacaoAuto?.pesoKg ?? inferirPesoKg(produto, item.quantidade);
-    const pets = petsEstimados(cliente, produto, item.pet_nome);
-    const consumoDiario =
-      observacaoAuto?.consumoDiarioG ??
-      (pets.reduce((sum, pet) => sum + pet.consumoDiaG, 0) || DEFAULT_CONSUMO_G_DIA);
-    const petNome = item.pet_nome?.trim() ?? "";
-    const diasCalculados =
-      mediaReal ?? observacaoAuto?.dias ?? calcularDiasRecompraRacao(pesoKg, consumoDiario);
-    const diasManual = await cicloManualDaVenda(clienteId, item.sku, petNome, item.venda_id);
-    const diasEstimados = cicloEfetivoRecompra(diasCalculados, diasManual);
-    const ultimaCompra = dataCompraVenda(item.vendas);
-    const proximaCompra = addDays(ultimaCompra, diasEstimados);
-    const dataAlerta = addDays(proximaCompra, -diasAntecedenciaAviso(pets));
-    const diasRestantes = signedDiffDaysFromToday(proximaCompra);
-
-    const payload = {
-      cliente_id: clienteId,
-      venda_id: item.venda_id,
-      venda_item_id: item.id,
-      sku: item.sku,
-      pet_nome: petNome,
-      produto_nome: produto.nome,
-      categoria: produto.categoria,
-      peso_kg: pesoKg,
-      quantidade: item.quantidade,
-      pets,
-      consumo_diario_g: consumoDiario,
-      dias_estimados: diasEstimados,
-      dias_calculados: diasCalculados,
-      media_dias_real: mediaReal,
-      historico_dias: historicoDias,
-      ultima_compra_em: ultimaCompra,
-      proxima_compra_em: proximaCompra,
-      data_alerta: dataAlerta,
-      status: statusFromDias(diasRestantes),
-      fonte: mediaReal ? "historico" : observacaoAuto?.dias ? "observacao" : "estimativa",
-      contatado: false,
-      atualizado_em: new Date().toISOString(),
-    };
-
-    await removerRecomprasSubstituidasPorNovaRacao({
-      clienteId,
-      sku: item.sku,
-      petNome,
-      vendaIdAtual: item.venda_id,
-    });
-
-    let response = await fetch(
-      supabaseUrl("/recompra_previsoes?on_conflict=cliente_id,sku,pet_nome"),
-      {
-        method: "POST",
-        headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
-        body: JSON.stringify(payload),
-      },
-    );
-
-    if (!response.ok) {
-      let errorBody = await response.text();
-      if (/dias_calculados/.test(errorBody)) {
-        // Migration 20260914180000 ainda nao aplicada: grava sem a coluna nova.
-        const payloadLegado: Record<string, unknown> = { ...payload };
-        delete payloadLegado.dias_calculados;
-        response = await fetch(
-          supabaseUrl("/recompra_previsoes?on_conflict=cliente_id,sku,pet_nome"),
-          {
-            method: "POST",
-            headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
-            body: JSON.stringify(payloadLegado),
-          },
-        );
-        if (response.ok) continue;
-        errorBody = await response.text();
-      }
-      if (isMissingPetNomeColumn(errorBody)) {
-        const payloadSemPetNome: Record<string, unknown> = { ...payload };
-        delete payloadSemPetNome.pet_nome;
-        response = await fetch(supabaseUrl("/recompra_previsoes?on_conflict=cliente_id,sku"), {
-          method: "POST",
-          headers: supabaseHeaders("resolution=merge-duplicates,return=representation"),
-          body: JSON.stringify(payloadSemPetNome),
-        });
-
-        if (response.ok) continue;
-
-        const retryErrorBody = await response.text();
-        if (/PGRST205|relation .* does not exist/i.test(retryErrorBody)) return;
-        throw new Error(`Supabase recompra upsert failed (${response.status}): ${retryErrorBody}`);
-      }
-
-      if (/PGRST205|relation .* does not exist/i.test(errorBody)) return;
-      throw new Error(`Supabase recompra upsert failed (${response.status}): ${errorBody}`);
-    }
+  // Inclui o cliente anterior, caso o pedido tenha mudado de tutor.
+  const previsoes = await selectRows<{ cliente_id: string }>(
+    "/recompra_previsoes?venda_id=eq." + encodeURIComponent(vendaId) + "&select=cliente_id",
+  );
+  for (const id of new Set([...vendas, ...previsoes].map((v) => v.cliente_id).filter(Boolean))) {
+    await recalcularRecompraCliente(id!);
   }
 }
 
 export async function registrarRecompraManual(input: {
+  requisicaoId?: string;
   clienteId: string;
   sku: string;
   petNome: string;
@@ -923,6 +987,7 @@ export async function registrarRecompraManual(input: {
   modoDistribuicao?: "compartilhada" | "por_pet";
   compraEm: string;
   diasRecompra: number;
+  cicloConfirmado?: boolean;
   quantidade?: number;
   pesoKg?: number;
   consumoDiarioG?: number;
@@ -930,142 +995,100 @@ export async function registrarRecompraManual(input: {
 }): Promise<RecompraPrevista | RecompraPrevista[]> {
   const clienteId = input.clienteId.trim();
   const sku = input.sku.trim().toUpperCase();
-  const petNomes = Array.from(
-    new Set([...(input.petNomes ?? []), input.petNome].map((pet) => pet.trim()).filter(Boolean)),
-  );
-  const compraEm = dateOnly(input.compraEm);
-  const diasRecompraInformado =
-    Number.isFinite(input.diasRecompra) && input.diasRecompra > 0
-      ? Math.max(1, Math.min(365, Math.round(input.diasRecompra)))
-      : null;
-  if (!clienteId || !sku || petNomes.length === 0) {
-    throw new Error("Cliente, racao e pet sao obrigatorios");
-  }
-
-  const [clientes, produtos, modelos] = await Promise.all([
+  const compraEm = normalizarDataCompraRecompra(input.compraEm);
+  if (signedDiffDaysFromToday(compraEm) > 0)
+    throw new Error("A data da compra não pode ficar no futuro");
+  const nomes = [
+    ...new Set(
+      [...(input.petNomes ?? []), input.petNome]
+        .flatMap((p) => p.split(","))
+        .map((p) => p.trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (!clienteId || !sku || !nomes.length) throw new Error("Cliente, ração e pet são obrigatórios");
+  const [clientes, produtos] = await Promise.all([
     listarClientesPorId([clienteId]),
     listarProdutosPorSku([sku]),
-    listarModelosRecompraRacao(),
   ]);
-  const cliente = clientes.get(clienteId) ?? null;
-  const produto = produtos.get(sku) ?? null;
-  const produtoCalculo: ProdutoRow | null =
-    produto ??
-    (input.produtoNome?.trim()
-      ? {
-          sku,
-          nome: input.produtoNome.trim(),
-          categoria: "Racao",
-          preco: null,
-          preco_compra: null,
-          estoque: null,
-        }
-      : null);
-  const modelo = modelos.find((item) => item.sku === sku);
-  const quantidade = input.quantidade ?? 1;
-  if (!Number.isFinite(quantidade) || quantidade <= 0) {
-    throw new Error("Quantidade deve ser maior que zero");
+  const cliente = clientes.get(clienteId);
+  if (!cliente) throw new Error("Cliente não encontrado");
+  const produto = produtos.get(sku) ?? {
+    sku,
+    nome: input.produtoNome || sku,
+    categoria: "Racao",
+    preco: null,
+    preco_compra: null,
+    estoque: null,
+  };
+  const quantidade = Number(input.quantidade ?? 1);
+  const peso = Number(input.pesoKg ?? inferirPesoKg(produto, quantidade));
+  if (!Number.isInteger(quantidade) || quantidade <= 0 || !Number.isFinite(peso) || peso <= 0) {
+    throw new Error("Informe a quantidade de pacotes e o peso total da ração");
   }
-  const grupos =
-    input.modoDistribuicao === "por_pet"
-      ? petNomes.map((petNome) => ({ petNomes: [petNome], quantidade }))
-      : [{ petNomes, quantidade }];
-
-  async function registrarGrupo(grupo: { petNomes: string[]; quantidade: number }) {
-    const pets = petsEstimadosPorNomes(cliente, produtoCalculo, grupo.petNomes, input.petsDetalhes);
-    const petNome = pets.map((pet) => pet.nome).join(", ");
-    const consumoDiario =
-      input.consumoDiarioG ??
-      modelo?.consumoDiarioG ??
-      (pets.reduce((sum, pet) => sum + pet.consumoDiaG, 0) || DEFAULT_CONSUMO_G_DIA);
-    const pesoKg =
-      input.pesoKg ?? (produtoCalculo ? inferirPesoKg(produtoCalculo, grupo.quantidade) : 0);
-    const diasEstimados =
-      diasRecompraInformado ??
-      modelo?.diasRecompra ??
-      calcularDiasRecompraRacao(pesoKg, consumoDiario);
-    const proximaCompra = addDays(compraEm, diasEstimados);
-    const dataAlerta = addDays(proximaCompra, -diasAntecedenciaAviso(pets));
-    const dias = signedDiffDaysFromToday(proximaCompra);
-
-    const payload = {
-      cliente_id: clienteId,
-      venda_id: null,
-      venda_item_id: null,
-      sku,
-      pet_nome: petNome,
-      produto_nome: input.produtoNome?.trim() || produto?.nome || sku,
-      categoria: produto?.categoria ?? "Racao",
-      peso_kg: pesoKg,
-      quantidade: grupo.quantidade,
-      pets,
-      consumo_diario_g: consumoDiario,
-      dias_estimados: diasEstimados,
-      dias_calculados: diasEstimados,
-      media_dias_real: null,
-      historico_dias: [],
-      ultima_compra_em: compraEm,
-      proxima_compra_em: proximaCompra,
-      data_alerta: dataAlerta,
-      status: statusFromDias(dias),
-      fonte: "manual",
-      contatado: false,
-      atualizado_em: new Date().toISOString(),
-    };
-
-    await removerRecomprasSubstituidasPorNovaRacao({
-      clienteId,
-      sku,
-      petNome,
-    });
-
-    let rows: PrevisaoRow[];
-    try {
-      rows = await writeRows<PrevisaoRow>(
-        "/recompra_previsoes?on_conflict=cliente_id,sku,pet_nome&select=*,clientes(id,nome,telefone,bairro,cidade,pets,pets_detalhes,perfil,especies,observacoes),produtos(sku,nome,categoria,preco,preco_compra,estoque,detalhes_tecnicos)",
-        payload,
-        "resolution=merge-duplicates,return=representation",
+  if (
+    input.consumoDiarioG != null &&
+    (!Number.isFinite(input.consumoDiarioG) || input.consumoDiarioG <= 0)
+  ) {
+    throw new Error("O consumo diário deve ser maior que zero");
+  }
+  const grupos = input.modoDistribuicao === "por_pet" ? nomes.map((n) => [n]) : [nomes];
+  const requisicaoId = input.requisicaoId || crypto.randomUUID();
+  const registros = await Promise.all(
+    grupos.map(async (grupo) => {
+      const pets = petsEstimadosPorNomes(cliente, produto, grupo, input.petsDetalhes, compraEm);
+      const especies = [...new Set(pets.map((p) => p.especie))];
+      if (especies.length > 1) throw new Error("Separe a compra dos cães da compra dos gatos");
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          clienteId + "|" + requisicaoId + "|" + petTokens(grupo.join(",")).sort().join(","),
+        ),
       );
-    } catch (error) {
-      if (!(error instanceof Error) || !isMissingPetNomeColumn(error.message)) {
-        throw error;
-      }
-
-      const payloadSemPetNome: Record<string, unknown> = { ...payload };
-      delete payloadSemPetNome.pet_nome;
-      rows = await writeRows<PrevisaoRow>(
-        "/recompra_previsoes?on_conflict=cliente_id,sku&select=*,clientes(id,nome,telefone,bairro,cidade,pets,pets_detalhes,perfil,especies,observacoes),produtos(sku,nome,categoria,preco,preco_compra,estoque,detalhes_tecnicos)",
-        payloadSemPetNome,
-        "resolution=merge-duplicates,return=representation",
-      );
-    }
-
-    if (!rows[0]) throw new Error("Previsao manual nao retornada");
-    return mapPrevisao(rows[0]);
-  }
-
-  const recompras: RecompraPrevista[] = [];
-  for (const grupo of grupos) {
-    recompras.push(await registrarGrupo(grupo));
-  }
-
-  return recompras.length === 1 ? recompras[0] : recompras;
+      const hex = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+      return {
+        id,
+        cliente_id: clienteId,
+        sku,
+        produto_nome: input.produtoNome?.trim() || produto.nome,
+        pet_nome: grupo.join(", "),
+        especie: especies[0] ?? especiePadrao(produto, cliente),
+        comprado_em: compraEm,
+        quantidade,
+        peso_kg: peso,
+        consumo_diario_g: input.consumoDiarioG ?? null,
+        dias_manual: input.cicloConfirmado ? normalizarCicloManual(input.diasRecompra) : null,
+        pets_detalhes: input.petsDetalhes ?? [],
+      };
+    }),
+  );
+  await writeRows(
+    "/recompra_compras_manuais?on_conflict=id",
+    registros,
+    "resolution=ignore-duplicates,return=representation",
+  );
+  await recalcularRecompraCliente(clienteId);
+  const data = await listarRecompraPrevista();
+  const resultados = data.recompras.filter((r) => r.clienteId === clienteId);
+  if (!resultados.length)
+    throw new Error("Compra registrada, mas a previsão precisa ser recalculada");
+  return resultados.length === 1 ? resultados[0] : resultados;
 }
 
-export async function recalcularTodasRecompras(limit = 2000): Promise<{ vendas: number }> {
-  const params = new URLSearchParams({
-    select: "venda_id",
-    order: "criado_em.desc",
-    limit: String(limit),
-  });
-  const rows = await selectRows<{ venda_id: string }>(`/venda_itens?${params}`);
-  const vendaIds = Array.from(new Set(rows.map((row) => row.venda_id).filter(Boolean)));
-
-  for (const vendaId of vendaIds) {
-    await recalcularRecompraVenda(vendaId);
-  }
-
-  return { vendas: vendaIds.length };
+export async function recalcularTodasRecompras(): Promise<{ vendas: number }> {
+  const [vendas, manuais, previsoes] = await Promise.all([
+    selectAll<{ cliente_id: string }>("/vendas?select=cliente_id&order=id.asc"),
+    selectAll<{ cliente_id: string }>("/recompra_compras_manuais?select=cliente_id&order=id.asc"),
+    selectAll<{ cliente_id: string }>("/recompra_previsoes?select=cliente_id&order=id.asc"),
+  ]);
+  const ids = [
+    ...new Set([...vendas, ...manuais, ...previsoes].map((v) => v.cliente_id).filter(Boolean)),
+  ];
+  for (const id of ids) await recalcularRecompraCliente(id);
+  return { vendas: vendas.length };
 }
 
 type DadosObservadosRow = {
@@ -1162,12 +1185,11 @@ function mapPrevisao(row: PrevisaoRow): RecompraPrevista {
   const especie = pet?.especie ?? especiePadrao(produto, cliente);
   const cicloRacao = calcularDiasRecompraRacao(
     Number(row.peso_kg ?? 0),
-    Number(row.consumo_diario_g ?? 0),
+    Number(row.calculo?.consumoEstimadoG ?? row.consumo_diario_g ?? 0),
   );
-  const intervaloPedidos =
-    row.media_dias_real == null ? null : Math.max(1, Math.round(row.media_dias_real));
+  const intervaloPedidos = media(historico);
   const mediaRecompra = Math.round(row.media_dias_real ?? row.dias_estimados);
-  const previsaoBase = Math.max(1, Math.round(row.dias_estimados));
+  const previsaoBase = Math.max(0, Math.round(row.dias_estimados));
   const linhaCalculo = classificarLinhaRacao(produto);
   const tendencia =
     historico.length >= 2 && historico[0] < historico[1]
@@ -1190,21 +1212,26 @@ function mapPrevisao(row: PrevisaoRow): RecompraPrevista {
         .join(", ") || "Pet",
     especie,
     perfil: cliente?.perfil ?? "Novo",
-    sku: row.sku ?? "",
+    sku: row.calculo?.produtoSku ?? row.sku ?? "",
     racao: row.produto_nome,
     quantidade,
     pesoKg: Number(row.peso_kg ?? 0),
     consumoDiaKg: Number(row.consumo_diario_g ?? 0) / 1000,
+    consumoEstimadoG: row.calculo?.consumoEstimadoG,
+    consumoHistoricoG: row.calculo?.consumoHistoricoG,
+    pendenciaCalculo: row.calculo?.pendencia,
+    diasAbastecimento: row.calculo?.diasTranscorridos ?? 0,
+    intervalosDescartados: row.calculo?.intervalosDescartados ?? [],
     ultimaCompra: formatDateBr(row.ultima_compra_em),
     ultimaCompraIso: row.ultima_compra_em,
     diasDesdeCompra: Math.max(0, -signedDiffDaysFromToday(row.ultima_compra_em)),
     cicloRacao,
     intervaloPedidos,
     diasRestantes: dias,
-    dataPrevista: formatDateBr(row.proxima_compra_em),
-    dataPrevistaIso: row.proxima_compra_em,
+    dataPrevista: row.calculo?.pendencia ? "Pendente" : formatDateBr(row.proxima_compra_em),
+    dataPrevistaIso: row.calculo?.pendencia ? undefined : row.proxima_compra_em,
     valorEstimado: (produto?.preco ?? 0) * quantidade,
-    fonteCalculo: linhaCalculo === "generica" ? "estimativa" : "tabela",
+    fonteCalculo: "estimativa",
     petsCalculo: (row.pets ?? []).map((item) => ({
       nome: item.nome,
       especie: item.especie,
@@ -1232,7 +1259,7 @@ function mapPrevisao(row: PrevisaoRow): RecompraPrevista {
           ? item.fase
           : undefined,
     })),
-    status: statusFromDias(dias),
+    status: row.calculo?.pendencia ? "pendente" : statusFromDias(dias),
     contatado: row.contatado,
     mediaRecompra,
     previsaoBase,
@@ -1246,11 +1273,11 @@ function mapPrevisao(row: PrevisaoRow): RecompraPrevista {
             : tendencia === "desacelerando"
               ? "atrasado"
               : "pontual",
-    precisaoIA: historico.length >= 2 ? 85 : 65,
+    precisaoIA: 0,
     tendencia,
     historicoDias: historico,
     travado: row.travado,
-    cicloCalculado: Math.max(1, Math.round(Number(row.dias_calculados ?? row.dias_estimados))),
+    cicloCalculado: Math.max(0, Math.round(Number(row.dias_calculados ?? row.dias_estimados))),
     cicloManual: row.dias_manual ?? null,
     origemCiclo: origemCicloDaLinha(row),
   };
@@ -1316,8 +1343,8 @@ export async function listarRecompraPrevista(): Promise<RecompraData> {
   const recompras = rows.filter((row) => !row.produtos || isRacao(row.produtos)).map(mapPrevisao);
   return {
     recompras,
-    produtos: produtosPrevistos(recompras),
-    bairros: demandaBairros(recompras),
+    produtos: produtosPrevistos(recompras.filter((r) => !r.pendenciaCalculo)),
+    bairros: demandaBairros(recompras.filter((r) => !r.pendenciaCalculo)),
     alertas: recompras
       .filter((item) => item.status === "urgente" || item.status === "atrasado")
       .slice(0, 6)
@@ -1364,71 +1391,40 @@ export async function historicoVendasRecompra(previsaoId: string): Promise<{
   vendas: HistoricoVendaRecompra[];
   comparacao: ComparacaoCicloHistorico;
 }> {
-  const [previsao] = await selectRows<
-    Pick<PrevisaoRow, "cliente_id" | "sku" | "pet_nome" | "produto_nome" | "dias_estimados">
-  >(
-    `/recompra_previsoes?id=eq.${encodeURIComponent(previsaoId)}&select=cliente_id,sku,pet_nome,produto_nome,dias_estimados`,
+  const [previsao] = await selectRows<PrevisaoRow>(
+    "/recompra_previsoes?id=eq." + encodeURIComponent(previsaoId) + "&select=*",
   );
   if (!previsao) throw new Error("Previsão de recompra não encontrada");
-
-  const params = new URLSearchParams({
-    "vendas.cliente_id": `eq.${previsao.cliente_id}`,
-    select:
-      "id,venda_id,sku,nome,pet_nome,quantidade,preco,vendas!inner(id,cliente_id,criado_em,faturado_em,status,observacao,total)",
-    order: "criado_em.desc",
-    limit: "300",
-  });
-  const itens = (
-    await selectRows<
-      Omit<VendaItemComVendaRow, "preco_compra" | "vendas"> & {
-        vendas: (VendaItemComVendaRow["vendas"] & { total?: number | null }) | null;
-      }
-    >(`/venda_itens?${params}`)
-  ).filter(
-    (row) => row.vendas?.cliente_id === previsao.cliente_id && row.vendas.status !== "cancelada",
-  );
-
-  const skus = [...new Set([previsao.sku, ...itens.map((item) => item.sku)].filter(Boolean))];
-  const [produtos, clientes] = await Promise.all([
-    listarProdutosPorSku(skus as string[]),
+  const [itens, clientes] = await Promise.all([
+    comprasCliente(previsao.cliente_id),
     listarClientesPorId([previsao.cliente_id]),
   ]);
+  const produtos = await listarProdutosPorSku([...new Set(itens.map((i) => i.sku))]);
   const cliente = clientes.get(previsao.cliente_id) ?? null;
-  const produtoPrevisao = (previsao.sku && produtos.get(previsao.sku)) || {
-    sku: previsao.sku ?? "",
-    nome: previsao.produto_nome,
-    categoria: null,
-    preco: null,
-    preco_compra: null,
-    estoque: null,
-    detalhes_tecnicos: null,
-  };
-  const especiePrevisao = especiePadrao(produtoPrevisao, cliente);
-
+  const grupo = previsao.calculo?.grupo;
   const porVenda = new Map<string, Omit<HistoricoVendaRecompra, "durouDias" | "consumoRealG">>();
   for (const row of itens) {
-    const venda = row.vendas!;
-    const produto = produtoDoItem({ ...row, preco_compra: null, vendas: venda }, produtos);
+    const produto = produtoDoItem(row, produtos);
     const racao = isRacao(produto);
-    const observacao = observacaoRecompraAuto(venda.observacao, row.sku);
-    const pesoKg = racao ? (observacao?.pesoKg ?? inferirPesoKg(produto, row.quantidade)) : 0;
     const entraNoCiclo =
       racao &&
-      mesmosPets(row.pet_nome, previsao.pet_nome) &&
-      especiePadrao(produto, cliente) === especiePrevisao;
-
-    const atual = porVenda.get(venda.id) ?? {
-      vendaId: venda.id,
-      data: dataCompraVenda(venda),
-      total: venda.total ?? null,
-      status: venda.status,
+      dataCompraVenda(row.vendas) <= previsao.ultima_compra_em &&
+      (grupo
+        ? chaveGrupo(row, produtos, cliente) === grupo
+        : mesmosPets(row.pet_nome, previsao.pet_nome));
+    const pesoKg = racao ? pesoDoItem(row, produtos) : 0;
+    const atual = porVenda.get(row.venda_id) ?? {
+      vendaId: row.venda_id,
+      data: dataCompraVenda(row.vendas),
+      total: null,
+      status: row.manual ? "compra informada" : (row.vendas?.status ?? null),
       itens: [],
       kgCiclo: 0,
     };
     atual.itens.push({
       sku: row.sku,
       nome: row.nome,
-      quantidade: Number(row.quantidade ?? 1),
+      quantidade: Number(row.quantidade),
       preco: row.preco,
       petNome: row.pet_nome,
       racao,
@@ -1436,17 +1432,10 @@ export async function historicoVendasRecompra(previsaoId: string): Promise<{
       entraNoCiclo,
     });
     if (entraNoCiclo) atual.kgCiclo += pesoKg;
-    porVenda.set(venda.id, atual);
+    porVenda.set(row.venda_id, atual);
   }
-
   const vendas = calcularDuracoesHistorico([...porVenda.values()]);
-  return {
-    vendas,
-    comparacao: compararCicloComHistorico(
-      vendas,
-      Math.max(1, Math.round(Number(previsao.dias_estimados))),
-    ),
-  };
+  return { vendas, comparacao: compararCicloComHistorico(vendas, previsao.dias_estimados) };
 }
 
 export async function definirCicloManualRecompra(
@@ -1461,10 +1450,10 @@ export async function definirCicloManualRecompra(
 
   // Linhas antigas nao tem dias_calculados; nelas dias_estimados ainda e o automatico.
   const diasCalculados = Math.max(
-    1,
+    0,
     Math.round(Number(atual.dias_calculados ?? atual.dias_estimados)),
   );
-  const diasEstimados = cicloEfetivoRecompra(diasCalculados, diasManual);
+  const diasEstimados = diasManual ?? diasCalculados;
   const proximaCompra = addDays(atual.ultima_compra_em, diasEstimados);
   const select =
     "*,clientes(id,nome,telefone,bairro,cidade,pets,pets_detalhes,perfil,especies,observacoes),produtos(sku,nome,categoria,preco,preco_compra,estoque,detalhes_tecnicos)";
@@ -1497,9 +1486,25 @@ export async function definirCicloManualRecompra(
     throw new Error(`Supabase recompra ciclo manual failed (${response.status}): ${errorBody}`);
   }
 
-  const [row] = (await response.json()) as PrevisaoRow[];
+  if (atual.calculo?.compraId.startsWith("manual:")) {
+    const manualResponse = await fetch(
+      supabaseUrl(
+        `/recompra_compras_manuais?id=eq.${encodeURIComponent(atual.calculo.compraId.slice(7))}`,
+      ),
+      {
+        method: "PATCH",
+        headers: supabaseHeaders("return=minimal"),
+        body: JSON.stringify({ dias_manual: diasManual }),
+      },
+    );
+    if (!manualResponse.ok)
+      throw new Error("Não foi possível atualizar o ciclo da compra informada");
+  }
+  await recalcularRecompraCliente(atual.cliente_id);
+  const data = await listarRecompraPrevista();
+  const row = data.recompras.find((r) => r.id === id);
   if (!row) throw new Error("Previsão de recompra não encontrada");
-  return mapPrevisao(row);
+  return row;
 }
 
 /**
@@ -1517,6 +1522,22 @@ export async function definirDataCompraRecompra(id: string, value: unknown): Pro
     `/recompra_previsoes?id=eq.${encodeURIComponent(id)}&select=*`,
   );
   if (!atual) throw new Error("Previsao de recompra nao encontrada");
+
+  if (atual.calculo?.compraId.startsWith("manual:")) {
+    const response = await fetch(
+      supabaseUrl(
+        `/recompra_compras_manuais?id=eq.${encodeURIComponent(atual.calculo.compraId.slice(7))}`,
+      ),
+      {
+        method: "PATCH",
+        headers: supabaseHeaders("return=minimal"),
+        body: JSON.stringify({ comprado_em: compraEm }),
+      },
+    );
+    if (!response.ok) throw new Error("Não foi possível corrigir a data da compra informada");
+    await recalcularRecompraCliente(atual.cliente_id);
+    return;
+  }
 
   if (atual.venda_id) {
     const [venda] = await selectRows<{ id: string; faturado_em: string | null }>(
@@ -1561,5 +1582,34 @@ export async function definirDataCompraRecompra(id: string, value: unknown): Pro
   if (!response.ok) {
     const errorBody = await response.text();
     throw new Error(`Supabase recompra data failed (${response.status}): ${errorBody}`);
+  }
+}
+
+/** Busca previsões específicas (sem carregar o painel inteiro, para poupar egress). */
+export async function buscarRecomprasPorIds(ids: string[]): Promise<RecompraPrevista[]> {
+  const limpos = [...new Set(ids.map((id) => id.trim()).filter(Boolean))].slice(0, 50);
+  if (limpos.length === 0) return [];
+  const filtro = limpos.map((id) => `"${id.replace(/"/g, "")}"`).join(",");
+  const rows = await selectOptional<PrevisaoRow>(
+    `/recompra_previsoes?id=in.(${encodeURIComponent(filtro)})&select=*,clientes(id,nome,telefone,bairro,cidade,pets,pets_detalhes,perfil,especies,observacoes),produtos(sku,nome,categoria,preco,preco_compra,estoque,detalhes_tecnicos)`,
+  );
+  return rows.map(mapPrevisao);
+}
+
+export async function lerConfiguracaoRecompra<T>(chave: string): Promise<T | null> {
+  const params = new URLSearchParams({ chave: `eq.${chave}`, select: "valor" });
+  const rows = await selectOptional<{ valor: T }>(`/crm_configuracoes?${params}`);
+  return rows[0]?.valor ?? null;
+}
+
+export async function salvarConfiguracaoRecompra(chave: string, valor: unknown): Promise<void> {
+  const response = await fetch(supabaseUrl("/crm_configuracoes?on_conflict=chave"), {
+    method: "POST",
+    headers: supabaseHeaders("resolution=merge-duplicates,return=minimal"),
+    body: JSON.stringify([{ chave, valor, atualizado_em: new Date().toISOString() }]),
+  });
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Supabase configuracao recompra failed (${response.status}): ${errorBody}`);
   }
 }

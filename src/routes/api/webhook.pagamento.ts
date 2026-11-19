@@ -54,12 +54,7 @@ export async function processarWebhookMercadoPago(event: MercadoPagoWebhook): Pr
 export const Route = createFileRoute("/api/webhook/pagamento")({
   server: {
     handlers: {
-      GET: async () =>
-        json({
-          ok: true,
-          webhook: "mercado_pago_pagamento",
-          message: "Webhook ativo. O Mercado Pago deve enviar POST para esta URL.",
-        }),
+      GET: async () => json({ ok: false }, { status: 404 }),
       POST: async ({ request }) => {
         try {
           return await processarWebhookMercadoPago((await request.json()) as MercadoPagoWebhook);

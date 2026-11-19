@@ -1,3 +1,5 @@
+import { lojaStorage } from "@/lib/loja-storage";
+import { correspondeBusca, clienteCorrespondeBusca } from "@/lib/crm-search";
 import type {
   Cliente,
   DemandaBairro,
@@ -76,6 +78,7 @@ type RecompraApiData = {
 };
 
 type VendaManualForm = {
+  requisicaoId?: string;
   clienteId: string;
   petNome: string;
   petNomes: string[];
@@ -94,6 +97,7 @@ type VendaManualForm = {
   produtoNomeAvulso: string;
   compraEm: string;
   diasRecompra: string;
+  cicloConfirmado?: boolean;
   quantidade: string;
   pesoKg: string;
   consumoDiarioG: string;
@@ -201,6 +205,11 @@ const VENDA_MANUAL_INICIAL: VendaManualForm = {
 };
 
 const statusMap: Record<RecompraStatus, { label: string; cls: string; dot: string }> = {
+  pendente: {
+    label: "Dados pendentes",
+    cls: "bg-secondary text-muted-foreground border-border",
+    dot: "bg-muted-foreground",
+  },
   ok: { label: "OK", cls: "bg-success/10 text-success border-success/30", dot: "bg-success" },
   semana: {
     label: "Semana",
@@ -395,13 +404,7 @@ export function RecompraPrevista() {
   const clientesManualFiltrados = useMemo(() => {
     const termo = clienteManualBusca.trim().toLowerCase();
     const lista = termo
-      ? clientes.filter((cliente) =>
-          [cliente.nome, cliente.telefone, cliente.bairro, petNomesCliente(cliente).join(" ")]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase()
-            .includes(termo),
-        )
+      ? clientes.filter((cliente) => clienteCorrespondeBusca(cliente, clienteManualBusca))
       : clientes;
 
     return lista.slice(0, 80);
@@ -436,12 +439,12 @@ export function RecompraPrevista() {
   }, [clientes, search.clienteId, search.pet]);
 
   useEffect(() => {
-    if (modeloManual || !diasRecompraSugeridos) return;
+    if (vendaManual.cicloConfirmado || modeloManual || !diasRecompraSugeridos) return;
     const proximo = String(diasRecompraSugeridos);
     if (vendaManual.diasRecompra !== proximo) {
       updateVendaManual({ diasRecompra: proximo });
     }
-  }, [diasRecompraSugeridos, modeloManual, vendaManual.diasRecompra]);
+  }, [diasRecompraSugeridos, modeloManual, vendaManual.diasRecompra, vendaManual.cicloConfirmado]);
 
   const carregar = useCallback(async () => {
     try {
@@ -707,12 +710,15 @@ export function RecompraPrevista() {
     }
 
     setSalvandoVendaManual(true);
+    const requisicaoId = vendaManual.requisicaoId ?? crypto.randomUUID();
+    setVendaManual((current) => ({ ...current, requisicaoId }));
     try {
       const response = await fetch("/api/crm/recompra-prevista", {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           tipo: "venda_manual",
+          requisicaoId,
           clienteId: clienteManual.id,
           petNome: petNomes[0],
           petNomes,
@@ -722,6 +728,7 @@ export function RecompraPrevista() {
           produtoNome: produtoNomeManual,
           compraEm: vendaManual.compraEm,
           diasRecompra,
+          cicloConfirmado: vendaManual.cicloConfirmado === true,
           quantidade: vendaManual.quantidade,
           pesoKg: vendaManual.pesoKg,
           consumoDiarioG: vendaManual.consumoDiarioG,
@@ -749,10 +756,14 @@ export function RecompraPrevista() {
 
   const filtrados = useMemo(() => {
     return items.filter((r) => {
-      if (busca && !`${r.cliente} ${r.pet} ${r.racao}`.toLowerCase().includes(busca.toLowerCase()))
-        return false;
+      if (!correspondeBusca(busca, [r.cliente, r.pet, r.racao, r.sku], [r.telefone])) return false;
       if (cidade !== "Todas" && r.cidade !== cidade) return false;
       if (bairro !== "Todos" && r.bairro !== bairro) return false;
+      if (
+        r.pendenciaCalculo &&
+        ["Hoje", "3 dias", "7 dias", "15 dias", "Atrasados"].includes(filtro)
+      )
+        return false;
       switch (filtro) {
         case "Hoje":
           return r.diasRestantes <= 0 && r.diasRestantes >= -1;
@@ -790,8 +801,10 @@ export function RecompraPrevista() {
   const taxaPrevista = produtos.length
     ? Math.round(produtos.reduce((s, p) => s + p.taxaRecompra, 0) / produtos.length)
     : 0;
-  const atrasados = items.filter((r) => r.diasRestantes < 0).length;
-  const urgentes = items.filter((r) => r.diasRestantes >= 0 && r.diasRestantes <= 3).length;
+  const atrasados = items.filter((r) => !r.pendenciaCalculo && r.diasRestantes < 0).length;
+  const urgentes = items.filter(
+    (r) => !r.pendenciaCalculo && r.diasRestantes >= 0 && r.diasRestantes <= 3,
+  ).length;
 
   function marcarContatado(id: string) {
     const atual = items.find((r) => r.id === id);
@@ -842,10 +855,8 @@ export function RecompraPrevista() {
   const antecipando = items.filter((r) => r.comportamento === "antecipado").length;
   const atrasando = items.filter((r) => r.comportamento === "atrasado").length;
   const instaveis = items.filter((r) => r.comportamento === "instavel").length;
-  const previsiveis = items.filter((r) => r.precisaoIA >= 85).length;
-  const precisaoMedia = items.length
-    ? Math.round(items.reduce((s, r) => s + r.precisaoIA, 0) / items.length)
-    : 0;
+  const previsiveis = items.filter((r) => r.origemCiclo === "historico").length;
+  const pendentes = items.filter((r) => r.pendenciaCalculo).length;
 
   const drawerItem = items.find((i) => i.id === drawerId) || null;
 
@@ -1203,10 +1214,12 @@ export function RecompraPrevista() {
             onChange={(compraEm) => updateVendaManual({ compraEm })}
           />
           <RecompraInput
-            label="Recomprar em dias"
+            label={
+              vendaManual.cicloConfirmado ? "Ciclo ajustado (dias)" : "Estimativa inicial (dias)"
+            }
             type="number"
             value={vendaManual.diasRecompra}
-            onChange={(diasRecompra) => updateVendaManual({ diasRecompra })}
+            onChange={(diasRecompra) => updateVendaManual({ diasRecompra, cicloConfirmado: true })}
           />
           <RecompraInput
             label={vendaManual.modoDistribuicao === "por_pet" ? "Qtd por pet" : "Qtd total"}
@@ -1297,16 +1310,16 @@ export function RecompraPrevista() {
           />
           <Kpi
             icon={<Target className="size-4" />}
-            label="Altamente previsíveis"
+            label="Com histórico"
             value={String(previsiveis)}
-            sub="precisão ≥ 85%"
+            sub="previsão baseada nas compras"
             tone="primary"
           />
           <Kpi
             icon={<Brain className="size-4" />}
-            label="Precisão IA média"
-            value={`${precisaoMedia}%`}
-            sub="todos os clientes"
+            label="Dados pendentes"
+            value={String(pendentes)}
+            sub="precisam de informação para calcular"
             tone="primary"
           />
         </div>
@@ -1484,7 +1497,7 @@ export function RecompraPrevista() {
                     Intervalo dos pedidos
                   </th>
                   <th className="text-left font-semibold px-3 py-2.5">Comportamento</th>
-                  <th className="text-center font-semibold px-3 py-2.5">Precisão</th>
+                  <th className="text-center font-semibold px-3 py-2.5">Base do cálculo</th>
                   <th className="text-left font-semibold px-3 py-2.5">Tendência</th>
                   <th className="text-center font-semibold px-3 py-2.5">Dias</th>
                   <th className="text-left font-semibold px-3 py-2.5">Prevista</th>
@@ -1530,7 +1543,7 @@ export function RecompraPrevista() {
                       </td>
                       <td className="px-3 py-3 text-center">
                         <div className="font-bold text-sm tabular-nums">
-                          {r.cicloRacao ?? r.previsaoBase}d
+                          {r.cicloRacao ? `${r.cicloRacao}d` : "Sem estimativa"}
                         </div>
                         <div className="text-[10px] text-muted-foreground">peso ÷ consumo</div>
                       </td>
@@ -1547,7 +1560,7 @@ export function RecompraPrevista() {
                                   : "text-muted-foreground"
                               }`}
                             >
-                              {r.origemCiclo === "historico" ? "usado na previsão" : "histórico"}
+                              média entre compras
                             </div>
                           </>
                         ) : (
@@ -1560,7 +1573,15 @@ export function RecompraPrevista() {
                         <ComportamentoPill c={r.comportamento} />
                       </td>
                       <td className="px-3 py-3">
-                        <PrecisaoBar v={r.precisaoIA} />
+                        <span className="text-xs">
+                          {r.pendenciaCalculo
+                            ? "Dados pendentes"
+                            : r.cicloManual
+                              ? "Ajuste manual"
+                              : r.origemCiclo === "historico"
+                                ? `${r.historicoDias.length} intervalo(s)`
+                                : "Estimativa inicial"}
+                        </span>
                       </td>
                       <td className="px-3 py-3">
                         <TendenciaPill t={r.tendencia} />
@@ -1577,9 +1598,11 @@ export function RecompraPrevista() {
                                   : "text-foreground"
                           }`}
                         >
-                          {r.diasRestantes < 0
-                            ? `${Math.abs(r.diasRestantes)}d atraso`
-                            : `${r.diasRestantes}d`}
+                          {r.pendenciaCalculo
+                            ? "Pendente"
+                            : r.diasRestantes < 0
+                              ? `${Math.abs(r.diasRestantes)}d atraso`
+                              : `${r.diasRestantes}d`}
                         </span>
                       </td>
                       <td className="px-3 py-3 text-xs">
@@ -1722,7 +1745,7 @@ function agruparAvisosPorTutor(recompras: RecompraPrevista[]): TutorAvisoGrupo[]
   const grupos = new Map<string, TutorAvisoGrupo>();
 
   for (const recompra of recompras) {
-    if (recompra.diasRestantes > 7) continue;
+    if (recompra.pendenciaCalculo || recompra.diasRestantes > 7) continue;
 
     const key = recompra.clienteId || recompra.telefone || recompra.cliente;
     const atual =
@@ -2344,19 +2367,6 @@ function TendenciaPill({ t }: { t: TendenciaIA }) {
   );
 }
 
-function PrecisaoBar({ v }: { v: number }) {
-  const tone =
-    v >= 85 ? "bg-success" : v >= 70 ? "bg-primary" : v >= 60 ? "bg-amber-500" : "bg-destructive";
-  return (
-    <div className="flex items-center gap-1.5 min-w-[70px]">
-      <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
-        <div className={`h-full ${tone}`} style={{ width: `${v}%` }} />
-      </div>
-      <span className="text-[10px] font-bold tabular-nums">{v}%</span>
-    </div>
-  );
-}
-
 function ClienteDrawer({
   item,
   onClose,
@@ -2372,18 +2382,20 @@ function ClienteDrawer({
   onGerarPedido: (item: RecompraPrevista) => void;
   onFollowUp: (item: RecompraPrevista) => void;
 }) {
-  const hist = item.historicoDias;
+  const hist = [...item.historicoDias].reverse();
   const cicloRacao = item.cicloRacao ?? item.previsaoBase;
   const desvioPedidos = item.intervaloPedidos == null ? null : item.intervaloPedidos - cicloRacao;
-  const max = Math.max(...hist);
-  const min = Math.min(...hist);
+  const max = hist.length ? Math.max(...hist) : 0;
+  const min = hist.length ? Math.min(...hist) : 0;
   const delta = hist.length > 1 ? hist[hist.length - 1] - hist[0] : 0;
   const insight =
-    delta < -1
-      ? "Consumo aumentando · ciclo encurtando"
-      : delta > 1
-        ? "Consumo diminuindo · ciclo aumentando"
-        : "Padrão estável · alta previsibilidade";
+    hist.length < 2
+      ? "Histórico insuficiente para avaliar tendência"
+      : delta < -1
+        ? "Intervalos entre compras encurtando"
+        : delta > 1
+          ? "Intervalos entre compras aumentando"
+          : "Intervalos semelhantes nas compras registradas";
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -2413,18 +2425,28 @@ function ClienteDrawer({
             value={item.intervaloPedidos ? `${item.intervaloPedidos}d` : "Sem histórico"}
             accent={item.origemCiclo === "historico" ? "success" : undefined}
           />
-          <Mini label="Ciclo usado na previsão" value={`${item.previsaoBase}d`} />
+          <Mini
+            label="Ciclo usado na previsão"
+            value={item.pendenciaCalculo ? "Pendente" : `${item.previsaoBase}d`}
+          />
           <Mini
             label="Diferença pedido × ração"
             value={desvioPedidos == null ? "—" : `${desvioPedidos > 0 ? "+" : ""}${desvioPedidos}d`}
             accent={desvioPedidos != null && Math.abs(desvioPedidos) >= 7 ? "danger" : undefined}
           />
           <Mini
-            label="Precisão IA"
-            value={`${item.precisaoIA}%`}
-            accent={item.precisaoIA >= 85 ? "success" : undefined}
+            label="Base do cálculo"
+            value={
+              item.pendenciaCalculo
+                ? "Dados pendentes"
+                : item.cicloManual
+                  ? "Ajuste manual"
+                  : item.origemCiclo === "historico"
+                    ? "Histórico"
+                    : "Estimativa inicial"
+            }
           />
-          <Mini label="Compras analisadas" value={`${item.historicoDias.length}`} />
+          <Mini label="Intervalos analisados" value={`${item.historicoDias.length}`} />
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -2467,7 +2489,9 @@ function ClienteDrawer({
             })}
           </div>
           <div className="mt-2 text-[10px] text-muted-foreground">
-            mín {min}d · máx {max}d · variação {max - min}d
+            {hist.length
+              ? `mín ${min}d · máx ${max}d · variação ${max - min}d`
+              : "Ainda não há intervalos entre compras."}
           </div>
         </div>
 
@@ -3146,7 +3170,7 @@ const REGRAS_DEFAULT: RegraCategoria[] = [
 function loadRegras(): RegraCategoria[] {
   if (typeof window === "undefined") return REGRAS_DEFAULT;
   try {
-    const raw = window.localStorage.getItem(REGRAS_KEY);
+    const raw = lojaStorage.getItem(REGRAS_KEY);
     if (!raw) return REGRAS_DEFAULT;
     const parsed = JSON.parse(raw) as RegraCategoria[];
     // merge: garantir que novas categorias padrão sempre apareçam
@@ -3166,7 +3190,7 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
     setRegras((arr) => {
       const next = arr.map((r) => (r.id === id ? { ...r, ...patch } : r));
       try {
-        window.localStorage.setItem(REGRAS_KEY, JSON.stringify(next));
+        lojaStorage.setItem(REGRAS_KEY, JSON.stringify(next));
       } catch {
         /* noop */
       }
@@ -3176,7 +3200,7 @@ function AutomacoesCategoria({ produtosPrevistos }: { produtosPrevistos: Produto
   function resetar() {
     setRegras(REGRAS_DEFAULT);
     try {
-      window.localStorage.removeItem(REGRAS_KEY);
+      lojaStorage.removeItem(REGRAS_KEY);
     } catch {
       /* noop */
     }

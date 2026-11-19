@@ -9,13 +9,16 @@ import {
   consumoDiarioPetRacao,
   dataBaseRecompra,
   ehRacaoParaRecompra,
+  filtrarPetsPorEspecieProduto,
   inferirPesoRacaoKg,
   listarRacasPesoBase,
   normalizarCicloManual,
   normalizarDataCompraRecompra,
+  normalizarPorteRacao,
   pesoAtualKg,
   pesoMedioPorRaca,
   pesoPadraoPorPorte,
+  portePadraoProdutoRecompra,
   skuRacaoAvulsa,
 } from "./recompra-calculo.ts";
 
@@ -105,7 +108,7 @@ test("usa peso real do pet quando cadastrado", () => {
 
   assert.equal(consumo.pesoInformado, true);
   assert.equal(consumo.pesoKg, 32);
-  assert.equal(consumo.consumoDiaG, 576);
+  assert.equal(consumo.consumoDiaG, 511);
 });
 
 test("usa media do porte quando o pet nao tem peso cadastrado", () => {
@@ -118,7 +121,7 @@ test("usa media do porte quando o pet nao tem peso cadastrado", () => {
 
   assert.equal(consumo.pesoInformado, false);
   assert.equal(consumo.pesoKg, pesoPadraoPorPorte("pequeno"));
-  assert.equal(consumo.consumoDiaG, 122);
+  assert.equal(consumo.consumoDiaG, 134);
 });
 
 test("gato sem peso usa peso medio de gato", () => {
@@ -131,7 +134,7 @@ test("gato sem peso usa peso medio de gato", () => {
 
   assert.equal(consumo.pesoKg, 3.5);
   assert.equal(consumo.porte, "pequeno");
-  assert.equal(consumo.consumoDiaG, 42);
+  assert.equal(consumo.consumoDiaG, 44);
 });
 
 test("usa media exata informada por kg para Formula Natural Pro filhote mini", () => {
@@ -142,7 +145,7 @@ test("usa media exata informada por kg para Formula Natural Pro filhote mini", (
     portePadrao: "medio",
   });
 
-  assert.equal(consumo.consumoDiaG, 40);
+  assert.equal(consumo.consumoDiaG, 64);
 });
 
 test("diferencia senior e castrado nas linhas Formula Natural", () => {
@@ -159,8 +162,8 @@ test("diferencia senior e castrado nas linhas Formula Natural", () => {
     portePadrao: "pequeno",
   });
 
-  assert.equal(senior.consumoDiaG, 390);
-  assert.equal(castrado.consumoDiaG, 52);
+  assert.equal(senior.consumoDiaG, 346);
+  assert.equal(castrado.consumoDiaG, 51);
 });
 
 test("usa peso medio da raca quando o tutor nao sabe o peso", () => {
@@ -179,7 +182,7 @@ test("usa peso medio da raca quando o tutor nao sabe o peso", () => {
   assert.equal(consumo.pesoOrigem, "raca");
   assert.equal(consumo.pesoKg, 29.45);
   assert.equal(consumo.porte, "grande");
-  assert.equal(consumo.consumoDiaG, 412);
+  assert.equal(consumo.consumoDiaG, 379);
 });
 
 test("peso real informado tem prioridade sobre a media da raca", () => {
@@ -194,7 +197,7 @@ test("peso real informado tem prioridade sobre a media da raca", () => {
   assert.equal(consumo.pesoOrigem, "informado");
   assert.equal(consumo.pesoKg, 8);
   assert.equal(consumo.porte, "pequeno");
-  assert.equal(consumo.consumoDiaG, 128);
+  assert.equal(consumo.consumoDiaG, 143);
 });
 
 test("prioriza raca especifica antes de alias generico", () => {
@@ -273,8 +276,8 @@ test("extrai kg da racao por detalhes tecnicos ou nome e multiplica pela quantid
 
 test("calcula dias de recompra por kg da embalagem e consumo diario", () => {
   assert.equal(calcularDiasRecompraRacao(15, 420), 36);
-  assert.equal(calcularDiasRecompraRacao(0, 420), 30);
-  assert.equal(calcularDiasRecompraRacao(15, 0), 30);
+  assert.equal(calcularDiasRecompraRacao(0, 420), 0);
+  assert.equal(calcularDiasRecompraRacao(15, 0), 0);
 });
 
 test("recompra fica mais proxima quando a racao e cadastrada para dois cachorros", () => {
@@ -316,13 +319,13 @@ test("historico: comprou dia 10 e dia 20, recompra em ~10 dias", () => {
   assert.equal(ciclo?.consumoRealG, 1500);
 });
 
-test("historico: normaliza pela quantidade comprada", () => {
-  // 15 kg duraram 30 dias (500 g/dia); agora levou 30 kg -> 60 dias.
+test("historico: ciclo é a média de dias entre compras, sem escalar por kg", () => {
+  // Comprou de 30 em 30 dias: a próxima é em 30, mesmo levando 30 kg agora.
   const ciclo = calcularCicloPorHistorico([
     { data: "2026-08-01", pesoKg: 15 },
     { data: "2026-08-31", pesoKg: 30 },
   ]);
-  assert.equal(ciclo?.dias, 60);
+  assert.equal(ciclo?.dias, 30);
 });
 
 test("historico: compras com ate 3 dias de diferenca contam como uma", () => {
@@ -335,26 +338,27 @@ test("historico: compras com ate 3 dias de diferenca contam como uma", () => {
   assert.equal(ciclo?.dias, 30);
 });
 
-test("historico: pacote extra logo apos a compra desconta os dias passados", () => {
+test("historico: pacote extra logo apos a compra conta como a mesma compra", () => {
   const ciclo = calcularCicloPorHistorico([
     { data: "2026-08-01", pesoKg: 15 },
     { data: "2026-08-31", pesoKg: 15 },
     { data: "2026-09-02", pesoKg: 15 },
   ]);
-  // 30 kg a 500 g/dia = 60 dias desde 31/08 -> 58 dias a partir de 02/09.
-  assert.equal(ciclo?.dias, 58);
+  assert.deepEqual(ciclo?.intervalos, [30]);
+  assert.equal(ciclo?.dias, 30);
 });
 
-test("historico: pesa mais os intervalos recentes e ignora outlier", () => {
+test("historico: media simples de todos os intervalos entre compras", () => {
   const ciclo = calcularCicloPorHistorico([
     { data: "2026-03-01", pesoKg: 15 },
     { data: "2026-03-31", pesoKg: 15 },
-    { data: "2026-06-29", pesoKg: 15 }, // 90 dias: cliente sumiu/comprou fora
+    { data: "2026-06-29", pesoKg: 15 },
     { data: "2026-07-29", pesoKg: 15 },
     { data: "2026-08-28", pesoKg: 15 },
   ]);
-  assert.deepEqual(ciclo?.intervalos, [30, 30, 30]);
-  assert.equal(ciclo?.dias, 30);
+  // (30 + 30 + 90 + 30) / 4 = 45
+  assert.deepEqual(ciclo?.intervalos, [30, 30, 90, 30]);
+  assert.equal(ciclo?.dias, 45);
 });
 
 test("historico: sem peso usa media dos dias", () => {
@@ -365,4 +369,27 @@ test("historico: sem peso usa media dos dias", () => {
   ]);
   // (22*2 + 20*1) / 3 = 21,3
   assert.equal(ciclo?.dias, 21);
+});
+
+test("ração de cachorro sem pet na venda não soma o gato do cliente", () => {
+  const pets = filtrarPetsPorEspecieProduto(
+    [
+      { nome: "Mel", especie: "cachorro" as const },
+      { nome: "Mingau", especie: "gato" as const },
+    ],
+    { nome: "Golden Formula Cães Adultos Mini Bits 2kg" },
+  );
+  assert.deepEqual(
+    pets.map((pet) => pet.nome),
+    ["Mel"],
+  );
+});
+
+test("produto 'Mini Bits' indica porte pequeno e porte abreviado é aceito", () => {
+  assert.equal(
+    portePadraoProdutoRecompra({ nome: "Bob Dog Frango e Arroz Mini Bits 1KG" }),
+    "pequeno",
+  );
+  assert.equal(normalizarPorteRacao("cachorro", "P"), "pequeno");
+  assert.equal(normalizarPorteRacao("cachorro", "G"), "grande");
 });

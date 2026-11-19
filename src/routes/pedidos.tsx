@@ -3,6 +3,11 @@ import { Pedidos } from "@/pages/Pedidos";
 import type { Pedido } from "@/lib/crm-types";
 
 export const Route = createFileRoute("/pedidos")({
+  validateSearch: (search): { busca?: string } => ({
+    busca: typeof search.busca === "string" ? search.busca : undefined,
+  }),
+  // Os loaders usam a API autenticada relativa ao navegador.
+  ssr: false,
   component: PedidosRoute,
   loader: async () => {
     try {
@@ -16,8 +21,14 @@ export const Route = createFileRoute("/pedidos")({
 });
 
 function PedidosRoute() {
+  const { busca } = Route.useSearch();
   const pedidos = Route.useLoaderData();
-  return <Pedidos pedidosIniciais={Array.isArray(pedidos) ? pedidos.map(normalizarPedido) : []} />;
+  return (
+    <Pedidos
+      buscaInicial={busca}
+      pedidosIniciais={Array.isArray(pedidos) ? pedidos.map(normalizarPedido) : []}
+    />
+  );
 }
 
 function normalizarPedido(pedido: Record<string, unknown>): Pedido {
@@ -26,6 +37,7 @@ function normalizarPedido(pedido: Record<string, unknown>): Pedido {
   return {
     id: String(pedido.id ?? ""),
     cliente: String(pedido.cliente ?? "Cliente"),
+    telefone: String(pedido.telefone ?? ""),
     pet: String(pedido.pet ?? ""),
     total: Number(pedido.total ?? 0),
     status: isPedidoStatus(pedido.status) ? pedido.status : "novo",

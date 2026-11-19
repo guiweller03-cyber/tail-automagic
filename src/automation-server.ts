@@ -2,11 +2,13 @@ import http from "node:http";
 
 import { processarWebhookMercadoPago } from "./routes/api/webhook.pagamento";
 import { processarWebhookWhatsapp, type UazapiWebhook } from "./routes/api/webhook.whatsapp";
+import { comLoja, configuracaoLoja, lojaOperacional, type LojaId } from "./lib/loja-context";
 
 const port = Number(process.env.PORT ?? 3001);
 const requiredEnv = [
   "UAZAPI_URL",
   "UAZAPI_TOKEN",
+  "UAZAPI_WEBHOOK_SECRET",
   "OPENAI_API_KEY",
   "SUPABASE_URL",
   "SUPABASE_ANON_KEY",
@@ -47,39 +49,26 @@ async function handle(request: http.IncomingMessage, response: http.ServerRespon
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
   if (request.method === "GET" && url.pathname === "/health") {
-    const envStatus = Object.fromEntries(
-      requiredEnv.map((name) => [name, Boolean(process.env[name])]),
-    );
-    return json(response, 200, {
-      ok: true,
-      service: "mundo-pet-automacao",
-      env: envStatus,
-    });
+    return json(response, 200, { ok: true });
   }
 
-  if (request.method === "GET" && url.pathname === "/webhooks/whatsapp") {
-    return json(response, 200, {
-      ok: true,
-      webhook: "uazapi_whatsapp",
-      message: "Webhook ativo. A UazAPI deve enviar POST para esta URL.",
-    });
-  }
-
-  if (request.method === "GET" && url.pathname === "/webhooks/mercadopago") {
-    return json(response, 200, {
-      ok: true,
-      webhook: "mercado_pago_pagamento",
-      message: "Webhook ativo. O Mercado Pago deve enviar POST para esta URL.",
-    });
-  }
 
   if (
     request.method === "POST" &&
     (url.pathname === "/webhooks/whatsapp" || url.pathname === "/api/webhook/whatsapp")
   ) {
+    const loja = url.searchParams.get("loja");
+    if (loja !== "loja1" && loja !== "loja2") return json(response, 400, { ok: false });
+    const secret = comLoja(loja, () => configuracaoLoja("UAZAPI_WEBHOOK_SECRET"));
+    const provided = url.searchParams.get("secret") ?? request.headers["x-webhook-secret"];
+    if (!secret || typeof provided !== "string" || provided !== secret) {
+      return json(response, 401, { ok: false });
+    }
+    if (!lojaOperacional(loja)) return json(response, 503, { ok: false });
+    const payload = (await readJson(request)) as UazapiWebhook;
     return sendNodeResponse(
       response,
-      await processarWebhookWhatsapp((await readJson(request)) as UazapiWebhook),
+      await comLoja(loja as LojaId, () => processarWebhookWhatsapp(payload)),
     );
   }
 
@@ -103,7 +92,7 @@ http
       console.error(error);
       json(response, 500, {
         ok: false,
-        error: error instanceof Error ? error.message : "Erro desconhecido",
+        error: "Erro interno",
       });
     });
   })

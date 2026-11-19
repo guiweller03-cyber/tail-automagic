@@ -1,3 +1,4 @@
+import { lojaStorage } from "@/lib/loja-storage";
 import { useCallback, useEffect, useState } from "react";
 
 export type AlertaTipo =
@@ -31,7 +32,7 @@ const EMPTY_INITIAL: Alerta[] = [];
 function load(): Alerta[] {
   if (typeof window !== "undefined") {
     try {
-      window.localStorage.removeItem(KEY);
+      lojaStorage.removeItem(KEY);
     } catch {
       // Alertas mockados locais nao devem travar a tela.
     }

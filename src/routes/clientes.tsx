@@ -3,6 +3,11 @@ import { Clientes } from "@/pages/Clientes";
 import type { Cliente } from "@/lib/crm-types";
 
 export const Route = createFileRoute("/clientes")({
+  validateSearch: (search): { busca?: string } => ({
+    busca: typeof search.busca === "string" ? search.busca : undefined,
+  }),
+  // Os loaders usam a API autenticada relativa ao navegador.
+  ssr: false,
   component: ClientesRoute,
   loader: async () => {
     try {
@@ -16,6 +21,7 @@ export const Route = createFileRoute("/clientes")({
 });
 
 function ClientesRoute() {
+  const { busca } = Route.useSearch();
   const clientes = Route.useLoaderData();
-  return <Clientes clientes={clientes ?? []} />;
+  return <Clientes buscaInicial={busca} clientes={clientes ?? []} />;
 }

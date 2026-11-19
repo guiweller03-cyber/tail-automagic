@@ -1,3 +1,5 @@
+import { configuracaoLoja } from "@/lib/loja-context";
+import { requireSupabaseServerKey } from "@/lib/server-env";
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 
@@ -11,7 +13,7 @@ function base64ToBytes(value: string): Uint8Array {
 }
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
 
   if (!value) {
     throw new Error(`Missing environment variable: ${name}`);
@@ -21,7 +23,7 @@ function requireEnv(name: string): string {
 }
 
 function optionalEnv(name: string): string | undefined {
-  return process.env[name]?.trim() || undefined;
+  return configuracaoLoja(name);
 }
 
 function bytesBody(bytes: Uint8Array): ArrayBuffer {
@@ -164,7 +166,8 @@ function isSupabasePublicUrl(url: URL): boolean {
   try {
     return (
       url.origin === new URL(supabaseUrl).origin &&
-      url.pathname.includes("/storage/v1/object/public/")
+      (url.pathname.includes("/storage/v1/object/public/") ||
+        url.pathname.startsWith("/storage/v1/object/comprovantes/"))
     );
   } catch {
     return false;
@@ -180,6 +183,10 @@ function isAllowedMediaUrl(url: URL): boolean {
 }
 
 function mediaFetchHeaders(url: URL): HeadersInit | undefined {
+  if (isSupabasePublicUrl(url) && url.pathname.startsWith("/storage/v1/object/comprovantes/")) {
+    const key = requireSupabaseServerKey();
+    return { apikey: key, authorization: `Bearer ${key}` };
+  }
   if (!isUazapiUrl(url)) return undefined;
 
   return { token: requireEnv("UAZAPI_TOKEN") };

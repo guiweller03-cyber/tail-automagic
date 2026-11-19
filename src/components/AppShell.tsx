@@ -1,3 +1,4 @@
+import { GlobalSearch } from "@/components/GlobalSearch";
 import { Link, Outlet, useLocation, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,10 +13,9 @@ import {
   Megaphone,
   Zap,
   PawPrint,
-  Search,
-  Bell,
   Menu,
   X,
+  ChevronDown,
   Sparkles,
   PackageSearch,
   ArrowRightLeft,
@@ -33,29 +33,53 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { dispatchCrmReload } from "@/lib/crm-refresh";
 import { GlobalSearchContext } from "@/lib/global-search";
+import { LojaContext } from "@/lib/loja-ui";
+import type { LojaId } from "@/lib/loja-context";
+import { toast } from "sonner";
 
-const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/leads-totais", label: "Leads totais", icon: Users },
-  { to: "/conversas", label: "WhatsApp IA", icon: MessageCircle },
-  { to: "/assistente", label: "Assistente IA", icon: Sparkles },
-  { to: "/notas", label: "Notas", icon: FileText },
-  { to: "/clientes", label: "Clientes", icon: Users },
-  { to: "/pets", label: "Pets", icon: PawPrint },
-  { to: "/indicacoes", label: "Indicações", icon: Gift },
-  { to: "/recompra-prevista", label: "Recompra Prevista", icon: ArrowRightLeft },
-  { to: "/painel-recompra", label: "Painel de Recompra", icon: ListFilter },
-  { to: "/aprovacoes-recompra", label: "Aprovar Recompras", icon: MessageSquareCheck },
-  { to: "/pedidos", label: "Pedidos", icon: ShoppingBag },
-  { to: "/pdv", label: "PDV", icon: Store },
-  { to: "/entregas", label: "Entregas", icon: Truck },
-  { to: "/estoque", label: "Estoque", icon: Boxes },
-  { to: "/produtos-procurados", label: "Procurados", icon: PackageSearch },
-  { to: "/financeiro", label: "Finanças", icon: Wallet },
-  { to: "/campanhas", label: "Campanhas", icon: Megaphone },
-  { to: "/disparos", label: "Disparos", icon: Send },
-  { to: "/automacoes", label: "Automações", icon: Zap },
+const navGroups = [
+  {
+    label: "Visão geral",
+    items: [
+      { to: "/", label: "Dashboard", icon: LayoutDashboard },
+      { to: "/leads-totais", label: "Leads totais", icon: Users },
+    ],
+  },
+  {
+    label: "Relacionamento",
+    items: [
+      { to: "/conversas", label: "WhatsApp IA", icon: MessageCircle },
+      { to: "/assistente", label: "Assistente IA", icon: Sparkles },
+      { to: "/clientes", label: "Clientes", icon: Users },
+      { to: "/pets", label: "Pets", icon: PawPrint },
+      { to: "/notas", label: "Notas", icon: FileText },
+    ],
+  },
+  {
+    label: "Operação",
+    items: [
+      { to: "/pedidos", label: "Pedidos", icon: ShoppingBag },
+      { to: "/pdv", label: "PDV", icon: Store },
+      { to: "/entregas", label: "Entregas", icon: Truck },
+      { to: "/estoque", label: "Estoque", icon: Boxes },
+      { to: "/produtos-procurados", label: "Produtos procurados", icon: PackageSearch },
+    ],
+  },
+  {
+    label: "Crescimento",
+    items: [
+      { to: "/financeiro", label: "Financeiro", icon: Wallet },
+      { to: "/recompra-prevista", label: "Recompra prevista", icon: ArrowRightLeft },
+      { to: "/painel-recompra", label: "Painel de recompra", icon: ListFilter },
+      { to: "/aprovacoes-recompra", label: "Aprovar recompras", icon: MessageSquareCheck },
+      { to: "/indicacoes", label: "Indicações", icon: Gift },
+      { to: "/campanhas", label: "Campanhas", icon: Megaphone },
+      { to: "/disparos", label: "Disparos", icon: Send },
+      { to: "/automacoes", label: "Automações", icon: Zap },
+    ],
+  },
 ] as const;
+const nav = navGroups.flatMap((group) => [...group.items]);
 
 export function AppShell() {
   const [open, setOpen] = useState(false);
@@ -63,9 +87,66 @@ export function AppShell() {
   const [themeReady, setThemeReady] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
+  const [loja, setLoja] = useState<LojaId>("loja1");
+  const [trocandoLoja, setTrocandoLoja] = useState(false);
+  const [loja2Operacional, setLoja2Operacional] = useState(false);
+  const [sessaoPronta, setSessaoPronta] = useState(false);
   const loc = useLocation();
   const router = useRouter();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    void fetch("/api/auth/session", { cache: "no-store" })
+      .then(async (response) => {
+        const data = (await response.json()) as {
+          ok?: boolean;
+          loja?: LojaId;
+          loja2Operacional?: boolean;
+        };
+        if (!data.ok) {
+          window.location.assign("/login");
+          return;
+        }
+        setLoja(data.loja === "loja2" ? "loja2" : "loja1");
+        window.sessionStorage.setItem("crm_loja", data.loja === "loja2" ? "loja2" : "loja1");
+        setLoja2Operacional(Boolean(data.loja2Operacional));
+        setSessaoPronta(true);
+      })
+      .catch(() => toast.error("Não foi possível verificar a sessão"));
+  }, []);
+
+  async function trocarLoja(proxima: LojaId) {
+    if (proxima === loja || trocandoLoja) return;
+    setTrocandoLoja(true);
+    try {
+      const response = await fetch("/api/auth/loja", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ loja: proxima }),
+      });
+      if (!response.ok) throw new Error("Falha ao trocar de loja");
+      queryClient.clear();
+      window.sessionStorage.setItem("crm_loja", proxima);
+      window.location.assign("/");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao trocar de loja");
+      setTrocandoLoja(false);
+    }
+  }
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("theme");
@@ -101,169 +182,273 @@ export function AppShell() {
     window.location.assign("/login");
   }
 
-  return (
-    <GlobalSearchContext.Provider value={{ query: globalSearch, setQuery: setGlobalSearch }}>
-      <div className="min-h-screen bg-background overflow-x-hidden lg:pl-64">
-        {/* Sidebar desktop */}
-        <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
-          <Brand />
-          <NavList currentPath={loc.pathname} />
-          <UserCard />
-        </aside>
+  const pageTitle = nav.find((item) => item.to === loc.pathname)?.label ?? "Mundo Pet";
+  const lojaOperacional = loja === "loja1" || loja2Operacional;
 
-        {/* Sidebar mobile */}
-        {open && (
-          <div className="lg:hidden fixed inset-0 z-50 flex">
-            <div className="absolute inset-0 bg-foreground/30" onClick={() => setOpen(false)} />
-            <aside className="relative w-[min(18rem,calc(100vw-2rem))] bg-sidebar h-full flex flex-col shadow-xl">
-              <div className="flex items-center justify-between p-4">
-                <Brand />
-                <button
-                  onClick={() => setOpen(false)}
-                  className="p-2 rounded-lg hover:bg-secondary"
-                >
-                  <X className="size-5" />
-                </button>
-              </div>
-              <NavList currentPath={loc.pathname} onNavigate={() => setOpen(false)} />
-              <div className="px-3 pb-2">
+  return (
+    <LojaContext.Provider value={loja}>
+      <GlobalSearchContext.Provider value={{ query: globalSearch, setQuery: setGlobalSearch }}>
+        <div className="min-h-screen bg-background lg:pl-[260px]">
+          <aside className="fixed inset-y-0 left-0 z-40 hidden w-[260px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
+            <Brand />
+            <SidebarStore loja={loja} operacional={lojaOperacional} />
+            <NavList currentPath={loc.pathname} />
+            <SidebarFooter
+              darkMode={darkMode}
+              onTheme={() => setDarkMode((v) => !v)}
+              onLogout={logout}
+            />
+          </aside>
+
+          {open && (
+            <div className="fixed inset-0 z-50 flex lg:hidden">
+              <button
+                type="button"
+                aria-label="Fechar menu"
+                className="absolute inset-0 bg-foreground/60 backdrop-blur-[2px]"
+                onClick={() => setOpen(false)}
+              />
+              <aside className="relative flex h-full w-[min(290px,calc(100vw-2.5rem))] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-2xl">
+                <div className="flex items-start justify-between">
+                  <Brand />
+                  <button
+                    type="button"
+                    aria-label="Fechar menu"
+                    onClick={() => setOpen(false)}
+                    className="mr-4 mt-5 rounded-lg p-2 text-sidebar-foreground/70 hover:bg-sidebar-accent"
+                  >
+                    <X className="size-5" />
+                  </button>
+                </div>
+                <SidebarStore loja={loja} operacional={lojaOperacional} />
+                <NavList currentPath={loc.pathname} onNavigate={() => setOpen(false)} />
+                <SidebarFooter
+                  darkMode={darkMode}
+                  onTheme={() => setDarkMode((v) => !v)}
+                  onLogout={logout}
+                />
+              </aside>
+            </div>
+          )}
+
+          <div className="min-w-0">
+            <header className="sticky top-0 z-30 border-b border-border/80 bg-card/95 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
+              <div className="mx-auto flex max-w-[1680px] flex-wrap items-center gap-x-4 gap-y-3">
                 <button
                   type="button"
-                  onClick={() => void logout()}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-sidebar-accent/60 hover:text-foreground"
+                  aria-label="Abrir menu"
+                  onClick={() => setOpen(true)}
+                  className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground lg:hidden"
                 >
-                  <LogOut className="size-[18px]" />
-                  <span>Sair</span>
+                  <Menu className="size-5" />
                 </button>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Mundo Pet / CRM
+                  </p>
+                  <p className="truncate text-base font-bold leading-tight tracking-tight sm:text-lg">
+                    {pageTitle}
+                  </p>
+                </div>
+                <div className="order-3 w-full sm:order-none sm:ml-auto sm:min-w-[200px] sm:max-w-[360px] sm:flex-1">
+                  <GlobalSearch />
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-2 sm:ml-0">
+                  <div className="relative">
+                    <select
+                      aria-label="Loja ativa"
+                      value={loja}
+                      disabled={trocandoLoja}
+                      onChange={(event) => void trocarLoja(event.target.value as LojaId)}
+                      className="h-10 min-w-[108px] appearance-none rounded-xl border border-border bg-secondary py-2 pl-3 pr-8 text-sm font-bold text-foreground outline-none transition hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 xl:min-w-[126px]"
+                    >
+                      <option value="loja1">Loja 1</option>
+                      <option value="loja2">Loja Tijucas{loja2Operacional ? "" : " · preparar"}</option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void reloadCrm()}
+                    disabled={reloading}
+                    aria-label="Atualizar CRM"
+                    title="Atualizar CRM"
+                    className="grid size-10 place-items-center rounded-xl border border-border bg-card text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:opacity-50"
+                  >
+                    <RefreshCw className={cn("size-[18px]", reloading && "animate-spin")} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDarkMode((v) => !v)}
+                    aria-label={darkMode ? "Ativar modo claro" : "Ativar modo escuro"}
+                    title={darkMode ? "Ativar modo claro" : "Ativar modo escuro"}
+                    className="hidden size-10 place-items-center rounded-xl border border-border bg-card text-muted-foreground transition hover:border-primary/40 hover:text-primary md:grid"
+                  >
+                    {darkMode ? <Sun className="size-[18px]" /> : <Moon className="size-[18px]" />}
+                  </button>
+                </div>
               </div>
-              <UserCard />
-            </aside>
+            </header>
+
+            <main className="mx-auto min-h-[calc(100vh-73px)] w-full max-w-[1680px] min-w-0 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+              {sessaoPronta && !lojaOperacional ? (
+                <div
+                  role="status"
+                  className="mx-auto mt-10 max-w-2xl rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-10"
+                >
+                  <div className="mb-6 grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
+                    <Store className="size-7" />
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">
+                    Loja Tijucas
+                  </p>
+                  <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+                    Estamos preparando esta loja
+                  </h2>
+                  <p className="mt-3 max-w-xl text-sm leading-7 text-muted-foreground">
+                    Os dados desta loja ficarão separados. O acesso será liberado após configurar
+                    Supabase, Uazapi e o webhook.
+                  </p>
+                  <div className="mt-7 inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-2 text-xs font-semibold text-secondary-foreground">
+                    <span className="size-2 rounded-full bg-accent" /> Aguardando ativação
+                  </div>
+                </div>
+              ) : sessaoPronta ? (
+                <Outlet />
+              ) : (
+                <div role="status" className="animate-pulse space-y-4">
+                  <div className="h-9 w-64 rounded-xl bg-secondary" />
+                  <div className="h-36 rounded-2xl bg-secondary" />
+                  <div className="h-36 rounded-2xl bg-secondary" />
+                </div>
+              )}
+            </main>
           </div>
-        )}
-
-        <div className="min-w-0 flex flex-col">
-          {/* Topbar */}
-          <header className="sticky top-0 z-30 min-h-12 bg-background/90 backdrop-blur border-b border-border flex items-center gap-2 px-3 py-1.5 sm:h-16 sm:gap-3 sm:px-4 lg:px-8">
-            <button
-              className="lg:hidden grid size-9 shrink-0 place-items-center rounded-lg hover:bg-secondary sm:size-10"
-              onClick={() => setOpen(true)}
-            >
-              <Menu className="size-5" />
-            </button>
-            <div className="flex-1 max-w-xl relative hidden sm:block">
-              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={globalSearch}
-                onChange={(event) => setGlobalSearch(event.target.value)}
-                aria-label="Busca global"
-                placeholder="Buscar cliente, pet, pedido…"
-                className="w-full h-10 pl-9 pr-4 rounded-xl bg-secondary border border-transparent focus:border-primary focus:bg-card outline-none text-sm transition"
-              />
-            </div>
-            <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-2">
-              <button
-                type="button"
-                onClick={() => void reloadCrm()}
-                disabled={reloading}
-                aria-label="Atualizar CRM"
-                title="Atualizar CRM"
-                className="grid size-9 place-items-center rounded-lg bg-secondary hover:bg-secondary/70 transition disabled:opacity-60 disabled:cursor-not-allowed sm:size-10 sm:rounded-xl"
-              >
-                <RefreshCw className={cn("size-5", reloading && "animate-spin")} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setDarkMode((current) => !current)}
-                aria-label={darkMode ? "Ativar modo claro" : "Ativar modo escuro"}
-                title={darkMode ? "Modo claro" : "Modo escuro"}
-                className="hidden size-10 place-items-center rounded-xl bg-secondary hover:bg-secondary/70 transition sm:grid"
-              >
-                {darkMode ? <Sun className="size-5" /> : <Moon className="size-5" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => void logout()}
-                aria-label="Sair"
-                title="Sair"
-                className="hidden size-10 place-items-center rounded-xl bg-secondary hover:bg-secondary/70 transition sm:grid"
-              >
-                <LogOut className="size-5" />
-              </button>
-              <button className="relative hidden size-10 place-items-center rounded-xl bg-secondary hover:bg-secondary/70 md:grid">
-                <Bell className="size-5" />
-              </button>
-              <div className="hidden sm:flex items-center gap-2.5 pl-3 pr-1.5 py-1.5 rounded-xl bg-secondary">
-                <div className="size-7 rounded-lg bg-primary/20 grid place-items-center text-primary font-semibold text-xs">
-                  MP
-                </div>
-                <div className="text-xs leading-tight">
-                  <div className="font-semibold">Mundo Pet</div>
-                  <div className="text-muted-foreground">Loja Vila Mariana</div>
-                </div>
-              </div>
-            </div>
-          </header>
-
-          <main className="flex-1 px-3 py-3 sm:px-4 sm:py-6 lg:px-8 lg:py-8 min-w-0">
-            <Outlet />
-          </main>
         </div>
-      </div>
-    </GlobalSearchContext.Provider>
+      </GlobalSearchContext.Provider>
+    </LojaContext.Provider>
   );
 }
 
 function Brand() {
   return (
-    <Link to="/" className="flex items-center gap-2.5 px-5 pt-6 pb-4">
-      <div className="size-10 rounded-2xl bg-primary grid place-items-center shadow-sm">
-        <PawPrint className="size-5 text-primary-foreground" />
-      </div>
-      <div>
-        <div className="font-bold text-base leading-tight">Mundo Pet</div>
-        <div className="text-[11px] text-muted-foreground -mt-0.5">CRM inteligente</div>
-      </div>
+    <Link to="/" className="flex items-center gap-3 px-5 pb-5 pt-6 text-sidebar-foreground">
+      <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lg">
+        <PawPrint className="size-6" />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[15px] font-extrabold leading-tight tracking-tight">
+          Mundo Pet
+        </span>
+        <span className="mt-0.5 block text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/55">
+          CRM inteligente
+        </span>
+      </span>
     </Link>
+  );
+}
+
+function SidebarStore({ loja, operacional }: { loja: LojaId; operacional: boolean }) {
+  return (
+    <div className="mx-3 mb-4 flex items-center gap-3 rounded-2xl border border-sidebar-border bg-sidebar-accent p-3">
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/15 text-sidebar-accent-foreground">
+        <Store className="size-[17px]" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-bold">{loja === "loja1" ? "Loja 1" : "Loja Tijucas"}</p>
+        <p className="mt-0.5 truncate text-[11px] text-sidebar-foreground/55">
+          {operacional ? "Ambiente ativo" : "Em preparação"}
+        </p>
+      </div>
+      <span className={cn("size-2 rounded-full", operacional ? "bg-success" : "bg-accent")} />
+    </div>
   );
 }
 
 function NavList({ currentPath, onNavigate }: { currentPath: string; onNavigate?: () => void }) {
   return (
-    <nav className="flex-1 px-3 pt-2 space-y-0.5 overflow-y-auto scrollbar-thin">
-      {nav.map((item) => {
-        const active = currentPath === item.to;
-        const Icon = item.icon;
-        return (
-          <Link
-            key={item.to}
-            to={item.to}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition",
-              active
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-            )}
-          >
-            <Icon className={cn("size-[18px]", active && "text-primary")} />
-            <span className="flex-1">{item.label}</span>
-          </Link>
-        );
-      })}
+    <nav
+      aria-label="Navegação principal"
+      className="flex-1 space-y-5 overflow-y-auto px-3 pb-5 scrollbar-thin"
+    >
+      {navGroups.map((group) => (
+        <div key={group.label}>
+          <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-sidebar-foreground/40">
+            {group.label}
+          </p>
+          <div className="space-y-0.5">
+            {group.items.map((item) => {
+              const active = currentPath === item.to;
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  onClick={onNavigate}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "group flex min-h-9 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70",
+                    active
+                      ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm"
+                      : "text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      "size-[17px] shrink-0",
+                      active
+                        ? "text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground/50 group-hover:text-sidebar-accent-foreground",
+                    )}
+                  />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </nav>
   );
 }
 
-function UserCard() {
+function SidebarFooter({
+  darkMode,
+  onTheme,
+  onLogout,
+}: {
+  darkMode: boolean;
+  onTheme: () => void;
+  onLogout: () => Promise<void>;
+}) {
   return (
-    <div className="m-3 p-4 rounded-2xl bg-gradient-to-br from-primary/15 to-accent/10 border border-primary/20">
-      <div className="text-xs font-semibold text-foreground">Relatorio IA</div>
-      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-        Resumo disponivel quando houver dados reais suficientes.
-      </p>
-      <button className="mt-3 w-full text-xs font-semibold py-2 rounded-lg bg-foreground text-background hover:opacity-90 transition">
-        Ativar resumo diário
-      </button>
+    <div className="border-t border-sidebar-border px-3 py-3">
+      <div className="flex items-center gap-3 px-3 py-2">
+        <span className="grid size-9 place-items-center rounded-xl bg-primary/20 text-xs font-bold text-primary">
+          MP
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-semibold">Mundo Pet</p>
+          <p className="text-[11px] text-sidebar-foreground/50">Sessão administrativa</p>
+        </div>
+      </div>
+      <div className="mt-1 flex gap-1">
+        <button
+          type="button"
+          onClick={onTheme}
+          className="flex flex-1 items-center gap-2 rounded-xl px-3 py-2 text-xs text-sidebar-foreground/65 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          {darkMode ? "Modo claro" : "Modo escuro"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void onLogout()}
+          className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-sidebar-foreground/65 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          <LogOut className="size-4" /> Sair
+        </button>
+      </div>
     </div>
   );
 }

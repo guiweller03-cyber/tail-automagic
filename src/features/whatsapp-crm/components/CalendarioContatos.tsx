@@ -10,10 +10,14 @@ import {
   RefreshCw,
   Search,
   Send,
-  X,
+  StickyNote,
 } from "lucide-react";
 import { conversaCorrespondeBusca } from "@/lib/conversa-search";
 import type { ContatoDoDia } from "@/lib/calendario-contatos";
+import { hojeLembretes } from "@/lib/lembretes";
+import { useLembretes } from "../hooks/useLembretes";
+import { LembretesDoDia } from "./Lembretes";
+import { SelecionarContato } from "./SelecionarContato";
 
 type FollowupStatus = "pendente" | "aguardando_confirmacao" | "enviado" | "cancelado" | "erro";
 
@@ -102,22 +106,25 @@ function gradeDoMes(mes: Date): Array<Date | null> {
 
 export function CalendarioContatos({
   conversas,
+  contatosLembretes = conversas,
   onOpenConversation,
 }: {
   conversas: ContatoCalendario[];
+  contatosLembretes?: ContatoCalendario[];
   onOpenConversation: (conversaId: string, telefone: string) => void;
 }) {
-  const hoje = chaveDia(new Date());
   const [mes, setMes] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
+    const [ano, numeroMes] = hojeLembretes().split("-").map(Number);
+    return new Date(ano, numeroMes - 1, 1);
   });
+  const agenda = useLembretes(chaveMes(mes));
+  const hoje = agenda.hoje;
   const [diaSelecionado, setDiaSelecionado] = useState(hoje);
   const [contatos, setContatos] = useState<ContatoDoDia[]>([]);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState("");
-  const [aba, setAba] = useState<"mensagens" | "agendados">("mensagens");
+  const [aba, setAba] = useState<"lembretes" | "mensagens" | "agendados">("lembretes");
   const [formAberto, setFormAberto] = useState(false);
   const [acaoId, setAcaoId] = useState<string | null>(null);
 
@@ -213,6 +220,13 @@ export function CalendarioContatos({
   const agendamentosDoDia = [...(agendamentosPorDia.get(diaSelecionado) ?? [])].sort((a, b) =>
     a.agendadoPara.localeCompare(b.agendadoPara),
   );
+  const lembretesPorDia = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const item of agenda.lembretes) {
+      if (!item.concluido) mapa.set(item.dia, (mapa.get(item.dia) ?? 0) + 1);
+    }
+    return mapa;
+  }, [agenda.lembretes]);
 
   function selecionarDia(chave: string) {
     setDiaSelecionado(chave);
@@ -227,8 +241,8 @@ export function CalendarioContatos({
   }
 
   function irParaHoje() {
-    const d = new Date();
-    setMes(new Date(d.getFullYear(), d.getMonth(), 1));
+    const [ano, numeroMes] = hoje.split("-").map(Number);
+    setMes(new Date(ano, numeroMes - 1, 1));
     selecionarDia(hoje);
   }
 
@@ -308,7 +322,10 @@ export function CalendarioContatos({
           <div className="ml-auto flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => void carregar(mes)}
+              onClick={() => {
+                void carregar(mes);
+                void agenda.carregar();
+              }}
               className="grid size-9 place-items-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground"
               aria-label="Atualizar calendário"
               title="Atualizar"
@@ -354,6 +371,7 @@ export function CalendarioContatos({
             const chave = chaveDia(data);
             const leads = contatosPorDia.get(chave)?.length ?? 0;
             const agendados = agendamentosPorDia.get(chave)?.length ?? 0;
+            const lembretes = lembretesPorDia.get(chave) ?? 0;
             const selecionado = chave === diaSelecionado;
             const ehHoje = chave === hoje;
             const futuro = chave > hoje;
@@ -364,7 +382,7 @@ export function CalendarioContatos({
                 type="button"
                 onClick={() => selecionarDia(chave)}
                 aria-pressed={selecionado}
-                aria-label={`${data.getDate()}: ${leads} leads, ${agendados} agendados`}
+                aria-label={`${data.getDate()}: ${leads} leads, ${agendados} agendados, ${lembretes} lembretes pendentes`}
                 className={`relative flex flex-col justify-between rounded-xl p-1.5 text-left outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring sm:p-2.5 ${
                   futuro && leads === 0
                     ? "bg-secondary/35 text-muted-foreground"
@@ -398,6 +416,15 @@ export function CalendarioContatos({
                     </>
                   )}
                 </span>
+                {lembretes > 0 && (
+                  <span
+                    className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold text-amber-950"
+                    title={`${lembretes} lembrete(s) pendente(s)`}
+                  >
+                    <StickyNote className="size-3" />
+                    {lembretes}
+                  </span>
+                )}
                 {leads > 0 && (
                   <span className="leading-none">
                     <span className="block text-base font-extrabold tabular-nums sm:text-2xl">
@@ -428,9 +455,10 @@ export function CalendarioContatos({
           <p className="text-xs font-medium text-muted-foreground">{diaSemana}</p>
           <h3 className="text-xl font-extrabold tracking-tight">{diaPorExtenso}</h3>
 
-          <div className="mt-3 grid grid-cols-2 rounded-xl bg-secondary p-1" role="tablist">
+          <div className="mt-3 grid grid-cols-3 rounded-xl bg-secondary p-1" role="tablist">
             {(
               [
+                ["lembretes", "Lembretes", lembretesPorDia.get(diaSelecionado) ?? 0],
                 ["mensagens", "Mensagens", contatosDoDia.length],
                 ["agendados", "Agendados", agendamentosDoDia.length],
               ] as const
@@ -460,7 +488,15 @@ export function CalendarioContatos({
           </div>
         </div>
 
-        {aba === "mensagens" ? (
+        {aba === "lembretes" ? (
+          <LembretesDoDia
+            key={diaSelecionado}
+            dia={diaSelecionado}
+            contatos={contatosLembretes}
+            agenda={agenda}
+            onAbrir={abrirConversa}
+          />
+        ) : aba === "mensagens" ? (
           <div className="flex flex-col lg:min-h-0 lg:flex-1">
             <div className="px-4 pt-3 sm:px-5">
               <div className="relative">
@@ -669,17 +705,11 @@ function AgendarForm({
   onCriado: (agendamento: Agendamento) => void;
   onCancelar: () => void;
 }) {
-  const [busca, setBusca] = useState("");
   const [contato, setContato] = useState<ContatoCalendario | null>(null);
   const [horario, setHorario] = useState("09:00");
   const [mensagem, setMensagem] = useState("");
   const [disparo, setDisparo] = useState<"automatico" | "confirmar">("automatico");
   const [salvando, setSalvando] = useState(false);
-
-  const sugestoes = useMemo(() => {
-    if (!busca.trim()) return [];
-    return conversas.filter((conversa) => conversaCorrespondeBusca(conversa, busca)).slice(0, 8);
-  }, [busca, conversas]);
 
   async function salvar() {
     if (!contato) {
@@ -740,61 +770,15 @@ function AgendarForm({
 
   return (
     <div className="space-y-3 rounded-2xl border border-accent/40 bg-accent/5 p-3">
-      <div>
-        <span className={rotulo}>Cliente</span>
-        {contato ? (
-          <div className="flex h-10 items-center gap-2 rounded-xl border border-border bg-background pl-1.5 pr-2">
-            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/20 text-[10px] font-bold">
-              {iniciais(contato.cliente || contato.telefone)}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-              {contato.cliente || formatarTelefone(contato.telefone)}
-            </span>
-            <button
-              type="button"
-              onClick={() => setContato(null)}
-              className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-              aria-label="Trocar cliente"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        ) : (
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={busca}
-              onChange={(event) => setBusca(event.target.value)}
-              placeholder="Nome ou telefone"
-              className={`${campo} h-10 pl-9`}
-              autoFocus
-            />
-            {sugestoes.length > 0 && (
-              <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
-                {sugestoes.map((sugestao) => (
-                  <li key={sugestao.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setContato(sugestao);
-                        setBusca("");
-                      }}
-                      className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-secondary"
-                    >
-                      <span className="truncate font-semibold">
-                        {sugestao.cliente || "Sem nome"}
-                      </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatarTelefone(sugestao.telefone)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </div>
+      <fieldset disabled={salvando}>
+        <SelecionarContato
+          contatos={conversas}
+          value={contato}
+          onChange={(selecionado) =>
+            setContato(selecionado ? { ...selecionado, id: selecionado.id ?? "" } : null)
+          }
+        />
+      </fieldset>
 
       <div className="grid grid-cols-[6.5rem_1fr] gap-2">
         <label>

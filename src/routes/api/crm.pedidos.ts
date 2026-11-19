@@ -264,10 +264,14 @@ export const Route = createFileRoute("/api/crm/pedidos")({
               formaPagamento: typeof body.formaPagamento === "string" ? body.formaPagamento : null,
               observacao: typeof body.observacao === "string" ? body.observacao : null,
               bairro: typeof body.bairro === "string" ? body.bairro : null,
-              pet: typeof body.pet === "string" ? body.pet : null,
+              pet: typeof body.pet === "string" ? body.pet : undefined,
               pago: body.pago === true,
               criadoEm: typeof body.dataVenda === "string" ? body.dataVenda : null,
               itens: itensInformados ? itens : undefined,
+              taxaMaquininha:
+                body.taxaMaquininha === undefined || body.taxaMaquininha === null
+                  ? undefined
+                  : Number(body.taxaMaquininha),
             }),
           );
         } catch (error) {

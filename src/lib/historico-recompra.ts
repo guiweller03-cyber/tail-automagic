@@ -1,4 +1,4 @@
-import { calcularCicloPorHistorico } from "@/lib/recompra-calculo";
+import { agruparComprasRecompra, calcularCicloPorHistorico } from "@/lib/recompra-calculo";
 
 export type HistoricoVendaItem = {
   sku: string;
@@ -54,20 +54,28 @@ export function calcularDuracoesHistorico(
   vendas: Array<Omit<HistoricoVendaRecompra, "durouDias" | "consumoRealG">>,
 ): HistoricoVendaRecompra[] {
   const ordenadas = [...vendas].sort((a, b) => b.data.localeCompare(a.data));
-  let proximaNoCiclo: string | null = null;
+  const eventos = agruparComprasRecompra(
+    vendas.flatMap((venda) =>
+      venda.itens
+        .filter((item) => item.entraNoCiclo)
+        .map((item) => ({ data: venda.data, pesoKg: item.pesoKg })),
+    ),
+  );
 
   return ordenadas.map((venda) => {
     const entra = venda.itens.some((item) => item.entraNoCiclo);
     if (!entra) return { ...venda, durouDias: null, consumoRealG: null };
 
-    const durouDias = proximaNoCiclo ? diasEntre(venda.data, proximaNoCiclo) : null;
-    proximaNoCiclo = venda.data;
+    const indice = eventos.findIndex((e) => venda.data >= e.inicio && venda.data <= e.fim);
+    const evento = eventos[indice];
+    const proximo = eventos[indice + 1];
+    const durouDias = evento && proximo ? diasEntre(evento.inicio, proximo.inicio) : null;
     return {
       ...venda,
       durouDias,
       consumoRealG:
-        durouDias && durouDias > 0 && venda.kgCiclo > 0
-          ? Math.round((venda.kgCiclo * 1000) / durouDias)
+        durouDias && durouDias > 0 && evento && !evento.semPeso && evento.pesoKg > 0
+          ? Math.round((evento.pesoKg * 1000) / durouDias)
           : null,
     };
   });
@@ -83,11 +91,13 @@ export function compararCicloComHistorico(
 ): ComparacaoCicloHistorico {
   const noCiclo = vendas.filter((venda) => venda.itens.some((item) => item.entraNoCiclo));
   const ciclo = calcularCicloPorHistorico(
-    noCiclo.map((venda) => ({ data: venda.data, pesoKg: venda.kgCiclo })),
+    noCiclo.flatMap((venda) =>
+      venda.itens
+        .filter((i) => i.entraNoCiclo)
+        .map((i) => ({ data: venda.data, pesoKg: i.pesoKg })),
+    ),
   );
-  const intervalos = noCiclo
-    .map((venda) => venda.durouDias)
-    .filter((dias): dias is number => dias != null && dias > 0);
+  const intervalos = ciclo?.intervalos ?? [];
   const intervaloMedioDias = intervalos.length
     ? Math.round(intervalos.reduce((soma, dias) => soma + dias, 0) / intervalos.length)
     : null;

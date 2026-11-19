@@ -1,3 +1,7 @@
+import { cn } from "@/lib/utils";
+import { clienteDaVenda, nomesPetsDoCliente, petsDoCadastro } from "@/lib/crm-pets";
+import { petDoItem, petsSelecionados } from "@/lib/pdv-pets";
+import { clienteCorrespondeBusca, correspondeBusca } from "@/lib/crm-search";
 import {
   Search,
   Plus,
@@ -23,6 +27,7 @@ import {
   Pencil,
   Link as LinkIcon,
   PawPrint,
+  Gift,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -35,11 +40,14 @@ import {
 import type { Cliente, PetDetalhe, Produto } from "@/lib/crm-types";
 import {
   calcularDiasRecompraRacao,
+  filtrarPetsPorEspecieProduto,
+  portePadraoProdutoRecompra,
   consumoDiarioPetRacao,
   inferirPesoRacaoKg,
   listarRacasPesoBase,
 } from "@/lib/recompra-calculo";
 import { toast } from "sonner";
+import { dispatchCrmReload } from "@/lib/crm-refresh";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -108,7 +116,11 @@ const normalizarBusca = (valor: string) =>
 
 const telefoneDigits = (valor: string) => valor.replace(/\D/g, "");
 
+const isBrindeProduto = (produto?: Pick<Produto, "categoria"> | null) =>
+  /brindes?/.test(normalizarBusca(produto?.categoria ?? ""));
+
 const isRacaoProduto = (produto?: Produto) => {
+  if (isBrindeProduto(produto)) return false;
   const text = normalizarBusca(
     `${produto?.nome ?? ""} ${produto?.categoria ?? ""} ${produto?.detalhesTecnicos?.tipoProduto ?? ""}`,
   );
@@ -132,16 +144,11 @@ const especiePadraoProduto = (produto?: Produto, cliente?: Cliente): "cachorro" 
   return cliente?.especies?.[0] ?? "cachorro";
 };
 
-const portePadraoProduto = (produto?: Produto): "pequeno" | "medio" | "grande" => {
-  const text = normalizarBusca(`${produto?.nome ?? ""} ${produto?.detalhesTecnicos?.porte ?? ""}`);
-  if (text.includes("pequeno") || text.includes("peq") || text.includes("mini")) return "pequeno";
-  if (text.includes("grande") || text.includes("large") || text.includes("maxi")) return "grande";
-  return "medio";
-};
+const portePadraoProduto = (produto?: Produto) => portePadraoProdutoRecompra(produto);
 
 const markerValue = (value: string) => value.replace(/"/g, "'").trim();
 
-const petsParaRecompra = (cliente?: Cliente, petNome?: string | null) => {
+const petsParaRecompra = (cliente?: Cliente, petNome?: string | null, produto?: Produto) => {
   const nomes = petNomes(petNome);
   if (nomes.length > 0) {
     return nomes.map((nome) => {
@@ -151,7 +158,12 @@ const petsParaRecompra = (cliente?: Cliente, petNome?: string | null) => {
       return pet ?? { nome };
     });
   }
-  if (cliente?.petsDetalhes?.length) return cliente.petsDetalhes.filter((pet) => pet.nome?.trim());
+  if (cliente?.petsDetalhes?.length) {
+    return filtrarPetsPorEspecieProduto(
+      cliente.petsDetalhes.filter((pet) => pet.nome?.trim()),
+      produto,
+    );
+  }
   if (cliente?.pets?.length) return cliente.pets.map((nome) => ({ nome }));
   return [{ nome: "Pet" }];
 };
@@ -170,7 +182,7 @@ const observacaoRecompraPdv = ({
     if (!produto || !isRacaoProduto(produto)) return [];
 
     const pesoKg = inferirPesoRacaoKg(produto, item.qtd);
-    const pets = petsParaRecompra(cliente, item.petNome);
+    const pets = petsParaRecompra(cliente, item.petNome, produto);
     const especiePadrao = especiePadraoProduto(produto, cliente);
     const portePadrao = portePadraoProduto(produto);
     const consumoDiarioG = pets.reduce((sum, pet) => {
@@ -204,7 +216,7 @@ const clienteCombina = (c: Cliente, valorBusca: string, exact = false) => {
     return nome === q || (digits.length > 0 && telefone === digits);
   }
 
-  return (q.length > 0 && nome.includes(q)) || (digits.length > 0 && telefone.includes(digits));
+  return Boolean(q) && clienteCorrespondeBusca(c, valorBusca);
 };
 
 const itemCarrinhoKey = (item: Pick<Item, "sku" | "petNome">) =>
@@ -277,9 +289,12 @@ type VendaEditForm = {
   statusPag: StatusPag;
   obs: string;
   itens: Item[];
+  cartaoModo: CartaoModo;
+  parcelas: CartaoParcela;
 };
 
 type PDVProps = {
+  contextoConversas?: boolean;
   initialCliente?: string;
   initialTelefone?: string;
   initialSku?: string;
@@ -402,6 +417,44 @@ const taxasLinkPagamento = {
   6: 9.67,
 } as const;
 
+/** Taxa da maquininha/link para a forma de pagamento e parcelas escolhidas. */
+const calcularTaxaPagamento = (
+  pay: Pay,
+  modo: CartaoModo,
+  parcelas: CartaoParcela,
+  total: number,
+) => {
+  const link = pay === "Link de pagamento";
+  const cartao = pay === "Cartão";
+  const pct = link
+    ? taxasLinkPagamento[parcelas]
+    : cartao
+      ? modo === "debito"
+        ? taxasCartao.debito
+        : taxasCartao.credito[parcelas]
+      : 0;
+  const valor = link || cartao ? Math.round(total * pct) / 100 : 0;
+  const forma = link ? `Link ${parcelas}x` : modo === "debito" ? "Debito" : `Credito ${parcelas}x`;
+  const nome = link ? "Taxa link de pagamento" : "Taxa maquininha";
+  return { pct, valor, forma, nome };
+};
+
+const TAXA_OBSERVACAO_RE = /\s*(?:\|\s*)?Taxa (?:maquininha|link de pagamento) [^|]*/gi;
+
+/** Lê da observação da venda a forma salva ("Credito 3x", "Debito", "Link 2x"). */
+const pagamentoDaObservacao = (obs?: string): { modo: CartaoModo; parcelas: CartaoParcela } => {
+  const texto = obs ?? "";
+  const parcelas = Number(texto.match(/(?:Credito|Link) ([1-6])x/i)?.[1] ?? 1) as CartaoParcela;
+  const modo: CartaoModo = /Credito \dx/i.test(texto)
+    ? "credito"
+    : /Debito/i.test(texto)
+      ? "debito"
+      : parcelas > 1
+        ? "credito"
+        : "debito";
+  return { modo, parcelas };
+};
+
 const formatPct = (value: number) =>
   value.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
@@ -409,6 +462,7 @@ const formatPct = (value: number) =>
   });
 
 export function PDV({
+  contextoConversas = false,
   initialCliente = "",
   initialTelefone = "",
   initialSku = "",
@@ -421,14 +475,19 @@ export function PDV({
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [expandido, setExpandido] = useState(false);
   const [cliente, setCliente] = useState(initialCliente || initialTelefone);
+  const [clienteSelecionadoId, setClienteSelecionadoId] = useState<string>();
   const [telefoneCliente, setTelefoneCliente] = useState(initialTelefone);
   const [petVenda, setPetVenda] = useState(initialPet);
+  const [petAtivo, setPetAtivo] = useState("");
   const [showClienteDD, setShowClienteDD] = useState(false);
-  const [valor, setValor] = useState("");
-  const [pay, setPay] = useState<Pay>("Pix");
+  const [valorVenda, setValorVenda] = useState("");
+  const [valorAvulso, setValorAvulso] = useState("");
+  const [custoAvulso, setCustoAvulso] = useState("");
+  const [pay, setPay] = useState<Pay>("Dinheiro");
   const [statusPag, setStatusPag] = useState<StatusPag>("Pago");
   const [obs, setObs] = useState("");
   const [produtoBusca, setProdutoBusca] = useState("");
+  const [buscaCatalogo, setBuscaCatalogo] = useState("");
   const [dataVenda, setDataVenda] = useState(() => dataLocalISO(new Date()));
   const [periodoVendasInicio, setPeriodoVendasInicio] = useState(() => dataLocalISO(new Date()));
   const [periodoVendasFim, setPeriodoVendasFim] = useState(() => dataLocalISO(new Date()));
@@ -454,6 +513,8 @@ export function PDV({
   const [salvandoEdicaoVenda, setSalvandoEdicaoVenda] = useState(false);
   const [finalizandoVenda, setFinalizandoVenda] = useState(false);
   const [modoAvulso, setModoAvulso] = useState(false);
+  const valor = modoAvulso ? valorAvulso : valorVenda;
+  const setValor = modoAvulso ? setValorAvulso : setValorVenda;
   const [pedidoInicialAplicado, setPedidoInicialAplicado] = useState(false);
 
   useEffect(() => {
@@ -512,11 +573,16 @@ export function PDV({
   }, [periodoVendasFim, periodoVendasInicio, setVendasRecentes]);
 
   const subtotalFull = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
-  const custoFull = carrinho.reduce((s, i) => s + i.precoCompra * i.qtd, 0);
+  const custoFull =
+    carrinho.reduce((s, i) => s + i.precoCompra * i.qtd, 0) +
+    ((modoAvulso || carrinho.length === 0)
+      ? dinheiroInputParaNumero(custoAvulso)
+      : 0);
   const totalRapido = dinheiroInputParaNumero(valor);
   const vendaComItens = carrinho.length > 0;
   const adicionalAvulso = modoAvulso ? totalRapido : 0;
-  const valorTotalEditado = !expandido && vendaComItens && !modoAvulso && valor.trim().length > 0;
+  const valorTotalEditado =
+    (!expandido || contextoConversas) && vendaComItens && !modoAvulso && valor.trim().length > 0;
   const totalBrutoFull = subtotalFull + adicionalAvulso + frete;
   const totalFull = valorTotalEditado
     ? Math.max(0, totalRapido)
@@ -526,8 +592,8 @@ export function PDV({
     descontoVenda > 0 && totalBrutoFull > 0
       ? Math.round((descontoVenda / totalBrutoFull) * 10000) / 100
       : 0;
-  const lucro = totalFull - custoFull;
-  const total = expandido || vendaComItens ? totalFull : totalRapido;
+  const total = vendaComItens || (expandido && !contextoConversas) ? totalFull : totalRapido;
+  const lucro = total - custoFull;
   const pagamentoLink = pay === "Link de pagamento";
   const pagamentoCartao = pay !== "Pix" && pay !== "Dinheiro" && !pagamentoLink;
   const taxaMaquininhaPct = pagamentoLink
@@ -549,22 +615,23 @@ export function PDV({
   const taxaPagamentoNome = pagamentoLink ? "Taxa link de pagamento" : "Taxa maquininha";
   const lucroLiquido = lucro - taxaMaquininhaValor;
   const valorLiquidoRecebido = Math.max(0, total - taxaMaquininhaValor);
-  const margem = totalFull > 0 ? (lucroLiquido / totalFull) * 100 : 0;
+  const margem = total > 0 ? (lucroLiquido / total) * 100 : 0;
   const vendasPeriodo = useMemo(() => {
     const busca = normalizarBusca(buscaVendas);
     return vendas
       .filter((venda) => vendaNoPeriodo(venda, periodoVendasInicio, periodoVendasFim))
       .filter((venda) => {
         if (!busca) return true;
-        return normalizarBusca(
+        return correspondeBusca(
+          buscaVendas,
           [
             venda.id,
             venda.cliente,
-            venda.telefone,
             venda.obs,
-            ...venda.itens.flatMap((item) => [item.nome, item.sku]),
-          ].join(" "),
-        ).includes(busca);
+            ...venda.itens.flatMap((item) => [item.nome, item.sku, item.petNome]),
+          ],
+          [venda.telefone],
+        );
       })
       .sort((a, b) => (b.criadoEm ?? "").localeCompare(a.criadoEm ?? ""));
   }, [buscaVendas, periodoVendasFim, periodoVendasInicio, vendas]);
@@ -574,18 +641,13 @@ export function PDV({
     setPeriodoVendasFim(dataLocalISO(new Date()));
   };
 
-  const clienteSel = useMemo(() => {
-    return (
-      clientes.find((c) => clienteCombina(c, cliente, true)) ??
-      clientes.find((c) => clienteCombina(c, cliente))
-    );
-  }, [cliente, clientes]);
-  const buscarCliente = (valorBusca: string) => {
-    return (
-      clientes.find((c) => clienteCombina(c, valorBusca, true)) ??
-      clientes.find((c) => clienteCombina(c, valorBusca))
-    );
-  };
+  const clienteSel = useMemo(
+    () => clienteDaVenda(clientes, cliente, clienteSelecionadoId),
+    [cliente, clienteSelecionadoId, clientes],
+  );
+  const buscarCliente = (valorBusca: string) =>
+    clienteDaVenda(clientes, valorBusca, valorBusca === cliente ? clienteSelecionadoId : undefined);
+  const clienteEdicao = editForm ? buscarCliente(editForm.cliente) : undefined;
   const sugestoes = useMemo(() => {
     const q = normalizarBusca(cliente);
     const digits = telefoneDigits(cliente);
@@ -597,6 +659,11 @@ export function PDV({
     [clienteSel],
   );
   const qtdPetsVenda = petNomes(petVenda).length;
+  const petsVendaSelecionados = petsSelecionados(petVenda);
+  const petsParaVincular = Array.from(new Set([...petsCliente, ...petsVendaSelecionados]));
+  const petParaProduto =
+    petsVendaSelecionados.find((nome) => nome.toLowerCase() === petAtivo.toLowerCase()) ??
+    (petsVendaSelecionados.length === 1 ? petsVendaSelecionados[0] : "");
   const produtosFiltrados = useMemo(() => {
     // Cada palavra precisa aparecer, em qualquer ordem ("racao golden 15" acha "Golden ... 15kg | Racao").
     const termos = normalizarBusca(produtoBusca).split(/\s+/).filter(Boolean);
@@ -611,9 +678,27 @@ export function PDV({
       .sort((a, b) => Number(b.estoque > 0) - Number(a.estoque > 0))
       .slice(0, 12);
   }, [produtoBusca, produtos]);
-  const produtosDisponiveis = useMemo(
-    () => produtos.filter((produto) => produto.estoque > 0),
+  const brindesDisponiveis = useMemo(
+    () =>
+      produtos
+        .filter((produto) => isBrindeProduto(produto) && produto.estoque > 0)
+        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
     [produtos],
+  );
+  const produtosDisponiveis = useMemo(
+    () =>
+      produtos.filter(
+        (produto) =>
+          produto.estoque > 0 &&
+          correspondeBusca(buscaCatalogo, [
+            produto.nome,
+            produto.sku,
+            produto.categoria,
+            produto.fornecedor,
+            ...Object.values(produto.detalhesTecnicos ?? {}),
+          ]),
+      ),
+    [produtos, buscaCatalogo],
   );
 
   useEffect(() => {
@@ -626,10 +711,12 @@ export function PDV({
   useEffect(() => {
     if (!clienteSel) return;
     setTelefoneCliente((atual) => atual || clienteSel.telefone || "");
-    setPetVenda(
-      (atual) => atual || clienteSel.pets?.[0] || clienteSel.petsDetalhes?.[0]?.nome || "",
-    );
+    setPetVenda((atual) => atual || nomesPetsDoCliente(clienteSel));
   }, [clienteSel]);
+
+  useEffect(() => {
+    setPetAtivo("");
+  }, [clienteSel?.id]);
 
   useEffect(() => {
     if (pedidoInicialAplicado || !initialSku || produtos.length === 0) return;
@@ -659,12 +746,12 @@ export function PDV({
 
   const itensVendaAtual = () => {
     const itens = [...carrinho];
-    if (modoAvulso && totalRapido > 0) {
+    if ((modoAvulso || !vendaComItens) && totalRapido > 0) {
       itens.push({
         sku: "avulso",
-        nome: obs.trim() || "Venda avulsa",
+        nome: obs.trim() || "Venda rápida",
         preco: totalRapido,
-        precoCompra: 0,
+        precoCompra: dinheiroInputParaNumero(custoAvulso),
         qtd: 1,
       });
     }
@@ -735,14 +822,15 @@ export function PDV({
 
     const nome = cliente.trim() || "Avulso";
     const c = buscarCliente(nome);
-    const itens = expandido || vendaComItens || modoAvulso ? itensVendaAtual() : [];
+    const itens = itensVendaAtual();
     const petsItens = petNomesTexto(itens.flatMap((item) => petNomes(item.petNome)));
-    const petPedido = petNomesTexto(petNomes(petVenda)) || petsItens || c?.pets?.[0] || "";
+    const petPedido =
+      petNomesTexto(petNomes(petVenda)) || petsItens || (c ? nomesPetsDoCliente(c) : "");
     const itensEstoque = itens
       .filter((item) => item.sku !== "avulso")
-      .map((item) => ({ ...item, petNome: (item.petNome ?? petPedido) || null }));
+      .map((item) => ({ ...item, petNome: petDoItem(item.petNome, petVenda) }));
     const itensVenda = itens.map((item) =>
-      item.sku === "avulso" ? item : { ...item, petNome: (item.petNome ?? petPedido) || null },
+      item.sku === "avulso" ? item : { ...item, petNome: petDoItem(item.petNome, petVenda) },
     );
     const telefone = telefoneDigits(telefoneCliente) || c?.telefone || telefoneDigits(cliente);
     // Quando no modo avulsa, exigir descrição
@@ -754,8 +842,18 @@ export function PDV({
       toast.error("Informe o valor da venda avulsa");
       return;
     }
-    if (expandido && carrinho.length === 0) {
+    if (expandido && carrinho.length === 0 && !((contextoConversas || modoAvulso) && totalRapido > 0)) {
       toast.error("Adicione produtos ao carrinho");
+      return;
+    }
+    if (
+      petsVendaSelecionados.length > 1 &&
+      itensEstoque.some(
+        (item) =>
+          !item.petNome && isRacaoProduto(produtos.find((produto) => produto.sku === item.sku)),
+      )
+    ) {
+      toast.error("Escolha o pet de cada ração antes de finalizar a venda");
       return;
     }
     if (!expandido && total <= 0) {
@@ -806,14 +904,14 @@ export function PDV({
           pago: statusPag === "Pago",
           dataVenda: momentoVenda.toISOString(),
           itens:
-            itensEstoque.length > 0
-              ? itensEstoque.map((item) => ({
+            itensVenda.length > 0
+              ? itensVenda.map((item) => ({
                   sku: item.sku,
                   nome: item.nome,
                   quantidade: item.qtd,
                   preco: item.preco,
                   precoCompra: item.precoCompra,
-                  petNome: (item.petNome ?? petPedido) || null,
+                  petNome: item.petNome ?? null,
                 }))
               : [],
         }),
@@ -848,9 +946,13 @@ export function PDV({
     }
 
     setCliente("");
+    setClienteSelecionadoId(undefined);
     setTelefoneCliente("");
     setPetVenda("");
-    setValor("");
+    setPetAtivo("");
+    setValorVenda("");
+    setValorAvulso("");
+    setCustoAvulso("");
     setObs("");
     setProdutoBusca("");
     setCarrinho([]);
@@ -876,7 +978,14 @@ export function PDV({
       total: String(venda.total),
       pay: venda.pay,
       statusPag: venda.statusPag,
-      obs: venda.obs ?? "",
+      // A taxa fica nos campos de cartão; a observação mostra só o texto livre.
+      obs: (venda.obs ?? "")
+        .replace(TAXA_OBSERVACAO_RE, "")
+        .replace(/^\s*\|\s*/, "")
+        .replace(/\s*\|\s*/g, " | ")
+        .trim(),
+      cartaoModo: pagamentoDaObservacao(venda.obs).modo,
+      parcelas: pagamentoDaObservacao(venda.obs).parcelas,
       itens: venda.itens.filter((item) => item.sku !== "registrado"),
     });
     setEditProdutoBusca("");
@@ -948,6 +1057,20 @@ export function PDV({
       return;
     }
 
+    const taxaEdicao = calcularTaxaPagamento(
+      editForm.pay,
+      editForm.cartaoModo,
+      editForm.parcelas,
+      totalEditado,
+    );
+    const observacaoTaxa =
+      taxaEdicao.valor > 0
+        ? `${taxaEdicao.nome} ${taxaEdicao.forma} ${formatPct(taxaEdicao.pct)}% (${brl(taxaEdicao.valor)})`
+        : "";
+    const observacaoEditada = [editForm.obs.trim(), observacaoTaxa]
+      .filter((parte) => parte.length > 0)
+      .join(" | ");
+
     setSalvandoEdicaoVenda(true);
     try {
       const response = await fetch("/api/crm/pedidos", {
@@ -959,9 +1082,10 @@ export function PDV({
           telefone: editForm.telefone,
           total: totalEditado,
           formaPagamento: editForm.pay,
-          observacao: editForm.obs,
+          observacao: observacaoEditada,
           pago: editForm.statusPag === "Pago",
           dataVenda: momentoEditado.toISOString(),
+          taxaMaquininha: taxaEdicao.valor,
           itens: editForm.itens.map((item) => ({
             sku: item.sku,
             nome: item.nome,
@@ -988,7 +1112,8 @@ export function PDV({
         total: Math.round(totalEditado * 100) / 100,
         pay: editForm.pay,
         statusPag: editForm.statusPag,
-        obs: editForm.obs,
+        obs: observacaoEditada,
+        taxaMaquininha: taxaEdicao.valor,
         itens: editForm.itens,
       });
       toast.success("Venda atualizada e recompra revisada");
@@ -1030,9 +1155,13 @@ export function PDV({
     }
   };
 
-  const add = (p: (typeof produtos)[number]) =>
+  const add = (p: (typeof produtos)[number], opcoes?: { brinde?: boolean }) =>
     setCarrinho((c) => {
-      const petNome = petLinha(petVenda) || null;
+      const petNome = petParaProduto || null;
+      if (petsVendaSelecionados.length > 1 && !petNome && isRacaoProduto(p)) {
+        toast.error("Escolha um pet antes de adicionar a ração");
+        return c;
+      }
       const totalSku = c
         .filter((item) => item.sku === p.sku)
         .reduce((sum, item) => sum + item.qtd, 0);
@@ -1048,7 +1177,14 @@ export function PDV({
       }
       return [
         ...c,
-        { sku: p.sku, nome: p.nome, preco: p.preco, precoCompra: p.precoCompra, qtd: 1, petNome },
+        {
+          sku: p.sku,
+          nome: p.nome,
+          preco: opcoes?.brinde || isBrindeProduto(p) ? 0 : p.preco,
+          precoCompra: p.precoCompra,
+          qtd: 1,
+          petNome,
+        },
       ];
     });
   const change = (itemAtual: Item, delta: number) =>
@@ -1116,21 +1252,26 @@ export function PDV({
   const alternarPetVenda = (nome: string, dono?: Cliente) => {
     if (dono && dono.id !== clienteSel?.id) {
       setCliente(dono.nome);
+      setClienteSelecionadoId(dono.id);
       setTelefoneCliente(dono.telefone);
       setPetVenda(nome);
+      setPetAtivo(nome);
       return;
     }
     setPetVenda((atual) => alternarPetTexto(atual, nome) ?? "");
+    setPetAtivo(nome);
   };
 
   // Pet cadastrado no PDV já vai para a ficha do cliente e fica selecionado na venda.
   const aplicarPetCadastrado = (clienteSalvo: Cliente, petNome: string) => {
     setClientes((atuais) => atuais.map((c) => (c.id === clienteSalvo.id ? clienteSalvo : c)));
+    dispatchCrmReload();
     setPetVenda((atual) =>
       petNomes(atual).some((nome) => nome.toLowerCase() === petNome.toLowerCase())
         ? atual
         : (alternarPetTexto(atual, petNome) ?? petNome),
     );
+    setPetAtivo(petNome);
   };
 
   return (
@@ -1206,6 +1347,10 @@ export function PDV({
                 value={cliente}
                 onChange={(e) => {
                   setCliente(e.target.value);
+                  setClienteSelecionadoId(undefined);
+                  setTelefoneCliente("");
+                  setPetVenda("");
+                  setPetAtivo("");
                   setShowClienteDD(true);
                 }}
                 onFocus={() => setShowClienteDD(true)}
@@ -1224,8 +1369,9 @@ export function PDV({
                       onMouseDown={(e) => {
                         e.preventDefault();
                         setCliente(c.nome);
+                        setClienteSelecionadoId(c.id);
                         setTelefoneCliente(c.telefone);
-                        setPetVenda(c.pets?.[0] || c.petsDetalhes?.[0]?.nome || "");
+                        setPetVenda(nomesPetsDoCliente(c));
                         setShowClienteDD(false);
                       }}
                       className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-secondary text-left"
@@ -1295,6 +1441,11 @@ export function PDV({
               onAlternar={alternarPetVenda}
               onPetSalvo={aplicarPetCadastrado}
             />
+            <PetAtivoSelector
+              pets={petsVendaSelecionados}
+              ativo={petParaProduto}
+              onSelect={setPetAtivo}
+            />
           </div>
 
           <div className="space-y-2">
@@ -1329,6 +1480,11 @@ export function PDV({
                 )}
               </div>
             )}
+            <BrindesPicker
+              brindes={brindesDisponiveis}
+              carrinho={carrinho}
+              onAdd={(p) => add(p, { brinde: true })}
+            />
             {carrinho.length > 0 && (
               <div className="space-y-2">
                 {carrinho.map((item) => (
@@ -1340,46 +1496,69 @@ export function PDV({
                       <div className="text-sm font-semibold truncate">{item.nome}</div>
                       <div className="mt-1 grid gap-1 sm:grid-cols-[auto_1fr] sm:items-center text-xs text-muted-foreground">
                         <div className="flex items-center gap-1">
-                          <span>R$</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.preco || ""}
-                            onChange={(e) => changePreco(item, Number(e.target.value))}
+                          <span>{contextoConversas ? "Venda R$" : "R$"}</span>
+                          <ValorMonetario
+                            value={item.preco}
+                            onChange={(preco) => {
+                              changePreco(item, preco);
+                              if (contextoConversas && !modoAvulso) setValor("");
+                            }}
                             className="h-7 w-24 rounded-md border border-border bg-card px-2 text-xs font-semibold text-foreground outline-none focus:ring-2 ring-primary/30"
                             aria-label={`Preco unitario de ${item.nome}`}
                           />
                           <span>cada</span>
                         </div>
-                        <div className="flex min-w-0 flex-wrap items-center gap-1">
-                          {petsCliente.map((pet) => {
-                            const active = petNomes(item.petNome).some(
-                              (nome) => nome.toLowerCase() === pet.toLowerCase(),
-                            );
-                            return (
-                              <button
-                                key={pet}
-                                type="button"
-                                onClick={() => alternarPetItem(item, pet)}
-                                className={`h-7 rounded-md border px-2 text-xs font-semibold ${
-                                  active
-                                    ? "border-primary bg-primary/10 text-primary"
-                                    : "border-border bg-card text-muted-foreground hover:bg-card/70"
-                                }`}
-                              >
-                                {pet}
-                              </button>
-                            );
-                          })}
-                          <input
-                            value={item.petNome ?? ""}
-                            onChange={(e) => alterarPetItem(item, e.target.value)}
-                            placeholder="Pet(s)"
-                            className="h-7 min-w-28 flex-1 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:ring-2 ring-primary/30"
-                            aria-label={`Pet de ${item.nome}`}
-                          />
-                        </div>
+                        {contextoConversas && (
+                          <label className="flex items-center gap-1">
+                            <span>Compra R$</span>
+                            <ValorMonetario
+                              value={item.precoCompra}
+                              onChange={(precoCompra) =>
+                                setCarrinho((itens) =>
+                                  itens.map((atual) =>
+                                    itemCarrinhoKey(atual) === itemCarrinhoKey(item)
+                                      ? { ...atual, precoCompra }
+                                      : atual,
+                                  ),
+                                )
+                              }
+                              aria-label={`Valor de compra de ${item.nome}`}
+                              className="h-7 w-24 rounded-md border border-border bg-card px-2 text-xs text-foreground"
+                            />
+                            <span>cada</span>
+                          </label>
+                        )}
+                        {petsParaVincular.length > 0 && (
+                          <div className="flex min-w-0 flex-wrap items-center gap-1">
+                            <span className="w-full text-[11px] font-semibold text-foreground">Pet deste item:</span>
+                            {petsParaVincular.map((pet) => {
+                              const active = petNomes(item.petNome).some(
+                                (nome) => nome.toLowerCase() === pet.toLowerCase(),
+                              );
+                              return (
+                                <button
+                                  key={pet}
+                                  type="button"
+                                  onClick={() => alternarPetItem(item, pet)}
+                                  className={`h-7 rounded-md border px-2 text-xs font-semibold ${
+                                    active
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border bg-card text-muted-foreground hover:bg-card/70"
+                                  }`}
+                                >
+                                  {pet}
+                                </button>
+                              );
+                            })}
+                            <input
+                              value={item.petNome ?? ""}
+                              onChange={(e) => alterarPetItem(item, e.target.value)}
+                              placeholder="Pet(s)"
+                              className="h-7 min-w-28 flex-1 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:ring-2 ring-primary/30"
+                              aria-label={`Pet de ${item.nome}`}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                     <button
@@ -1412,7 +1591,7 @@ export function PDV({
 
           <div>
             <Label icon={<Receipt className="size-3.5" />}>
-              {modoAvulso ? "Valor avulso" : "Valor total"}
+              {modoAvulso ? "Valor de venda avulsa" : "Valor total de venda"}
             </Label>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">
@@ -1422,7 +1601,10 @@ export function PDV({
                 inputMode="decimal"
                 value={valor}
                 onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ""))}
-                placeholder="0,00"
+                placeholder={
+                  vendaComItens && !modoAvulso ? total.toFixed(2).replace(".", ",") : "0,00"
+                }
+                aria-label="Valor de venda"
                 className="w-full h-16 pl-12 pr-4 rounded-xl bg-secondary text-3xl font-bold outline-none focus:ring-2 ring-primary/30 tabular-nums"
               />
             </div>
@@ -1440,6 +1622,27 @@ export function PDV({
               </div>
             )}
           </div>
+
+          {(modoAvulso || !vendaComItens) && (
+            <label className="block space-y-1">
+              <span className="text-xs font-semibold">Custo de compra (R$)</span>
+              <input
+                inputMode="decimal"
+                value={custoAvulso}
+                onChange={(e) => setCustoAvulso(e.target.value.replace(/[^\d.,]/g, ""))}
+                placeholder="0,00"
+                aria-label="Valor de compra"
+                className="w-full h-11 px-4 rounded-xl bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
+              />
+            </label>
+          )}
+          {(contextoConversas || modoAvulso || !vendaComItens) && (
+            <div className="rounded-xl bg-secondary/60 p-3 space-y-1.5">
+              <Row label="Custo de compra" value={brl(custoFull)} muted />
+              <Row label="Lucro liquido" value={brl(lucroLiquido)} />
+              <Row label="Margem de lucro" value={`${formatPct(margem)}%`} />
+            </div>
+          )}
 
           <div>
             <Label icon={<History className="size-3.5" />}>Data da venda</Label>
@@ -1572,27 +1775,41 @@ export function PDV({
           </div>
         </div>
       ) : (
-        <div className="grid lg:grid-cols-[1fr_400px] gap-4">
-          <div className="card-soft flex flex-col overflow-hidden h-[calc(100vh-12rem)]">
+        <div className={contextoConversas ? "grid gap-4" : "grid lg:grid-cols-[1fr_400px] gap-4"}>
+          <div
+            className={`card-soft flex flex-col overflow-hidden ${contextoConversas ? "h-64" : "h-[calc(100vh-12rem)]"}`}
+          >
             <div className="p-4 border-b border-border">
               <div className="relative">
                 <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  value={buscaCatalogo}
+                  onChange={(event) => setBuscaCatalogo(event.target.value)}
                   placeholder="Buscar produto ou ler código..."
                   className="w-full h-11 pl-9 pr-3 rounded-xl bg-secondary text-sm outline-none"
                 />
               </div>
+              <BrindesPicker
+                className="mt-3"
+                brindes={brindesDisponiveis}
+                carrinho={carrinho}
+                onAdd={(p) => add(p, { brinde: true })}
+              />
             </div>
-            <div className="flex-1 overflow-y-auto scrollbar-thin p-4 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+            <div
+              className={`flex-1 overflow-y-auto scrollbar-thin p-4 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 ${contextoConversas ? "content-start" : ""}`}
+            >
               {produtosDisponiveis.map((p) => (
                 <button
                   key={p.sku}
                   onClick={() => add(p)}
                   className="card-soft p-3 text-left hover:border-primary hover:shadow-md transition"
                 >
-                  <div className="aspect-square rounded-xl bg-secondary grid place-items-center text-3xl">
-                    🐾
-                  </div>
+                  {!contextoConversas && (
+                    <div className="aspect-square rounded-xl bg-secondary grid place-items-center text-3xl">
+                      🐾
+                    </div>
+                  )}
                   <div className="text-[10px] text-muted-foreground mt-2 uppercase tracking-wide">
                     {p.categoria}
                   </div>
@@ -1611,24 +1828,38 @@ export function PDV({
               ))}
               {produtosDisponiveis.length === 0 && (
                 <div className="col-span-full grid place-items-center rounded-xl border border-dashed border-border p-8 text-center text-xs text-muted-foreground">
-                  Nenhum produto com estoque disponivel para venda.
+                  {buscaCatalogo.trim()
+                    ? "Nenhum produto encontrado para esta busca."
+                    : "Nenhum produto com estoque disponivel para venda."}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="card-soft flex flex-col overflow-hidden h-[calc(100vh-12rem)]">
-            <div className="p-4 border-b border-border">
+          <div
+            className={`card-soft flex flex-col overflow-hidden ${contextoConversas ? "" : "h-[calc(100vh-12rem)]"}`}
+          >
+            <div className="min-h-0 overflow-y-auto p-4 border-b border-border">
               <input
                 value={cliente}
-                onChange={(e) => setCliente(e.target.value)}
+                onChange={(e) => {
+                  setCliente(e.target.value);
+                  setClienteSelecionadoId(undefined);
+                  setTelefoneCliente("");
+                  setPetVenda("");
+                  setPetAtivo("");
+                }}
                 list="clientes-full"
                 placeholder="Cliente…"
                 className="w-full h-9 px-3 rounded-lg bg-secondary text-sm outline-none mb-2"
               />
               <datalist id="clientes-full">
                 {clientes.map((c) => (
-                  <option key={c.id} value={c.nome} />
+                  <option
+                    key={c.id}
+                    value={c.nome}
+                    label={`${c.telefone} · ${c.pets.join(", ")}`}
+                  />
                 ))}
               </datalist>
               <input
@@ -1650,6 +1881,11 @@ export function PDV({
                   onAlternar={alternarPetVenda}
                   onPetSalvo={aplicarPetCadastrado}
                 />
+                <PetAtivoSelector
+                  pets={petsVendaSelecionados}
+                  ativo={petParaProduto}
+                  onSelect={setPetAtivo}
+                />
               </div>
               <h3 className="font-semibold">Carrinho</h3>
               <p className="text-xs text-muted-foreground">
@@ -1668,46 +1904,69 @@ export function PDV({
                     <div className="font-semibold text-sm truncate">{i.nome}</div>
                     <div className="mt-1 grid gap-1 text-[11px] text-muted-foreground">
                       <div className="flex items-center gap-1">
-                        <span>R$</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={i.preco || ""}
-                          onChange={(e) => changePreco(i, Number(e.target.value))}
+                        <span>{contextoConversas ? "Venda R$" : "R$"}</span>
+                        <ValorMonetario
+                          value={i.preco}
+                          onChange={(preco) => {
+                            changePreco(i, preco);
+                            if (contextoConversas && !modoAvulso) setValor("");
+                          }}
                           className="h-7 w-24 rounded-md border border-border bg-secondary px-2 text-xs font-semibold text-foreground outline-none focus:ring-2 ring-primary/30"
                           aria-label={`Preco unitario de ${i.nome}`}
                         />
                         <span>un</span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-1">
-                        {petsCliente.map((pet) => {
-                          const active = petNomes(i.petNome).some(
-                            (nome) => nome.toLowerCase() === pet.toLowerCase(),
-                          );
-                          return (
-                            <button
-                              key={pet}
-                              type="button"
-                              onClick={() => alternarPetItem(i, pet)}
-                              className={`h-7 rounded-md border px-2 text-xs font-semibold ${
-                                active
-                                  ? "border-primary bg-primary/10 text-primary"
-                                  : "border-border bg-secondary text-muted-foreground hover:bg-secondary/70"
-                              }`}
-                            >
-                              {pet}
-                            </button>
-                          );
-                        })}
-                        <input
-                          value={i.petNome ?? ""}
-                          onChange={(e) => alterarPetItem(i, e.target.value)}
-                          placeholder="Pet(s)"
-                          className="h-7 min-w-28 flex-1 rounded-md border border-border bg-secondary px-2 text-xs text-foreground outline-none focus:ring-2 ring-primary/30"
-                          aria-label={`Pet de ${i.nome}`}
-                        />
-                      </div>
+                      {contextoConversas && (
+                        <label className="flex items-center gap-1">
+                          <span>Compra R$</span>
+                          <ValorMonetario
+                            value={i.precoCompra}
+                            onChange={(precoCompra) =>
+                              setCarrinho((itens) =>
+                                itens.map((atual) =>
+                                  itemCarrinhoKey(atual) === itemCarrinhoKey(i)
+                                    ? { ...atual, precoCompra }
+                                    : atual,
+                                ),
+                              )
+                            }
+                            aria-label={`Valor de compra de ${i.nome}`}
+                            className="h-7 w-24 rounded-md border border-border bg-card px-2 text-xs text-foreground"
+                          />
+                          <span>cada</span>
+                        </label>
+                      )}
+                      {petsParaVincular.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="w-full text-[11px] font-semibold text-foreground">Pet deste item:</span>
+                          {petsParaVincular.map((pet) => {
+                            const active = petNomes(i.petNome).some(
+                              (nome) => nome.toLowerCase() === pet.toLowerCase(),
+                            );
+                            return (
+                              <button
+                                key={pet}
+                                type="button"
+                                onClick={() => alternarPetItem(i, pet)}
+                                className={`h-7 rounded-md border px-2 text-xs font-semibold ${
+                                  active
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border bg-secondary text-muted-foreground hover:bg-secondary/70"
+                                }`}
+                              >
+                                {pet}
+                              </button>
+                            );
+                          })}
+                          <input
+                            value={i.petNome ?? ""}
+                            onChange={(e) => alterarPetItem(i, e.target.value)}
+                            placeholder="Pet(s)"
+                            className="h-7 min-w-28 flex-1 rounded-md border border-border bg-secondary px-2 text-xs text-foreground outline-none focus:ring-2 ring-primary/30"
+                            aria-label={`Pet de ${i.nome}`}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
@@ -1737,8 +1996,22 @@ export function PDV({
 
             <div className="border-t border-border p-4 space-y-3">
               <div className="grid grid-cols-2 gap-2">
-                <NumField label="Desconto" value={desconto} onChange={setDesconto} />
-                <NumField label="Frete" value={frete} onChange={setFrete} />
+                <NumField
+                  label="Desconto"
+                  value={desconto}
+                  onChange={(value) => {
+                    setDesconto(value);
+                    if (contextoConversas) setValor("");
+                  }}
+                />
+                <NumField
+                  label="Frete"
+                  value={frete}
+                  onChange={(value) => {
+                    setFrete(value);
+                    if (contextoConversas) setValor("");
+                  }}
+                />
               </div>
 
               <div className="rounded-xl bg-secondary/60 p-3 space-y-1.5">
@@ -1752,7 +2025,7 @@ export function PDV({
                   />
                 )}
                 <Row label="Lucro liquido" value={brl(lucroLiquido)} accent="success" />
-                <Row label="Total" value={brl(totalFull)} bold />
+                <Row label="Total" value={brl(total)} bold />
               </div>
 
               <div className="grid grid-cols-4 gap-2">
@@ -1822,10 +2095,10 @@ export function PDV({
               <div className="grid grid-cols-[1fr_auto] gap-2">
                 <button
                   onClick={() => finalizar(false)}
-                  disabled={carrinho.length === 0 || finalizandoVenda}
+                  disabled={total <= 0 || finalizandoVenda}
                   className="h-12 rounded-xl bg-success text-success-foreground font-bold text-base hover:opacity-90 disabled:opacity-40 transition inline-flex items-center justify-center gap-2"
                 >
-                  Finalizar · {brl(totalFull)}
+                  Finalizar · {brl(total)}
                 </button>
                 <button
                   onClick={() => (carrinho.length ? finalizar(true) : enviarWhats())}
@@ -2139,20 +2412,50 @@ export function PDV({
                     key={`${item.sku}-${index}`}
                     className="grid grid-cols-[minmax(0,1fr)_72px_100px_36px] gap-2 items-end rounded-xl bg-secondary/60 p-2"
                   >
-                    <label className="min-w-0 space-y-1">
-                      <span className="block truncate text-xs font-semibold" title={item.nome}>
-                        {item.nome}
-                      </span>
-                      <input
-                        value={item.petNome ?? ""}
-                        onChange={(event) =>
-                          atualizarItemEdicao(index, { petNome: event.target.value || null })
-                        }
-                        placeholder="Pet"
-                        aria-label={`Pet de ${item.nome}`}
-                        className="h-8 w-full rounded-lg bg-card px-2 text-xs outline-none focus:ring-2 ring-primary/30"
-                      />
-                    </label>
+                    <div className="min-w-0 space-y-1">
+                      <label className="block min-w-0 space-y-1">
+                        <span className="block truncate text-xs font-semibold" title={item.nome}>
+                          {item.nome}
+                        </span>
+                        <input
+                          value={item.petNome ?? ""}
+                          onChange={(event) =>
+                            atualizarItemEdicao(index, { petNome: event.target.value || null })
+                          }
+                          placeholder="Pets desta ração"
+                          aria-label={`Pets de ${item.nome}`}
+                          className="h-8 w-full rounded-lg bg-card px-2 text-xs outline-none focus:ring-2 ring-primary/30"
+                        />
+                      </label>
+                      {clienteEdicao && (
+                        <span className="flex flex-wrap gap-1 pt-1">
+                          {petsDoCliente(clienteEdicao).map((pet) => {
+                            const selecionado = petNomes(item.petNome).some(
+                              (nome) => nome.toLowerCase() === pet.nome.toLowerCase(),
+                            );
+                            return (
+                              <button
+                                key={pet.nome}
+                                type="button"
+                                onClick={() =>
+                                  atualizarItemEdicao(index, {
+                                    petNome: alternarPetTexto(item.petNome, pet.nome),
+                                  })
+                                }
+                                className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold ${
+                                  selecionado
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border bg-card text-muted-foreground"
+                                }`}
+                                aria-pressed={selecionado}
+                              >
+                                {pet.nome}
+                              </button>
+                            );
+                          })}
+                        </span>
+                      )}
+                    </div>
                     <label className="space-y-1">
                       <span className="text-[9px] uppercase text-muted-foreground">Qtd.</span>
                       <input
@@ -2205,9 +2508,7 @@ export function PDV({
                     <div className="absolute z-20 mt-1 max-h-40 w-full overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-xl">
                       {produtos
                         .filter((produto) =>
-                          normalizarBusca(`${produto.nome} ${produto.sku}`).includes(
-                            normalizarBusca(editProdutoBusca),
-                          ),
+                          correspondeBusca(editProdutoBusca, [produto.nome, produto.sku]),
                         )
                         .slice(0, 8)
                         .map((produto) => (
@@ -2301,6 +2602,78 @@ export function PDV({
                   <option value="Dinheiro">Dinheiro</option>
                 </select>
               </label>
+              {(editForm.pay === "Cartão" || editForm.pay === "Link de pagamento") &&
+                (() => {
+                  const totalEdicao = dinheiroInputParaNumero(editForm.total);
+                  const taxa = calcularTaxaPagamento(
+                    editForm.pay,
+                    editForm.cartaoModo,
+                    editForm.parcelas,
+                    Number.isFinite(totalEdicao) ? totalEdicao : 0,
+                  );
+                  const mostraParcelas =
+                    editForm.pay === "Link de pagamento" || editForm.cartaoModo === "credito";
+                  return (
+                    <div className="grid grid-cols-2 gap-2">
+                      {editForm.pay === "Cartão" && (
+                        <label className="space-y-1">
+                          <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
+                            Cartao
+                          </span>
+                          <select
+                            value={editForm.cartaoModo}
+                            onChange={(e) =>
+                              setEditForm(
+                                (form) =>
+                                  form && { ...form, cartaoModo: e.target.value as CartaoModo },
+                              )
+                            }
+                            className="w-full h-10 rounded-xl bg-secondary px-3 text-sm outline-none focus:ring-2 ring-primary/30"
+                          >
+                            <option value="debito">Debito</option>
+                            <option value="credito">Credito</option>
+                          </select>
+                        </label>
+                      )}
+                      {mostraParcelas && (
+                        <label className="space-y-1">
+                          <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
+                            Parcelas
+                          </span>
+                          <select
+                            value={editForm.parcelas}
+                            onChange={(e) =>
+                              setEditForm(
+                                (form) =>
+                                  form && {
+                                    ...form,
+                                    parcelas: Number(e.target.value) as CartaoParcela,
+                                  },
+                              )
+                            }
+                            className="w-full h-10 rounded-xl bg-secondary px-3 text-sm outline-none focus:ring-2 ring-primary/30"
+                          >
+                            {parcelasCredito.map((n) => (
+                              <option key={n} value={n}>
+                                {n}x
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      <p className="col-span-2 text-xs text-muted-foreground">
+                        {taxa.nome} {taxa.forma}: {formatPct(taxa.pct)}% ({brl(taxa.valor)}) ·
+                        recebe{" "}
+                        {brl(
+                          Math.max(
+                            0,
+                            (Number.isFinite(totalEdicao) ? totalEdicao : 0) - taxa.valor,
+                          ),
+                        )}
+                      </p>
+                    </div>
+                  );
+                })()}
               <label className="space-y-1">
                 <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">
                   Observacao
@@ -2410,6 +2783,43 @@ function Label({ children, icon }: { children: React.ReactNode; icon?: React.Rea
   );
 }
 
+function PetAtivoSelector({
+  pets,
+  ativo,
+  onSelect,
+}: {
+  pets: string[];
+  ativo: string;
+  onSelect: (nome: string) => void;
+}) {
+  if (pets.length < 2) return null;
+  return (
+    <div className="mt-2 rounded-lg border border-primary/25 bg-primary/5 p-2">
+      <div className="mb-1.5 text-xs font-semibold text-foreground">
+        Escolha o pet e depois clique na ração
+      </div>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Pet para a próxima ração">
+        {pets.map((pet) => (
+          <button
+            key={pet}
+            type="button"
+            aria-pressed={ativo.toLowerCase() === pet.toLowerCase()}
+            onClick={() => onSelect(pet)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+              ativo.toLowerCase() === pet.toLowerCase()
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card text-foreground hover:border-primary/50"
+            }`}
+          >
+            {pet}
+          </button>
+        ))}
+      </div>
+      {ativo && <div className="mt-1.5 text-[11px] text-muted-foreground">Próxima ração: {ativo}</div>}
+    </div>
+  );
+}
+
 type PetVendaAba = "selecionar" | "cadastrar";
 
 function PetVendaPanel({
@@ -2476,7 +2886,7 @@ function PetVendaPanel({
           }`}
         >
           <Plus className="size-3.5" />
-          Cadastrar novo
+          Cadastrar pet
         </button>
       </div>
 
@@ -2562,7 +2972,7 @@ function PetRecompraPicker({
 
   const q = normalizarBusca(busca);
   const combina = (pet: PetOpcao) =>
-    !q || normalizarBusca(`${pet.nome} ${pet.dono.nome}`).includes(q);
+    correspondeBusca(busca, [pet.nome, pet.dono.nome], [pet.dono.telefone]);
   const doCliente = petsDoSel.filter(combina);
   const outros = todosPets.filter((pet) => pet.dono.id !== clienteSel?.id && combina(pet));
   const outrosVisiveis = outros.slice(0, LIMITE_PETS_LISTA);
@@ -2668,7 +3078,7 @@ function PetRecompraPicker({
       </button>
 
       {aberto && (
-        <div className="absolute z-30 left-0 right-0 mt-1 card-soft p-2 space-y-2">
+        <div className="mt-1 card-soft p-2 space-y-2">
           <input
             autoFocus
             value={busca}
@@ -2681,7 +3091,7 @@ function PetRecompraPicker({
                 fechar();
               }
             }}
-            placeholder="Filtrar por pet ou dono…"
+            placeholder="Filtrar por pet, tutor ou telefone…"
             className="w-full h-9 px-3 rounded-lg bg-secondary text-sm outline-none focus:ring-2 ring-primary/30"
           />
           <div className={`overflow-y-auto scrollbar-thin ${compact ? "max-h-60" : "max-h-72"}`}>
@@ -2900,7 +3310,7 @@ function CadastroPetRapido({
           origem: cliente.origem ?? "",
           observacoes: cliente.observacoes ?? "",
           pets: [...(cliente.pets ?? []), nome],
-          petsDetalhes: [...(cliente.petsDetalhes ?? []), pet],
+          petsDetalhes: [...petsDoCadastro(cliente), pet],
         }),
       });
       const data = (await response.json().catch(() => ({}))) as Partial<Cliente> & {
@@ -3258,6 +3668,94 @@ function PaymentLinkFeeSelector({
           <div className="text-muted-foreground">Liquido</div>
           <div className="font-bold tabular-nums">{brl(liquido)}</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ValorMonetario({
+  value,
+  onChange,
+  ...props
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  className?: string;
+  "aria-label"?: string;
+}) {
+  const [draft, setDraft] = useState(() => String(value).replace(".", ","));
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setDraft(String(value).replace(".", ","));
+  }, [value]);
+  return (
+    <input
+      {...props}
+      inputMode="decimal"
+      value={draft}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onChange={(event) => {
+        const next = event.target.value.replace(/[^\d.,]/g, "");
+        setDraft(next);
+        onChange(Math.round(dinheiroInputParaNumero(next) * 100) / 100);
+      }}
+      onBlur={() => {
+        focused.current = false;
+        setDraft(value.toFixed(2).replace(".", ","));
+      }}
+    />
+  );
+}
+
+function BrindesPicker({
+  brindes,
+  carrinho,
+  onAdd,
+  className,
+}: {
+  brindes: Produto[];
+  carrinho: Item[];
+  onAdd: (produto: Produto) => void;
+  className?: string;
+}) {
+  if (brindes.length === 0) return null;
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+        <Gift className="size-3.5" />
+        Brindes (sai de graça, só baixa o estoque)
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {brindes.map((brinde) => {
+          const noCarrinho = carrinho
+            .filter((item) => item.sku === brinde.sku)
+            .reduce((soma, item) => soma + item.qtd, 0);
+          const esgotado = noCarrinho >= brinde.estoque;
+          return (
+            <button
+              key={brinde.sku}
+              type="button"
+              onClick={() => onAdd(brinde)}
+              disabled={esgotado}
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
+                noCarrinho > 0
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card hover:bg-secondary",
+              )}
+              title={`${brinde.estoque - noCarrinho} disponível(is)`}
+            >
+              <Plus className="size-3" />
+              {brinde.nome}
+              {noCarrinho > 0 && <span>×{noCarrinho}</span>}
+              <span className="font-normal text-muted-foreground">
+                ({brinde.estoque - noCarrinho})
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

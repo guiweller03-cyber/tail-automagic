@@ -1,3 +1,4 @@
+import { configuracaoLoja } from "./loja-context";
 function isBrowserRuntime(): boolean {
   return typeof window !== "undefined";
 }
@@ -7,7 +8,7 @@ export function requireServerEnv(name: string): string {
     throw new Error(`${name} is server-only and cannot be read in the browser`);
   }
 
-  const value = process.env[name]?.trim();
+  const value = configuracaoLoja(name);
   if (!value) {
     throw new Error(`Missing environment variable: ${name}`);
   }
@@ -21,8 +22,8 @@ export function requireSupabaseServerKey(): string {
   }
 
   return (
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_SECRET_KEY?.trim() ||
-    requireServerEnv("SUPABASE_ANON_KEY")
+    configuracaoLoja("SUPABASE_SERVICE_ROLE_KEY") ||
+    configuracaoLoja("SUPABASE_SECRET_KEY") ||
+    requireServerEnv("SUPABASE_SERVICE_ROLE_KEY")
   );
 }

@@ -1,3 +1,4 @@
+import { configuracaoLoja } from "./loja-context";
 // Persistência dos lançamentos manuais do Financeiro (Despesas, Marketing e
 // Combustível) no Supabase. Antes ficavam só no localStorage do navegador e
 // "sumiam" quando o usuário trocava de navegador/dispositivo ou limpava o cache.
@@ -9,7 +10,7 @@ import { requireSupabaseServerKey } from "./server-env";
    Helpers Supabase REST
    ============================================================ */
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
   if (!value) {
     throw new Error(`Missing environment variable: ${name}`);
   }
@@ -131,7 +132,7 @@ type VendaFinanceiraRow = {
 type VendaItemFinanceiroRow = {
   id: string;
   venda_id: string;
-  sku: string;
+  sku: string | null;
   nome: string;
   quantidade: number | null;
   preco: number | null;
@@ -157,7 +158,7 @@ function mapVendaItem(row: VendaItemFinanceiroRow): VendaFinanceiraItem {
   const custoUnitario = numero(row.preco_compra);
   return {
     id: row.id,
-    sku: row.sku,
+    sku: row.sku ?? "avulso",
     nome: row.nome,
     quantidade,
     precoUnitario,
@@ -208,13 +209,80 @@ export function mapVendaFinanceira(
   };
 }
 
+const VENDAS_COLUNAS_BASE = [
+  "id",
+  "cliente_id",
+  "cliente_nome",
+  "telefone",
+  "total",
+  "lucro",
+  "forma_pagamento",
+  "status_pagamento",
+  "status",
+  "processo",
+  "observacao",
+  "criado_em",
+  "atualizado_em",
+];
+// Colunas criadas por migrations posteriores: podem faltar no banco de outra loja.
+const VENDAS_COLUNAS_OPCIONAIS = [
+  "pet_nome",
+  "total_bruto",
+  "desconto_cupom",
+  "cupom_codigo",
+  "venda_origem",
+  "faturado_em",
+];
+const VENDA_ITENS_COLUNAS_BASE = [
+  "id",
+  "venda_id",
+  "sku",
+  "nome",
+  "quantidade",
+  "preco",
+  "preco_compra",
+];
+const VENDA_ITENS_COLUNAS_OPCIONAIS = ["pet_nome"];
+
+function colunaInexistente(error: unknown, colunas: string[]): string | null {
+  const message = error instanceof Error ? error.message : "";
+  if (!/42703|PGRST204|does not exist|Could not find/i.test(message)) return null;
+  return colunas.find((coluna) => new RegExp(`\\b${coluna}\\b`).test(message)) ?? null;
+}
+
+async function selectComColunasOpcionais<T>(
+  tabela: string,
+  base: string[],
+  opcionais: string[],
+  sufixo: string,
+): Promise<T[]> {
+  const restantes = [...opcionais];
+  for (;;) {
+    const select = [...base, ...restantes].join(",");
+    try {
+      return await selectAllPages<T>(`/${tabela}?select=${select}${sufixo}`);
+    } catch (error) {
+      const coluna = colunaInexistente(error, restantes);
+      if (!coluna) throw error;
+      console.warn(`[financeiro] coluna ${tabela}.${coluna} ausente no banco; ignorando`);
+      restantes.splice(restantes.indexOf(coluna), 1);
+    }
+  }
+}
+
 export async function listarVendasFinanceiras(): Promise<VendaFinanceira[]> {
   const [vendas, itensRows] = await Promise.all([
-    selectAllPages<VendaFinanceiraRow>(
-      "/vendas?select=id,cliente_id,cliente_nome,telefone,pet_nome,total,total_bruto,desconto_cupom,lucro,forma_pagamento,status_pagamento,status,processo,observacao,cupom_codigo,venda_origem,criado_em,atualizado_em,faturado_em,clientes(id,nome,telefone)&order=criado_em.desc",
+    selectComColunasOpcionais<VendaFinanceiraRow>(
+      "vendas",
+      VENDAS_COLUNAS_BASE,
+      VENDAS_COLUNAS_OPCIONAIS,
+      ",clientes(id,nome,telefone)&order=criado_em.desc",
     ),
-    selectAllPages<VendaItemFinanceiroRow>(
-      "/venda_itens?select=id,venda_id,sku,nome,quantidade,preco,preco_compra,pet_nome&order=criado_em.asc",
+    selectComColunasOpcionais<VendaItemFinanceiroRow>(
+      "venda_itens",
+      VENDA_ITENS_COLUNAS_BASE,
+      VENDA_ITENS_COLUNAS_OPCIONAIS,
+      "&order=criado_em.asc",
     ),
   ]);
   const itensPorVenda = new Map<string, VendaFinanceiraItem[]>();

@@ -1,5 +1,7 @@
+import { configuracaoLoja } from "./loja-context";
+import { requireSupabaseServerKey } from "./server-env";
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = configuracaoLoja(name);
 
   if (!value) {
     throw new Error(`Missing environment variable: ${name}`);
@@ -254,6 +256,17 @@ export async function urlMidiaDescriptografada(opts: {
   messageType?: string;
 }): Promise<string | undefined> {
   const mediaUrl = opts.mediaUrl?.trim();
+
+  if (mediaUrl && /\/storage\/v1\/object\/comprovantes\//.test(mediaUrl)) {
+    const origem = configuracaoLoja("SUPABASE_URL");
+    const parsed = new URL(mediaUrl);
+    if (!origem || parsed.origin !== new URL(origem).origin) return undefined;
+    const key = requireSupabaseServerKey();
+    const response = await fetch(parsed, { headers: { apikey: key, authorization: `Bearer ${key}` } });
+    if (!response.ok) return undefined;
+    const mime = response.headers.get("content-type")?.split(";")[0] || "application/octet-stream";
+    return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
+  }
 
   // URL ja persistida no nosso storage (Supabase) e estavel: usa direto, sem
   // tentar baixar de novo da UazAPI (que pode ter expirado).

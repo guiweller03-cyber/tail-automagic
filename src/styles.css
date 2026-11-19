@@ -46,8 +46,7 @@
 }
 
 :root {
-  --radius: 1.25rem;
-  /* Mundo Pet palette */
+  --radius: 0.875rem;
   --background: oklch(0.984 0.005 230); /* #F8FAFC */
   --foreground: oklch(0.21 0.04 257); /* #0F172A */
   --card: oklch(1 0 0); /* #FFFFFF */
@@ -216,10 +215,10 @@
   .card-soft {
     background: var(--color-card);
     border: 1px solid var(--color-border);
-    border-radius: 1.25rem;
+    border-radius: 1rem;
     box-shadow:
       0 1px 2px rgba(15, 23, 42, 0.04),
-      0 4px 16px rgba(15, 23, 42, 0.03);
+      0 8px 24px rgba(15, 23, 42, 0.025);
   }
   .scrollbar-thin {
     scrollbar-width: thin;

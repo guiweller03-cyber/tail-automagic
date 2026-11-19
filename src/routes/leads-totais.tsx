@@ -3,6 +3,8 @@ import type { Cliente } from "@/lib/crm-types";
 import { LeadsTotais } from "@/pages/LeadsTotais";
 
 export const Route = createFileRoute("/leads-totais")({
+  // Os loaders usam a API autenticada relativa ao navegador.
+  ssr: false,
   component: LeadsTotaisRoute,
   loader: async () => {
     try {

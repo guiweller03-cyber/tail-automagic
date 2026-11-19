@@ -55,7 +55,7 @@ function textoComparacao(c: ComparacaoCicloHistorico, cicloUsado: number) {
       : "As compras de ração estão muito próximas ou muito distantes (fora de 3 a 180 dias) para comparar.";
   }
   const base = `Pelo histórico, esta compra deve durar ${c.cicloHistorico} dias${
-    c.consumoRealG ? ` (consumo real de ${c.consumoRealG} g/dia)` : ""
+    c.consumoRealG ? ` (consumo inferido de ${Math.round(c.consumoRealG)} g/dia)` : ""
   }. A previsão usa ${cicloUsado} dias`;
   if (c.veredito === "bate") return `${base}.`;
   return `${base}, ${Math.abs(c.diferencaDias ?? 0)} dias a ${
@@ -174,7 +174,7 @@ export function HistoricoVendasRecompra({ item }: { item: RecompraPrevista }) {
                 {noCiclo && (
                   <p className="mt-1 font-medium text-primary">
                     {venda.durouDias != null
-                      ? `Durou ${venda.durouDias} dias até a próxima ração${
+                      ? `Abastecimento: ${venda.durouDias} dias até o próximo${
                           venda.consumoRealG ? ` · ${venda.consumoRealG} g/dia` : ""
                         }`
                       : atual

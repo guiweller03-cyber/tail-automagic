@@ -177,7 +177,7 @@ export type ProdutoDetalhesTecnicos = {
   indicacao?: string;
 };
 
-export type RecompraStatus = "ok" | "semana" | "urgente" | "atrasado";
+export type RecompraStatus = "ok" | "semana" | "urgente" | "atrasado" | "pendente";
 export type ComportamentoIA = "antecipado" | "pontual" | "atrasado" | "instavel";
 export type TendenciaIA = "acelerando" | "estavel" | "desacelerando";
 
@@ -209,13 +209,18 @@ export type RecompraPrevista = {
   quantidade: number;
   pesoKg: number;
   consumoDiaKg: number;
+  consumoEstimadoG?: number;
+  consumoHistoricoG?: number | null;
+  pendenciaCalculo?: string | null;
+  diasAbastecimento?: number;
+  intervalosDescartados?: number[];
   ultimaCompra: string;
   ultimaCompraIso?: string;
   /** Dias corridos desde a data real da venda; nao e a duracao estimada da racao. */
   diasDesdeCompra?: number;
   /** Duracao teorica da racao pelo peso comprado e consumo diario dos pets. */
   cicloRacao?: number;
-  /** Media observada entre pedidos anteriores do mesmo cliente, produto e pet. */
+  /** Média simples dos intervalos usados, sem ajuste por quantidade. */
   intervaloPedidos?: number | null;
   diasRestantes: number;
   dataPrevista: string;
@@ -228,6 +233,7 @@ export type RecompraPrevista = {
   mediaRecompra: number;
   previsaoBase: number;
   comportamento: ComportamentoIA;
+  /** Legado: não representa precisão medida e não deve ser mostrado como porcentagem. */
   precisaoIA: number;
   tendencia: TendenciaIA;
   historicoDias: number[];

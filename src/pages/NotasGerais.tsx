@@ -1,3 +1,4 @@
+import { correspondeBusca } from "@/lib/crm-search";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -97,11 +98,7 @@ export function NotasGerais({ notasIniciais }: { notasIniciais: NotaGeral[] }) {
     if (!q) return notas;
 
     return notas.filter((nota) => {
-      return (
-        nota.titulo.toLowerCase().includes(q) ||
-        nota.conteudo.toLowerCase().includes(q) ||
-        (nota.categoria ?? "").toLowerCase().includes(q)
-      );
+      return correspondeBusca(query, [nota.titulo, nota.conteudo, nota.categoria]);
     });
   }, [notas, query]);
 
