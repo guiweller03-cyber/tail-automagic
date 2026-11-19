@@ -53,15 +53,17 @@ function env(name, loja = "loja1") {
   return v;
 }
 
-// Mesmo critério do CRM (server-env.ts): aceita SERVICE_ROLE_KEY ou SECRET_KEY.
+// Aceita SERVICE_ROLE_KEY ou SECRET_KEY (como o CRM) e, por último, ANON_KEY:
+// o .env da VPS da Loja 1 só tem a ANON_KEY e o worker sempre funcionou com ela.
 function supaKey(loja) {
   const prefixo = loja === "loja2" ? "LOJA2_" : "";
   const v =
     process.env[`${prefixo}SUPABASE_SERVICE_ROLE_KEY`]?.trim() ||
-    process.env[`${prefixo}SUPABASE_SECRET_KEY`]?.trim();
+    process.env[`${prefixo}SUPABASE_SECRET_KEY`]?.trim() ||
+    process.env[`${prefixo}SUPABASE_ANON_KEY`]?.trim();
   if (!v) {
     throw new Error(
-      `Variável de ambiente ausente: ${prefixo}SUPABASE_SERVICE_ROLE_KEY (ou ${prefixo}SUPABASE_SECRET_KEY)`,
+      `Variável de ambiente ausente: ${prefixo}SUPABASE_SERVICE_ROLE_KEY (ou SECRET_KEY / ANON_KEY)`,
     );
   }
   return v;
